@@ -54,8 +54,10 @@ Bonus goals:
   * Use separete texture hi-color buffer for ui in soft render,
   * Convert map surface flag by game type,
   * Cleanup function declarations in game save code,
+  * Use 3 bytes vertex normal,
+  * Load md3 models,
+  * Fix search remaster multiplayers modes,
   * Support scalled textures for models and walls in soft render and fix
-
     lighting with remastered maps.
 
 Not a goal:

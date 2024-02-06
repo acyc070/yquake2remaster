@@ -24,6 +24,7 @@
  * =======================================================================
  */
 
+#include "limits.h"
 #include "header/server.h"
 
 char sv_outputbuf[SV_OUTPUTBUF_LENGTH];
@@ -525,7 +526,7 @@ SV_SendClientMessages(void)
 	int i;
 	client_t *c;
 	int msglen;
-	byte msgbuf[MAX_MSGLEN];
+	byte *msgbuf = NULL;
 	size_t r;
 
 	msglen = 0;
@@ -550,26 +551,44 @@ SV_SendClientMessages(void)
 
 			msglen = LittleLong(msglen);
 
-			if (msglen == -1)
+			if (msglen < 0)
 			{
 				SV_DemoCompleted();
 				return;
 			}
 
-			if (msglen > MAX_MSGLEN)
+			if (msglen > USHRT_MAX)
 			{
 				Com_Error(ERR_DROP,
-						"%s: msglen > MAX_MSGLEN", __func__);
+					"%s: Broken demo file", __func__);
 			}
+
+			msgbuf = malloc(msglen);
 
 			r = FS_FRead(msgbuf, msglen, 1, sv.demofile);
 
 			if (r != msglen)
 			{
+				free(msgbuf);
 				SV_DemoCompleted();
 				return;
 			}
 		}
+	}
+
+	if (msglen > MAX_MSGLEN)
+	{
+		if (msglen > 5)
+		{
+			Com_Printf("Network protocol: %d\n", ((int*)(msgbuf + 1))[0]);
+		}
+
+		/* place here some work arround for protocols */
+
+		free(msgbuf);
+
+		Com_Error(ERR_DROP,
+				"%s: msglen > MAX_MSGLEN", __func__);
 	}
 
 	/* send a message to each connected client */
@@ -616,6 +635,11 @@ SV_SendClientMessages(void)
 				Netchan_Transmit(&c->netchan, 0, NULL);
 			}
 		}
+	}
+
+	if (msgbuf)
+	{
+		free(msgbuf);
 	}
 }
 
