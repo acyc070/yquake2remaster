@@ -44,7 +44,7 @@ typedef struct
 	int dirlen;
 } dpackheader_t;
 
-#define MAX_FILES_IN_PACK 4096
+#define MAX_FILES_IN_PACK 9999
 
 /* PCX files are used for as many images as possible */
 
@@ -114,11 +114,11 @@ typedef struct mdl_header_s
 #define IDALIASHEADER (('2' << 24) + ('P' << 16) + ('D' << 8) + 'I')
 #define ALIAS_VERSION 8
 
-#define MAX_TRIANGLES 4096
-#define MAX_VERTS 2048
-#define MAX_FRAMES 512
-#define MAX_MD2SKINS 32
-#define MAX_SKINNAME 64
+#define MAX_TRIANGLES 9999
+#define MAX_VERTS 9999
+#define MAX_FRAMES 999
+#define MAX_MD2SKINS 99
+#define MAX_SKINNAME 99
 
 typedef struct
 {
@@ -522,14 +522,14 @@ typedef struct {
  * verts are still bounded by 16 bit short limits,
  * mostly unused for now with use Hunk_Alloc,
  * except MAX_MAP_AREAS */
-#define MAX_MAP_MODELS 1024
-#define MAX_MAP_BRUSHES 8192
-#define MAX_MAP_ENTITIES 2048
+#define MAX_MAP_MODELS 9999
+#define MAX_MAP_BRUSHES 9999
+#define MAX_MAP_ENTITIES 9999
 #define MAX_MAP_ENTSTRING 0x40000
-#define MAX_MAP_TEXINFO 8192
+#define MAX_MAP_TEXINFO 9999
 
-#define MAX_MAP_AREAS 256
-#define MAX_MAP_AREAPORTALS 1024
+#define MAX_MAP_AREAS 999
+#define MAX_MAP_AREAPORTALS 9999
 #define MAX_MAP_PLANES 65536
 #define MAX_MAP_NODES 65536
 #define MAX_MAP_BRUSHSIDES 65536
