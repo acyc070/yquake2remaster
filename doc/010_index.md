@@ -1,4 +1,4 @@
-# Yamagi Quake II Documentation
+# Yamagi Quake II DocumentationKYADDD
 
 Welcome to the Yamagi Quake II documentation. Here is documented how
 Yamagi Quake II is installed and configured. Please make sure to read
