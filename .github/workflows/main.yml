@@ -1,4 +1,4 @@
-name: Build windows application
+name: Build
 run-name: windows
 on: 
   push:
