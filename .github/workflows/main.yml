@@ -1,6 +1,6 @@
 name: Build windows application
 run-name: windows
-on: commit
+on: 
   push:
     tags:
       - "*"
