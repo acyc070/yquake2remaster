@@ -52,7 +52,7 @@
 
 */
 
-#define NUM_MIPS	2
+#define NUM_MIPS	4
 
 typedef struct image_s
 {
