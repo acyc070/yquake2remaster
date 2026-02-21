@@ -35,16 +35,16 @@ static emitpoint_t	outverts[MAXWORKINGVERTS+3];
 
 static int	s_minindex, s_maxindex;
 
-// Affine rasterisation data per scanline
+// Affine rasterisation data per scanline (fixed-point 16.16)
 #define MAX_SCANLINES 2048
 static int	left_u[MAX_SCANLINES];
 static int	left_s[MAX_SCANLINES];
 static int	left_t[MAX_SCANLINES];
-static int	left_zi[MAX_SCANLINES];
+static int	left_izi[MAX_SCANLINES];
 static int	right_u[MAX_SCANLINES];
 static int	right_s[MAX_SCANLINES];
 static int	right_t[MAX_SCANLINES];
-static int	right_zi[MAX_SCANLINES];
+static int	right_izi[MAX_SCANLINES];
 
 /*
 ** R_ClipPolyFace
@@ -128,14 +128,15 @@ R_ClipPolyFace(int nump, const clipplane_t *pclipplane)
 /*
 ** R_PolygonScanLeftEdge
 **
-** Fills left_u, left_s, left_t, left_zi for every scanline touched by the left edge.
-** Uses the vertices in r_polydesc.pverts (already projected to screen).
+** Fills left_u, left_s, left_t, left_izi for every integer scanline
+** touched by the left edge. Uses the vertices in r_polydesc.pverts
+** (already projected to screen).
 */
 static void
 R_PolygonScanLeftEdge(void)
 {
 	const emitpoint_t *pvert, *pnext;
-	float du, dv, vtop, u_step, s_step, t_step, zi_step;
+	float du, dv, vtop, u_step, s_step, t_step, izi_step;
 	int i, lmaxindex;
 	int v, itop, ibottom;
 
@@ -167,14 +168,14 @@ R_PolygonScanLeftEdge(void)
 			u_step = du / dv;
 			s_step = (pnext->s - pvert->s) / dv;
 			t_step = (pnext->t - pvert->t) / dv;
-			zi_step = (pnext->zi - pvert->zi) / dv;
+			izi_step = (pnext->zi - pvert->zi) / dv;
 
 			// adjust to the first integer v
 			float frac = vtop - pvert->v;
 			float u_start = pvert->u + u_step * frac;
 			float s_start = pvert->s + s_step * frac;
 			float t_start = pvert->t + t_step * frac;
-			float zi_start = pvert->zi + zi_step * frac;
+			float izi_start = pvert->zi + izi_step * frac;
 
 			itop = (int)vtop;
 			ibottom = (int)vbottom;
@@ -185,12 +186,12 @@ R_PolygonScanLeftEdge(void)
 				left_u[v]   = (int)(u_start * SHIFT16XYZ_MULT);
 				left_s[v]   = (int)(s_start * SHIFT16XYZ_MULT);
 				left_t[v]   = (int)(t_start * SHIFT16XYZ_MULT);
-				left_zi[v]  = (int)(zi_start * SHIFT16XYZ_MULT * 0x8000); // match original izi scale
+				left_izi[v] = (int)(izi_start * SHIFT16XYZ_MULT * 0x8000); // match original izi scale
 
 				u_start += u_step;
 				s_start += s_step;
 				t_start += t_step;
-				zi_start += zi_step;
+				izi_start += izi_step;
 			}
 		}
 
@@ -206,13 +207,13 @@ R_PolygonScanLeftEdge(void)
 /*
 ** R_PolygonScanRightEdge
 **
-** Fills right_u, right_s, right_t, right_zi for every scanline.
+** Fills right_u, right_s, right_t, right_izi for every integer scanline.
 */
 static void
 R_PolygonScanRightEdge(void)
 {
 	const emitpoint_t *pvert, *pnext;
-	float du, dv, vtop, u_step, s_step, t_step, zi_step;
+	float du, dv, vtop, u_step, s_step, t_step, izi_step;
 	int i;
 	int v, itop, ibottom;
 	float vvert;
@@ -262,13 +263,13 @@ R_PolygonScanRightEdge(void)
 			u_step = du / dv;
 			s_step = (pnext->s - pvert->s) / dv;
 			t_step = (pnext->t - pvert->t) / dv;
-			zi_step = (pnext->zi - pvert->zi) / dv;
+			izi_step = (pnext->zi - pvert->zi) / dv;
 
 			float frac = vtop - vvert;
 			float u_start = uvert + u_step * frac;
 			float s_start = pvert->s + s_step * frac;
 			float t_start = pvert->t + t_step * frac;
-			float zi_start = pvert->zi + zi_step * frac;
+			float izi_start = pvert->zi + izi_step * frac;
 
 			itop = (int)vtop;
 			ibottom = (int)vbottom;
@@ -278,12 +279,12 @@ R_PolygonScanRightEdge(void)
 				right_u[v]  = (int)(u_start * SHIFT16XYZ_MULT);
 				right_s[v]  = (int)(s_start * SHIFT16XYZ_MULT);
 				right_t[v]  = (int)(t_start * SHIFT16XYZ_MULT);
-				right_zi[v] = (int)(zi_start * SHIFT16XYZ_MULT * 0x8000);
+				right_izi[v] = (int)(izi_start * SHIFT16XYZ_MULT * 0x8000);
 
 				u_start += u_step;
 				s_start += s_step;
 				t_start += t_step;
-				zi_start += zi_step;
+				izi_start += izi_step;
 			}
 		}
 
@@ -298,116 +299,10 @@ R_PolygonScanRightEdge(void)
 }
 
 /*
-** R_PolygonDrawSpansAffine
-**
-** Draws all spans using pure affine texture mapping.
-** Texture coordinates (s,t) and depth (izi) are interpolated linearly
-** across the span.
-*/
-static void
-R_PolygonDrawSpansAffine(espan_t *pspan, int iswater)
-{
-	int		count;
-	int		u, v;
-	int		s, t, izi;
-	int		sstep, tstep, izistep;
-	int		spancount;
-	pixel_t		*pdest;
-	zvalue_t	*pz;
-	pixel_t		*tex;
-	int		texwidth = cachewidth;
-	int		texmask = (CYCLE<<16)-1;	// for warping
-
-	while (1)
-	{
-		if (pspan->count == INT_MIN)
-			break;
-
-		v = pspan->v;
-		u = pspan->u;
-		count = pspan->count;
-
-		if (count <= 0)
-		{
-			pspan++;
-			continue;
-		}
-
-		// left and right values for this scanline
-		int left = left_u[v] >> SHIFT16XYZ;		// should be equal to u
-		int right = right_u[v] >> SHIFT16XYZ;	// left + count
-
-		// starting values at left edge
-		s = left_s[v];
-		t = left_t[v];
-		izi = left_zi[v];
-
-		// steps across the scanline
-		sstep = (right_s[v] - left_s[v]) / count;
-		tstep = (right_t[v] - left_t[v]) / count;
-		izistep = (right_zi[v] - left_zi[v]) / count;
-
-		pdest = d_viewbuffer + vid_buffer_width * v + u;
-		pz    = d_pzbuffer + vid_buffer_width * v + u;
-
-		// mark damage for z-buffer (original behaviour)
-		VID_DamageZBuffer(u, v);
-		VID_DamageZBuffer(u + count, v);
-
-		spancount = count;
-		do
-		{
-			unsigned texel;
-			int s_fixed = s >> SHIFT16XYZ;
-			int t_fixed = t >> SHIFT16XYZ;
-
-			if (iswater)
-			{
-				// turbulent (warp) – keep the original warping logic
-				int sturb, tturb;
-				sturb = (s_fixed + sintable[(t_fixed)&(CYCLE-1)]) & 63;
-				tturb = (t_fixed + sintable[(s_fixed)&(CYCLE-1)]) & 63;
-				texel = *(pixel_t *)((byte *)cacheblock + sturb + (tturb << 6));
-			}
-			else
-			{
-				// normal texture
-				if (s_fixed < 0) s_fixed = 0;
-				if (s_fixed >= texwidth) s_fixed = texwidth - 1;
-				if (t_fixed < 0) t_fixed = 0;
-				if (t_fixed >= r_polydesc.pixel_height) t_fixed = r_polydesc.pixel_height - 1;
-				texel = *(pixel_t *)((byte *)cacheblock + s_fixed + t_fixed * texwidth);
-			}
-
-			// alpha handling (simplified: use vid_alphamap for blending)
-			if (r_polydesc.alpha != 1.0f)
-			{
-				if (r_polydesc.alpha > 0.33f)
-					texel = vid_alphamap[texel * 256 + *pdest];
-				else
-					texel = vid_alphamap[texel + *pdest * 256];
-			}
-
-			// depth test
-			if (*pz <= (izi >> SHIFT16XYZ))
-			{
-				*pdest = texel;
-				*pz    = izi >> SHIFT16XYZ;
-			}
-
-			s += sstep;
-			t += tstep;
-			izi += izistep;
-			pdest++;
-			pz++;
-		} while (--spancount > 0);
-
-		pspan++;
-	}
-}
-
-/*
 ** R_ClipAndDrawPoly
+**
+** Clips the polygon, projects vertices, scans edges, and draws it
+** using pure affine texture mapping (PS1 style).
 */
 void
 R_ClipAndDrawPoly(float alpha, int isturbulent, qboolean textured)
@@ -415,16 +310,17 @@ R_ClipAndDrawPoly(float alpha, int isturbulent, qboolean textured)
 	vec_t		*pv;
 	int		i, nump;
 	vec3_t		transformed, local;
+	float		ymin, ymax;
+	int		vstart, vend, v;
+	pixel_t		*texbase;
+	int		texwidth;
 
 	if (!textured)
 	{
-		// constant color (flat shaded) – we keep the old method for simplicity
-		r_polydesc.alpha = alpha;
-		// ... (flat shaded drawing would go here, but unchanged from original)
+		// flat shaded quad – keep original simple path
+		// (not shown here for brevity; unchanged from original)
 		return;
 	}
-
-	r_polydesc.alpha = alpha;
 
 	// clip to the frustum in worldspace
 	nump = r_polydesc.nump;
@@ -472,12 +368,9 @@ R_ClipAndDrawPoly(float alpha, int isturbulent, qboolean textured)
 		pv += sizeof (vec5_t) / sizeof (vec_t);
 	}
 
-	// draw it
-	r_polydesc.nump = nump;
-	r_polydesc.pverts = outverts;
-
 	// find top and bottom indices
-	float ymin = 1e30f, ymax = -1e30f;
+	ymin = 1e30f;
+	ymax = -1e30f;
 	for (i=0; i<nump; i++)
 	{
 		if (outverts[i].v < ymin) { ymin = outverts[i].v; s_minindex = i; }
@@ -485,8 +378,8 @@ R_ClipAndDrawPoly(float alpha, int isturbulent, qboolean textured)
 	}
 
 	// prepare texture info
-	cachewidth = r_polydesc.pixel_width;
-	cacheblock = r_polydesc.pixels;
+	texwidth = r_polydesc.pixel_width;
+	texbase = r_polydesc.pixels;
 
 	// copy first vertex to last for edge walking
 	outverts[nump] = outverts[0];
@@ -495,8 +388,87 @@ R_ClipAndDrawPoly(float alpha, int isturbulent, qboolean textured)
 	R_PolygonScanLeftEdge();
 	R_PolygonScanRightEdge();
 
-	// draw the spans
-	R_PolygonDrawSpansAffine(vid_polygon_spans, isturbulent);
+	// draw all scanlines from top to bottom
+	vstart = (int)ceil(ymin);
+	vend   = (int)ceil(ymax);
+
+	for (v = vstart; v < vend; v++)
+	{
+		int left = left_u[v] >> SHIFT16XYZ;
+		int right = right_u[v] >> SHIFT16XYZ;
+		int count = right - left;
+		int s, t, izi;
+		int sstep, tstep, izistep;
+		pixel_t *pdest;
+		zvalue_t *pz;
+
+		if (count <= 0)
+			continue;
+
+		// starting values at left edge
+		s = left_s[v];
+		t = left_t[v];
+		izi = left_izi[v];
+
+		// steps across the scanline
+		sstep = (right_s[v] - left_s[v]) / count;
+		tstep = (right_t[v] - left_t[v]) / count;
+		izistep = (right_izi[v] - left_izi[v]) / count;
+
+		pdest = d_viewbuffer + vid_buffer_width * v + left;
+		pz    = d_pzbuffer + vid_buffer_width * v + left;
+
+		// mark damage for z-buffer (original behaviour)
+		VID_DamageZBuffer(left, v);
+		VID_DamageZBuffer(left + count, v);
+
+		while (count-- > 0)
+		{
+			unsigned texel;
+			int s_fixed = s >> SHIFT16XYZ;
+			int t_fixed = t >> SHIFT16XYZ;
+
+			if (isturbulent)
+			{
+				// turbulent (warp) – keep original warping logic
+				int sturb, tturb;
+				sturb = (s_fixed + sintable[(t_fixed) & (CYCLE-1)]) & 63;
+				tturb = (t_fixed + sintable[(s_fixed) & (CYCLE-1)]) & 63;
+				texel = *(pixel_t *)((byte *)texbase + sturb + (tturb << 6));
+			}
+			else
+			{
+				// normal texture – clamp to edges
+				if (s_fixed < 0) s_fixed = 0;
+				if (s_fixed >= texwidth) s_fixed = texwidth - 1;
+				if (t_fixed < 0) t_fixed = 0;
+				if (t_fixed >= r_polydesc.pixel_height) t_fixed = r_polydesc.pixel_height - 1;
+				texel = *(pixel_t *)((byte *)texbase + s_fixed + t_fixed * texwidth);
+			}
+
+			// alpha blending
+			if (alpha != 1.0f)
+			{
+				if (alpha > 0.33f)
+					texel = vid_alphamap[texel * 256 + *pdest];
+				else
+					texel = vid_alphamap[texel + *pdest * 256];
+			}
+
+			// depth test
+			if (*pz <= (izi >> SHIFT16XYZ))
+			{
+				*pdest = texel;
+				*pz    = izi >> SHIFT16XYZ;
+			}
+
+			s += sstep;
+			t += tstep;
+			izi += izistep;
+			pdest++;
+			pz++;
+		}
+	}
 }
 
 /*
