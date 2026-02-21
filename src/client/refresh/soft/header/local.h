@@ -52,7 +52,7 @@
 
 */
 
-#define NUM_MIPS	4
+#define NUM_MIPS	2
 
 typedef struct image_s
 {
@@ -135,11 +135,11 @@ extern oldrefdef_t	r_refdef;
 // driver
 
 
-#define MAXVERTS	64              // max points in a surface polygon
+#define MAXVERTS	94              // max points in a surface polygon
 #define MAXWORKINGVERTS	(MAXVERTS+4)    // max points in an intermediate
 					//  polygon (while processing)
 
-#define PARTICLE_Z_CLIP 8.0
+#define PARTICLE_Z_CLIP 4.0
 
 #define TRANSPARENT_COLOR	0xFF
 
@@ -159,9 +159,9 @@ extern oldrefdef_t	r_refdef;
 #define XCENTERING	(1.0 / 2.0)
 #define YCENTERING	(1.0 / 2.0)
 
-#define NEAR_CLIP	0.01
+#define NEAR_CLIP	0.005
 
-#define ALIAS_Z_CLIP_PLANE	4
+#define ALIAS_Z_CLIP_PLANE	2
 
 // turbulence stuff
 #define AMP	8*0x10000
