@@ -32,6 +32,24 @@ void monster_start_go(edict_t *self);
 
 /* Monster weapons */
 
+static void
+monster_muzzleflash2(edict_t *self, vec3_t start, int flashtype)
+{
+	gi.WriteByte(svc_muzzleflash2);
+	gi.WriteShort(self - g_edicts);
+	if (flashtype < 255)
+	{
+		gi.WriteByte(flashtype);
+	}
+	else
+	{
+		/* hact to support effects 255 .. 511 */
+		gi.WriteByte(255);
+		gi.WriteByte(flashtype - 255);
+	}
+	gi.multicast(start, MULTICAST_PVS);
+}
+
 void
 monster_fire_bullet(edict_t *self, vec3_t start, vec3_t dir, int damage,
 		int kick, int hspread, int vspread, int flashtype)
@@ -43,10 +61,7 @@ monster_fire_bullet(edict_t *self, vec3_t start, vec3_t dir, int damage,
 
 	fire_bullet(self, start, dir, damage, kick, hspread, vspread, MOD_UNKNOWN);
 
-	gi.WriteByte(svc_muzzleflash2);
-	gi.WriteShort(self - g_edicts);
-	gi.WriteByte(flashtype);
-	gi.multicast(start, MULTICAST_PVS);
+	monster_muzzleflash2(self, start, flashtype);
 }
 
 void
@@ -61,10 +76,7 @@ monster_fire_shotgun(edict_t *self, vec3_t start, vec3_t aimdir, int damage,
 	fire_shotgun(self, start, aimdir, damage, kick, hspread,
 			vspread, count, MOD_UNKNOWN);
 
-	gi.WriteByte(svc_muzzleflash2);
-	gi.WriteShort(self - g_edicts);
-	gi.WriteByte(flashtype);
-	gi.multicast(start, MULTICAST_PVS);
+	monster_muzzleflash2(self, start, flashtype);
 }
 
 void
@@ -78,10 +90,7 @@ monster_fire_blaster(edict_t *self, vec3_t start, vec3_t dir, int damage,
 
 	fire_blaster(self, start, dir, damage, speed, effect, false);
 
-	gi.WriteByte(svc_muzzleflash2);
-	gi.WriteShort(self - g_edicts);
-	gi.WriteByte(flashtype);
-	gi.multicast(start, MULTICAST_PVS);
+	monster_muzzleflash2(self, start, flashtype);
 }
 
 void
@@ -95,10 +104,7 @@ monster_fire_blueblaster(edict_t *self, vec3_t start, vec3_t dir, int damage,
 
 	fire_blueblaster(self, start, dir, damage, speed, effect);
 
-	gi.WriteByte(svc_muzzleflash2);
-	gi.WriteShort(self - g_edicts);
-	gi.WriteByte(MZ_BLUEHYPERBLASTER);
-	gi.multicast(start, MULTICAST_PVS);
+	monster_muzzleflash2(self, start, MZ_BLUEHYPERBLASTER);
 }
 
 void
@@ -112,10 +118,7 @@ monster_fire_blaster2(edict_t *self, vec3_t start, vec3_t dir, int damage,
 
 	fire_blaster2(self, start, dir, damage, speed, effect, false);
 
-	gi.WriteByte(svc_muzzleflash2);
-	gi.WriteShort(self - g_edicts);
-	gi.WriteByte(flashtype);
-	gi.multicast(start, MULTICAST_PVS);
+	monster_muzzleflash2(self, start, flashtype);
 }
 
 void
@@ -129,10 +132,7 @@ monster_fire_ionripper(edict_t *self, vec3_t start, vec3_t dir, int damage,
 
 	fire_ionripper(self, start, dir, damage, speed, effect);
 
-	gi.WriteByte(svc_muzzleflash2);
-	gi.WriteShort(self - g_edicts);
-	gi.WriteByte(flashtype);
-	gi.multicast(start, MULTICAST_PVS);
+	monster_muzzleflash2(self, start, flashtype);
 }
 
 void
@@ -146,10 +146,7 @@ monster_fire_heat(edict_t *self, vec3_t start, vec3_t dir, int damage,
 
 	fire_heat(self, start, dir, damage, speed, damage, damage);
 
-	gi.WriteByte(svc_muzzleflash2);
-	gi.WriteShort(self - g_edicts);
-	gi.WriteByte(flashtype);
-	gi.multicast(start, MULTICAST_PVS);
+	monster_muzzleflash2(self, start, flashtype);
 }
 
 void
@@ -163,10 +160,7 @@ monster_fire_tracker(edict_t *self, vec3_t start, vec3_t dir, int damage,
 
 	fire_tracker(self, start, dir, damage, speed, enemy);
 
-	gi.WriteByte(svc_muzzleflash2);
-	gi.WriteShort(self - g_edicts);
-	gi.WriteByte(flashtype);
-	gi.multicast(start, MULTICAST_PVS);
+	monster_muzzleflash2(self, start, flashtype);
 }
 
 void
@@ -180,10 +174,7 @@ monster_fire_heatbeam(edict_t *self, vec3_t start, vec3_t dir, vec3_t offset,
 
 	fire_heatbeam(self, start, dir, offset, damage, kick, true);
 
-	gi.WriteByte(svc_muzzleflash2);
-	gi.WriteShort(self - g_edicts);
-	gi.WriteByte(flashtype);
-	gi.multicast(start, MULTICAST_PVS);
+	monster_muzzleflash2(self, start, flashtype);
 }
 
 void
@@ -329,12 +320,9 @@ monster_fire_grenade(edict_t *self, vec3_t start, vec3_t aimdir,
 		return;
 	}
 
-	fire_grenade(self, start, aimdir, damage, speed, 2.5, damage + 40);
+	fire_grenade(self, start, aimdir, damage, speed, 2.5, damage + 40, true);
 
-	gi.WriteByte(svc_muzzleflash2);
-	gi.WriteShort(self - g_edicts);
-	gi.WriteByte(flashtype);
-	gi.multicast(start, MULTICAST_PVS);
+	monster_muzzleflash2(self, start, flashtype);
 }
 
 void
@@ -348,10 +336,7 @@ monster_fire_rocket(edict_t *self, vec3_t start, vec3_t dir,
 
 	fire_rocket(self, start, dir, damage, speed, damage + 20, damage);
 
-	gi.WriteByte(svc_muzzleflash2);
-	gi.WriteShort(self - g_edicts);
-	gi.WriteByte(flashtype);
-	gi.multicast(start, MULTICAST_PVS);
+	monster_muzzleflash2(self, start, flashtype);
 }
 
 void
@@ -368,10 +353,7 @@ monster_fire_railgun(edict_t *self, vec3_t start, vec3_t aimdir,
 		fire_rail(self, start, aimdir, damage, kick);
 	}
 
-	gi.WriteByte(svc_muzzleflash2);
-	gi.WriteShort(self - g_edicts);
-	gi.WriteByte(flashtype);
-	gi.multicast(start, MULTICAST_PVS);
+	monster_muzzleflash2(self, start, flashtype);
 }
 
 void
@@ -386,10 +368,7 @@ monster_fire_bfg(edict_t *self, vec3_t start, vec3_t aimdir,
 
 	fire_bfg(self, start, aimdir, damage, speed, damage_radius);
 
-	gi.WriteByte(svc_muzzleflash2);
-	gi.WriteShort(self - g_edicts);
-	gi.WriteByte(flashtype);
-	gi.multicast(start, MULTICAST_PVS);
+	monster_muzzleflash2(self, start, flashtype);
 }
 
 /* ================================================================== */
@@ -798,11 +777,312 @@ M_SetEffects(edict_t *ent)
 	}
 }
 
+static int
+M_GetModelIndex(edict_t *self)
+{
+	int modelindex;
+
+	modelindex = self->s.modelindex;
+
+	if (modelindex == CUSTOM_PLAYER_MODEL)
+	{
+		char skinname[MAX_QPATH], modelname[MAX_QPATH];
+		char *s;
+
+		/* get selected player model from skin */
+		Q_strlcpy(skinname, Info_ValueForKey(
+			self->client->pers.userinfo, "skin"), sizeof(skinname));
+
+		s = skinname;
+
+		while(*s)
+		{
+			if (*s == '/')
+			{
+				*s = 0;
+				break;
+			}
+			s++;
+		}
+
+		Com_sprintf(modelname, sizeof(modelname), "players/%s/tris.md2",
+			skinname);
+		modelindex = gi.modelindex(modelname);
+	}
+
+	return modelindex;
+}
+
+static qboolean
+M_SetAnimGroupFrameValuesInt(edict_t *self, const char *name,
+	int *ofs_frames, int *num_frames, int select)
+{
+	const dmdxframegroup_t * frames;
+	int num, i, modelindex, skipcount;
+
+	skipcount = 0;
+	modelindex = M_GetModelIndex(self);
+	frames = gi.GetModelInfo(modelindex, &num, NULL, NULL);
+	if (select)
+	{
+		int count = 0;
+
+		for (i = 0; i < num; i++)
+		{
+			if (!strcmp(frames[i].name, name))
+			{
+				count++;
+			}
+		}
+
+		if (count > 1)
+		{
+			/* use random if select is negative */
+			if (select < 0)
+			{
+				skipcount = randk() % count;
+			}
+			/* use exact group if positive */
+			else
+			{
+				skipcount = select % count;
+			}
+		}
+	}
+
+	for (i = 0; i < num; i++)
+	{
+		if (!strcmp(frames[i].name, name))
+		{
+			if (skipcount)
+			{
+				skipcount--;
+				continue;
+			}
+
+			*ofs_frames = frames[i].ofs;
+			*num_frames = frames[i].num;
+			return true;
+		}
+	}
+
+	return false;
+}
+
 void
+M_SetStandMinMax(edict_t *ent, float *mins, float *maxs)
+{
+	const dmdxframegroup_t * frames;
+	int num, i, modelindex;
+
+	modelindex = M_GetModelIndex(ent);
+	frames = gi.GetModelInfo(modelindex, &num, NULL, NULL);
+	if (!frames || !num)
+	{
+		return;
+	}
+
+	for (i = 0; i < num; i++)
+	{
+		if (!strcmp(frames[i].name, "stand") ||
+			!strcmp(frames[i].name, "idle"))
+		{
+			/* supposed that model has only single stand/idle */
+			VectorCopy(frames[i].mins, mins);
+			VectorCopy(frames[i].maxs, maxs);
+			return;
+		}
+	}
+}
+
+/* Use multy to select random group from same names */
+void
+M_SetAnimGroupFrameValues(edict_t *self, const char *name,
+	int *ofs_frames, int *num_frames, int select)
+{
+	if (M_SetAnimGroupFrameValuesInt(self, name, ofs_frames, num_frames, select))
+	{
+		return;
+	}
+
+	if (!strcmp(name, "stand"))
+	{
+		/* no stand animations */
+		M_SetAnimGroupFrameValuesInt(self, "idle", ofs_frames, num_frames, select);
+	}
+	else if (!strcmp(name, "crstnd"))
+	{
+		/* no crstnd animations */
+		if (M_SetAnimGroupFrameValuesInt(self, "crwalk", ofs_frames, num_frames, select))
+		{
+			if (*num_frames > 1)
+			{
+				*num_frames = 1;
+			}
+		}
+	}
+	else if (!strcmp(name, "crpain"))
+	{
+		/* no crpain animations */
+		M_SetAnimGroupFrameValuesInt(self, "pain", ofs_frames, num_frames, select);
+	}
+	else if (!strcmp(name, "flipoff"))
+	{
+		/* no flipoff animations */
+		M_SetAnimGroupFrameValuesInt(self, "flip", ofs_frames, num_frames, select);
+	}
+	else if (!strcmp(name, "dodge"))
+	{
+		/* no dodge animations */
+		M_SetAnimGroupFrameValuesInt(self, "duck", ofs_frames, num_frames, select);
+	}
+	else if (!strcmp(name, "swim") ||
+			!strcmp(name, "jump"))
+	{
+		if (!M_SetAnimGroupFrameValuesInt(self, "run", ofs_frames, num_frames, select))
+		{
+			/* no swim / jump -> run -> walk animations */
+			M_SetAnimGroupFrameValuesInt(self, "walk", ofs_frames, num_frames, select);
+		}
+	}
+	else if (!strcmp(name, "run") ||
+			!strcmp(name, "fly"))
+	{
+		/* no run, fly, swim animations */
+		M_SetAnimGroupFrameValuesInt(self, "walk", ofs_frames, num_frames, select);
+	}
+}
+
+static void
+M_FixStuckMonster(edict_t *self)
+{
+	trace_t tr;
+
+	tr = gi.trace(self->s.origin, self->mins, self->maxs, self->s.origin, self, MASK_SOLID);
+	if (!tr.startsolid)
+	{
+		return;
+	}
+
+	FixEntityPosition(self);
+
+	tr = gi.trace(self->s.origin, self->mins, self->maxs, self->s.origin, self, MASK_SOLID);
+
+	if (tr.startsolid)
+	{
+		gi.dprintf("%s: %s stuck in solid at %s\n",
+				__func__,
+				self->classname,
+				vtos(self->s.origin));
+	}
+}
+
+void
+M_SetAnimGroupFrame(edict_t *self, const char *name, qboolean fixpos)
+{
+	int i, ofs_frames = 0, num_frames = 1;
+
+	if (!self || !name)
+	{
+		return;
+	}
+
+	M_SetAnimGroupFrameValues(self, name, &ofs_frames, &num_frames, 0);
+
+	i = self->s.frame - ofs_frames;
+
+	if (i < 0)
+	{
+		i = 0;
+	}
+	i++;
+
+	self->s.frame = ofs_frames + i % num_frames;
+
+	if (fixpos)
+	{
+		gi.GetModelFrameInfo(self->s.modelindex, self->s.frame,
+			self->mins, self->maxs);
+		M_FixStuckMonster(self);
+	}
+}
+
+void
+M_SetAnimGroupMMoveInt(edict_t *self, mmove_t *mmove, const char *name, int select)
+{
+	int ofs_frames, num_frames, base_numframe;
+
+	if (mmove->firstframe < mmove->lastframe)
+	{
+		ofs_frames = mmove->firstframe;
+		num_frames = mmove->lastframe - mmove->firstframe + 1;
+	}
+	else
+	{
+		ofs_frames = mmove->lastframe;
+		num_frames = mmove->firstframe - mmove->lastframe + 1;
+	}
+
+	base_numframe = num_frames;
+
+	M_SetAnimGroupFrameValues(self, name, &ofs_frames, &num_frames, select);
+
+	num_frames = Q_min(num_frames, base_numframe);
+
+	if (mmove->firstframe < mmove->lastframe)
+	{
+		mmove->firstframe = ofs_frames;
+		mmove->lastframe = ofs_frames + num_frames - 1;
+	}
+	else
+	{
+		mmove->lastframe = ofs_frames;
+		mmove->firstframe = ofs_frames + num_frames - 1;
+	}
+}
+
+void
+M_SetAnimGroupMMove(edict_t *self, mmove_t *mmove, const mmove_t *mmove_base,
+	const char *name, int select)
+{
+	if (mmove->firstframe || mmove->lastframe)
+	{
+		return;
+	}
+
+	memcpy(mmove, mmove_base, sizeof(mmove_t));
+
+	M_SetAnimGroupMMoveInt(self, mmove, name, select);
+}
+
+void
+M_SetAnimGroupMMoveOffset(edict_t *self, mmove_t *mmove, const mmove_t *mmove_base,
+	const char *name, int select, int offset)
+{
+	int numframes;
+
+	/* mmove started not from begin and has limited frames*/
+	if (mmove->firstframe || mmove->lastframe)
+	{
+		return;
+	}
+
+	numframes = mmove_base->lastframe - mmove_base->firstframe;
+	memcpy(mmove, mmove_base, sizeof(mmove_t));
+	mmove->firstframe -= offset;
+
+	M_SetAnimGroupMMoveInt(self, mmove, name, select);
+
+	mmove->firstframe += offset;
+	mmove->lastframe = Q_min(mmove->lastframe, mmove->firstframe + numframes);
+}
+
+static void
 M_MoveFrame(edict_t *self)
 {
+	int index, firstframe, lastframe;
+	qboolean reverse = false;
 	mmove_t *move;
-	int index;
 
 	if (!self)
 	{
@@ -810,11 +1090,41 @@ M_MoveFrame(edict_t *self)
 	}
 
 	move = self->monsterinfo.currentmove;
+	if (move)
+	{
+		firstframe = move->firstframe;
+		lastframe = move->lastframe;
+
+		if (lastframe < firstframe)
+		{
+			reverse = true;
+			firstframe = move->lastframe;
+			lastframe = move->firstframe;
+		}
+	}
+	else if (self->monsterinfo.action)
+	{
+		firstframe = self->monsterinfo.firstframe;
+
+		if (self->monsterinfo.numframes > 0)
+		{
+			lastframe = firstframe + self->monsterinfo.numframes - 1;
+		}
+		else
+		{
+			lastframe = firstframe - self->monsterinfo.numframes - 1;
+		}
+	}
+	else
+	{
+		return;
+	}
+
 	self->nextthink = level.time + FRAMETIME;
 
 	if ((self->monsterinfo.nextframe) &&
-		(self->monsterinfo.nextframe >= move->firstframe) &&
-		(self->monsterinfo.nextframe <= move->lastframe))
+		(self->monsterinfo.nextframe >= firstframe) &&
+		(self->monsterinfo.nextframe <= lastframe))
 	{
 		if (self->s.frame != self->monsterinfo.nextframe)
 		{
@@ -829,9 +1139,10 @@ M_MoveFrame(edict_t *self)
 		/* prevent nextframe from leaking into a future move */
 		self->monsterinfo.nextframe = 0;
 
-		if (self->s.frame == move->lastframe)
+		if (((self->s.frame == lastframe) && !reverse) ||
+			((self->s.frame == firstframe) && reverse))
 		{
-			if (move->endfunc)
+			if (move && move->endfunc)
 			{
 				move->endfunc(self);
 
@@ -844,31 +1155,59 @@ M_MoveFrame(edict_t *self)
 					return;
 				}
 			}
+			else if (self->monsterinfo.action &&
+				self->monsterinfo.run &&
+				(!strcmp(self->monsterinfo.action, "attack") ||
+				 !strcmp(self->monsterinfo.action, "pain") ||
+				 !strcmp(self->monsterinfo.action, "dodge") ||
+				 !strcmp(self->monsterinfo.action, "melee")))
+			{
+				/* last frame in pain / attack go to run action */
+				self->monsterinfo.run(self);
+			}
+			else if (self->monsterinfo.action &&
+				!strcmp(self->monsterinfo.action, "death"))
+			{
+				/* last frame in pain go to death action */
+				monster_dynamic_dead(self);
+			}
 		}
 
-		if ((self->s.frame < move->firstframe) ||
-			(self->s.frame > move->lastframe))
+		if ((self->s.frame < firstframe) ||
+			(self->s.frame > lastframe))
 		{
 			self->monsterinfo.aiflags &= ~AI_HOLD_FRAME;
-			self->s.frame = move->firstframe;
+			self->s.frame = firstframe;
 		}
 		else
 		{
 			if (!(self->monsterinfo.aiflags & AI_HOLD_FRAME))
 			{
-				self->s.frame++;
-
-				if (self->s.frame > move->lastframe)
+				if (!reverse)
 				{
-					self->s.frame = move->firstframe;
+					self->s.frame++;
+
+					if (self->s.frame > lastframe)
+					{
+						self->s.frame = firstframe;
+					}
+				}
+				else
+				{
+					self->s.frame--;
+
+					if (self->s.frame < firstframe)
+					{
+						self->s.frame = lastframe;
+					}
 				}
 			}
 		}
 	}
 
-	index = self->s.frame - move->firstframe;
+	index = self->s.frame - firstframe;
 
-	if (move->frame[index].aifunc)
+	if (move && move->frame[index].aifunc)
 	{
 		if (!(self->monsterinfo.aiflags & AI_HOLD_FRAME))
 		{
@@ -880,11 +1219,464 @@ M_MoveFrame(edict_t *self)
 			move->frame[index].aifunc(self, 0);
 		}
 	}
-
-	if (move->frame[index].thinkfunc)
+	else if (self->monsterinfo.action)
 	{
-		move->frame[index].thinkfunc(self);
+		if (!strcmp(self->monsterinfo.action, "run") ||
+			!strcmp(self->monsterinfo.action, "swim") ||
+			!strcmp(self->monsterinfo.action, "fly"))
+		{
+			if (!(self->monsterinfo.aiflags & AI_HOLD_FRAME))
+			{
+				ai_run(self,
+					self->monsterinfo.run_dist * self->monsterinfo.scale);
+			}
+			else
+			{
+				ai_run(self, 0);
+			}
+		}
+		else if (!strcmp(self->monsterinfo.action, "walk"))
+		{
+			if (!(self->monsterinfo.aiflags & AI_HOLD_FRAME))
+			{
+				ai_walk(self,
+					self->monsterinfo.walk_dist * self->monsterinfo.scale);
+			}
+			else
+			{
+				ai_walk(self, 0);
+			}
+		}
+		else if (!strcmp(self->monsterinfo.action, "stand") ||
+			!strcmp(self->monsterinfo.action, "hover") ||
+			!strcmp(self->monsterinfo.action, "idle"))
+		{
+			ai_stand(self, 0);
+		}
+		else if (!strcmp(self->monsterinfo.action, "pain") ||
+			!strcmp(self->monsterinfo.action, "death") ||
+			!strcmp(self->monsterinfo.action, "dodge"))
+		{
+			ai_move(self, 0);
+		}
+		else if (!strcmp(self->monsterinfo.action, "attack") ||
+			!strcmp(self->monsterinfo.action, "melee"))
+		{
+			ai_charge(self, 0);
+		}
 	}
+
+	if (move)
+	{
+		if (move->frame[index].thinkfunc)
+		{
+			move->frame[index].thinkfunc(self);
+		}
+	}
+	else
+	{
+		int middle;
+
+		middle = (lastframe - firstframe) / 2;
+
+		if ((middle == index) && (
+			!strcmp(self->monsterinfo.action, "attack") ||
+			!strcmp(self->monsterinfo.action, "melee")
+		))
+		{
+			monster_dynamic_damage(self);
+		}
+	}
+}
+
+void
+monster_dynamic_damage(edict_t *self)
+{
+	vec3_t dir;
+	int damage;
+
+
+	if (!self->enemy || ((self->dmg <= 0) && (self->dmg_range <= 0)))
+	{
+		return;
+	}
+
+	VectorSubtract(self->s.origin, self->enemy->s.origin, dir);
+
+	if (VectorLength(dir) > 100.0)
+	{
+		return;
+	}
+
+	damage = self->dmg + random() * self->dmg_range;
+
+	fire_hit(self, self->damage_aim, damage, damage);
+}
+
+static void
+monster_dynamic_setframes(edict_t *self, int select)
+{
+	qboolean reverse = false;
+
+	if (!self || !self->monsterinfo.action)
+	{
+		return;
+	}
+
+	if (self->monsterinfo.numframes < 0)
+	{
+		self->monsterinfo.numframes *= -1;
+		reverse = true;
+	}
+
+	M_SetAnimGroupFrameValues(self, self->monsterinfo.action,
+		&self->monsterinfo.firstframe, &self->monsterinfo.numframes, select);
+
+	if (reverse)
+	{
+		self->monsterinfo.numframes *= -1;
+	}
+}
+
+void
+monster_dynamic_walk(edict_t *self)
+{
+	if (!self)
+	{
+		return;
+	}
+
+	self->monsterinfo.currentmove = NULL;
+
+	if (self->flags & FL_FLY)
+	{
+		self->monsterinfo.action = "fly";
+	}
+	else if (self->flags & FL_SWIM)
+	{
+		self->monsterinfo.action = "swim";
+	}
+	else
+	{
+		self->monsterinfo.action = "walk";
+	}
+
+	monster_dynamic_setframes(self, 0);
+}
+
+void
+monster_dynamic_run(edict_t *self)
+{
+	if (!self)
+	{
+		return;
+	}
+
+	self->monsterinfo.currentmove = NULL;
+
+	if (self->flags & FL_FLY)
+	{
+		self->monsterinfo.action = "fly";
+	}
+	else if (self->flags & FL_SWIM)
+	{
+		self->monsterinfo.action = "swim";
+	}
+	else
+	{
+		self->monsterinfo.action = "run";
+	}
+
+	monster_dynamic_setframes(self, 0);
+}
+
+void
+monster_dynamic_idle(edict_t *self)
+{
+	if (!self)
+	{
+		return;
+	}
+
+	self->monsterinfo.currentmove = NULL;
+	self->monsterinfo.action = "idle";
+	monster_dynamic_setframes(self, -1);
+}
+
+void
+monster_dynamic_attack(edict_t *self)
+{
+	if (!self)
+	{
+		return;
+	}
+
+	self->monsterinfo.currentmove = NULL;
+	self->monsterinfo.action = "attack";
+	monster_dynamic_setframes(self, -1);
+}
+
+void
+monster_dynamic_dead(edict_t *self)
+{
+	if (!self)
+	{
+		return;
+	}
+
+	self->movetype = MOVETYPE_TOSS;
+	self->svflags |= SVF_DEADMONSTER;
+	self->nextthink = 0;
+	gi.linkentity(self);
+}
+
+void
+monster_dynamic_die_noanim(edict_t *self, edict_t *inflictor, edict_t *attacker,
+	int damage, vec3_t point)
+{
+	monster_dynamic_dead(self);
+}
+
+void
+monster_dynamic_die(edict_t *self, edict_t *inflictor, edict_t *attacker,
+	int damage, vec3_t point)
+{
+	if (!self)
+	{
+		return;
+	}
+
+	if (self->health <= self->gib_health)
+	{
+		gi.sound(self, CHAN_VOICE, gi.soundindex("misc/udeath.wav"), 1, ATTN_NORM, 0);
+		ThrowGib(self, NULL, damage, self->gib);
+		ThrowHead(self, NULL, damage, self->gib);
+		self->deadflag = DEAD_DEAD;
+		return;
+	}
+
+	if (self->deadflag == DEAD_DEAD)
+	{
+		return;
+	}
+
+	self->deadflag = DEAD_DEAD;
+	self->takedamage = DAMAGE_YES;
+
+	self->monsterinfo.currentmove = NULL;
+	self->monsterinfo.action = "death";
+	monster_dynamic_setframes(self, -1);
+}
+
+void
+monster_dynamic_melee(edict_t *self)
+{
+	if (!self)
+	{
+		return;
+	}
+
+	self->monsterinfo.currentmove = NULL;
+	self->monsterinfo.action = "melee";
+	monster_dynamic_setframes(self, 0);
+}
+
+void
+monster_dynamic_dodge(edict_t *self, edict_t *attacker, float eta,
+	trace_t *tr /* unused */)
+{
+	if (!self || !attacker)
+	{
+		return;
+	}
+
+	if (random() > 0.25)
+	{
+		return;
+	}
+
+	if (!self->enemy)
+	{
+		self->enemy = attacker;
+		FoundTarget(self);
+	}
+
+	self->monsterinfo.currentmove = NULL;
+	self->monsterinfo.action = "dodge";
+	monster_dynamic_setframes(self, 0);
+}
+
+void
+monster_dynamic_pain_noanim(edict_t *self, edict_t *other /* unused */,
+		float kick /* unused */, int damage)
+{
+}
+
+void
+monster_dynamic_pain(edict_t *self, edict_t *other /* unused */,
+		float kick /* unused */, int damage)
+{
+	if (!self)
+	{
+		return;
+	}
+
+	if (skill->value == SKILL_HARDPLUS)
+	{
+		return; /* no pain anims in nightmare */
+	}
+
+	self->monsterinfo.currentmove = NULL;
+
+	self->monsterinfo.action = "pain";
+	monster_dynamic_setframes(self, -1);
+}
+
+void
+monster_dynamic_stand(edict_t *self)
+{
+	if (!self)
+	{
+		return;
+	}
+
+	self->monsterinfo.currentmove = NULL;
+
+	if (self->flags & FL_FLY)
+	{
+		self->monsterinfo.action = "hover";
+	}
+	else if (self->flags & FL_SWIM)
+	{
+		self->monsterinfo.action = "swim";
+	}
+	else
+	{
+		self->monsterinfo.action = "stand";
+	}
+
+	monster_dynamic_setframes(self, 0);
+}
+
+void
+monster_dynamic_search(edict_t *self)
+{
+}
+
+void
+monster_dynamic_sight(edict_t *self, edict_t *other /* unused */)
+{
+}
+
+void
+monster_dynamic_setinfo(edict_t *self)
+{
+	const dmdxframegroup_t * frames;
+	int num;
+
+	if (!self)
+	{
+		return;
+	}
+
+	self->monsterinfo.walk = monster_dynamic_walk;
+	self->monsterinfo.run = monster_dynamic_run;
+	self->monsterinfo.stand = monster_dynamic_stand;
+	self->monsterinfo.search = monster_dynamic_search;
+	self->monsterinfo.sight = monster_dynamic_sight;
+	self->monsterinfo.attack = monster_dynamic_attack;
+	self->pain = monster_dynamic_pain_noanim;
+	self->die = monster_dynamic_die_noanim;
+
+	/* Check frame names for optional move animation */
+	frames = gi.GetModelInfo(self->s.modelindex, &num, NULL, NULL);
+	if (frames && num)
+	{
+		size_t i;
+
+		for (i = 0; i < num; i++)
+		{
+			if (!strcmp(frames[i].name, "idle"))
+			{
+				self->monsterinfo.idle = monster_dynamic_idle;
+			}
+			else if (!strcmp(frames[i].name, "pain"))
+			{
+				self->pain = monster_dynamic_pain;
+			}
+			else if (!strcmp(frames[i].name, "attack"))
+			{
+				self->monsterinfo.attack = monster_dynamic_attack;
+			}
+			else if (!strcmp(frames[i].name, "death"))
+			{
+				self->die = monster_dynamic_die;
+			}
+			else if (!strcmp(frames[i].name, "dodge") ||
+				!strcmp(frames[i].name, "duck"))
+			{
+				self->monsterinfo.dodge = monster_dynamic_dodge;
+			}
+			else if (!strcmp(frames[i].name, "melee"))
+			{
+				self->monsterinfo.melee = monster_dynamic_melee;
+			}
+		}
+	}
+}
+
+void
+object_think(edict_t *self)
+{
+	M_SetAnimGroupFrame(self, self->monsterinfo.action, false);
+	self->nextthink = level.time + FRAMETIME;
+}
+
+static const char *object_actions[] = {
+	"banner",
+	"flagg",
+	"flame",
+	"poly",
+};
+
+void
+object_spawn(edict_t *self)
+{
+	const dmdxframegroup_t * frames;
+	int i, num;
+
+	if (!self)
+	{
+		return;
+	}
+
+	/* Check frame names for optional move animation */
+	frames = gi.GetModelInfo(self->s.modelindex, &num, NULL, NULL);
+	if (!frames || num != 1)
+	{
+		gi.dprintf("no known frame groups in %s\n", self->classname);
+		return;
+	}
+
+	/* need to use static strings */
+	for (i = 0; i < sizeof(object_actions) / sizeof(*object_actions); i ++)
+	{
+		if (!strcmp(frames[0].name, object_actions[i]))
+		{
+			self->monsterinfo.action = object_actions[i];
+		}
+	}
+
+	if (!self->monsterinfo.action)
+	{
+		gi.dprintf("no known action in %s\n", self->classname);
+		return;
+	}
+
+	self->movetype = MOVETYPE_NONE;
+	self->nextthink = level.time + FRAMETIME;
+	self->think = object_think;
+	gi.linkentity(self);
 }
 
 void
@@ -1070,9 +1862,12 @@ monster_death_use(edict_t *self)
 
 /* ================================================================== */
 
-qboolean
+static qboolean
 monster_start(edict_t *self)
 {
+	float scale;
+	int i;
+
 	if (!self)
 	{
 		return false;
@@ -1113,7 +1908,7 @@ monster_start(edict_t *self)
 	self->air_finished = level.time + 12;
 	self->use = monster_use;
 
-	if(!self->max_health)
+	if (!self->max_health)
 	{
 		self->max_health = self->health;
 	}
@@ -1129,7 +1924,45 @@ monster_start(edict_t *self)
 		self->monsterinfo.checkattack = M_CheckAttack;
 	}
 
+	if (ai_model_scale->value > 0)
+	{
+		scale = ai_model_scale->value;
+		VectorSet(self->rrs.scale, scale, scale, scale);
+	}
+
+	scale = 0;
+
+	for (i = 0; i < 3; i++)
+	{
+		if (!self->rrs.scale[i])
+		{
+			/* fix empty scale */
+			self->rrs.scale[i] = 1.0f;
+		}
+
+		scale += self->rrs.scale[i];
+	}
+
+	scale /= 3;
+
+	/* non default scale */
+	if (scale != 1.0)
+	{
+		int i;
+
+		self->monsterinfo.scale *= scale;
+		self->mass *= scale;
+
+		for (i = 0; i < 3; i++)
+		{
+			self->mins[i] *= self->rrs.scale[i];
+			self->maxs[i] *= self->rrs.scale[i];
+		}
+	}
+
 	VectorCopy(self->s.origin, self->s.old_origin);
+
+	M_FixStuckMonster(self);
 
 	if (st.item)
 	{
@@ -1148,6 +1981,15 @@ monster_start(edict_t *self)
 		self->s.frame = self->monsterinfo.currentmove->firstframe +
 			(randk() % (self->monsterinfo.currentmove->lastframe -
 					   self->monsterinfo.currentmove->firstframe + 1));
+	}
+	else if (self->monsterinfo.action)
+	{
+		int ofs_frames = 0, num_frames = 1;
+
+		M_SetAnimGroupFrameValues(self, self->monsterinfo.action,
+			&ofs_frames, &num_frames, 0);
+
+		self->s.frame = ofs_frames + (randk() % num_frames);
 	}
 
 	self->monsterinfo.base_height = self->maxs[2];

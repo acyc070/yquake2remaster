@@ -196,7 +196,6 @@ extern vec3_t listener_right;
 extern vec3_t listener_up;
 
 extern qboolean snd_is_underwater;
-extern qboolean snd_is_underwater_enabled;
 
 /*
  * Returns the header infos
@@ -277,6 +276,11 @@ void SDL_Update(void);
  */
 void SDL_RawSamples(int samples, int rate, int width,
 		int channels, const byte *data, float volume);
+
+/*
+ * Convert mp3 to raw samples
+ */
+void MP3_LoadAsWav(const char *filename, wavinfo_t *info, void **buffer);
 
 /*
  * Spartializes a sample

@@ -46,14 +46,14 @@ GL4_PushDlights(void)
 	/* because the count hasn't advanced yet for this frame */
 	r_dlightframecount = gl4_framecount + 1;
 
-	R_PushDlights(&gl4_newrefdef, gl4_worldmodel->nodes, r_dlightframecount,
+	R_PushDlights(&r_newrefdef, gl4_worldmodel->nodes, r_dlightframecount,
 			gl4_worldmodel->surfaces);
 
-	l = gl4_newrefdef.dlights;
+	l = r_newrefdef.dlights;
 
-	gl4state.uniLightsData.numDynLights = gl4_newrefdef.num_dlights;
+	gl4state.uniLightsData.numDynLights = r_newrefdef.num_dlights;
 
-	for (i = 0; i < gl4_newrefdef.num_dlights; i++, l++)
+	for (i = 0; i < r_newrefdef.num_dlights; i++, l++)
 	{
 		gl4UniDynLight* udl = &gl4state.uniLightsData.dynLights[i];
 		VectorCopy(l->origin, udl->origin);
@@ -63,7 +63,7 @@ GL4_PushDlights(void)
 
 	assert(MAX_DLIGHTS == 32 && "If MAX_DLIGHTS changes, remember to adjust the uniform buffer definition in the shader!");
 
-	if(i < MAX_DLIGHTS)
+	if (i < MAX_DLIGHTS)
 	{
 		memset(&gl4state.uniLightsData.dynLights[i], 0, (MAX_DLIGHTS-i)*sizeof(gl4state.uniLightsData.dynLights[0]));
 	}
@@ -86,6 +86,7 @@ GL4_BuildLightMap(msurface_t *surf, int offsetInLMbuf, int stride)
 		(SURF_SKY | SURF_TRANSPARENT | SURF_WARP))
 	{
 		Com_Error(ERR_DROP, "%s called for non-lit surface", __func__);
+		return;
 	}
 
 	smax = (surf->extents[0] >> surf->lmshift) + 1;
@@ -97,6 +98,7 @@ GL4_BuildLightMap(msurface_t *surf, int offsetInLMbuf, int stride)
 	if (size > BLOCK_WIDTH * BLOCK_HEIGHT * 3)
 	{
 		Com_Error(ERR_DROP, "Bad s_blocklights size");
+		return;
 	}
 
 	// count number of lightmaps surf actually has
@@ -139,7 +141,7 @@ GL4_BuildLightMap(msurface_t *surf, int offsetInLMbuf, int stride)
 
 	lightmap = surf->samples;
 
-	for(map=0; map<nummaps; ++map)
+	for (map=0; map<nummaps; ++map)
 	{
 		byte* dest = gl4_lms.lightmap_buffers[map] + offsetInLMbuf;
 		int idxInLightmap = 0;

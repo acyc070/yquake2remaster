@@ -32,7 +32,7 @@
 #include "shared.h"
 #include "crc.h"
 
-#define YQ2VERSION "8.31RR4"
+#define YQ2VERSION "8.61RR14"
 #define BASEDIRNAME "baseq2"
 
 #ifndef YQ2OSTYPE
@@ -43,14 +43,16 @@
 #define BUILD_DATE __DATE__
 #endif
 
-#ifdef _WIN32
- #define CFGDIR "YamagiQ2"
+#define CFGDIRNAME_SHORT "yq2"
+
+#if defined(USE_XDG) || defined(_WIN32)
+  #define CFGDIRNAME "YamagiQ2"
 #else
- #ifndef __HAIKU__
-   #define CFGDIR ".yq2"
- #else
-   #define CFGDIR "yq2"
- #endif
+  #ifdef __HAIKU__
+    #define CFGDIRNAME CFGDIRNAME_SHORT
+  #else
+    #define CFGDIRNAME "." CFGDIRNAME_SHORT
+  #endif
 #endif
 
 #ifndef YQ2ARCH
@@ -106,22 +108,27 @@ void SZ_Print(sizebuf_t *buf, const char *data);  /* strcats onto the sizebuf */
 struct usercmd_s;
 struct entity_state_s;
 
+size_t MSG_ConfigString_Size(const char *s);
+size_t MSG_DeltaEntity_Size(const entity_xstate_t *from, const entity_xstate_t *to,
+	qboolean force, qboolean newentity, int protocol);
+
 void MSG_WriteChar(sizebuf_t *sb, int c);
 void MSG_WriteByte(sizebuf_t *sb, int c);
 void MSG_WriteShort(sizebuf_t *sb, int c);
 void MSG_WriteLong(sizebuf_t *sb, int c);
 void MSG_WriteFloat(sizebuf_t *sb, float f);
 void MSG_WriteString(sizebuf_t *sb, const char *s);
-void MSG_WriteCoord(sizebuf_t *sb, float f);
-void MSG_WritePos(sizebuf_t *sb, vec3_t pos);
+void MSG_WriteCoord(sizebuf_t *sb, float f, int protocol);
+void MSG_WritePos(sizebuf_t *sb, const vec3_t pos, int protocol);
 void MSG_WriteAngle(sizebuf_t *sb, float f);
 void MSG_WriteAngle16(sizebuf_t *sb, float f);
-void MSG_WriteDeltaUsercmd(sizebuf_t *sb, struct usercmd_s *from,
-		struct usercmd_s *cmd);
-void MSG_WriteDeltaEntity(struct entity_state_s *from,
-		struct entity_state_s *to, sizebuf_t *msg,
-		qboolean force, qboolean newentity);
-void MSG_WriteDir(sizebuf_t *sb, vec3_t vector);
+void MSG_WriteConfigString(sizebuf_t *sb, short index, const char *s);
+void MSG_WriteDeltaUsercmd(sizebuf_t *sb, const struct usercmd_s *from,
+		const struct usercmd_s *cmd);
+void MSG_WriteDeltaEntity(const struct entity_xstate_s *from,
+		const struct entity_xstate_s *to, sizebuf_t *msg,
+		qboolean force, qboolean newentity, int protocol);
+void MSG_WriteDir(sizebuf_t *sb, const vec3_t vector);
 
 void MSG_BeginReading(sizebuf_t *sb);
 
@@ -133,8 +140,8 @@ float MSG_ReadFloat(sizebuf_t *sb);
 char *MSG_ReadString(sizebuf_t *sb);
 char *MSG_ReadStringLine(sizebuf_t *sb);
 
-float MSG_ReadCoord(sizebuf_t *sb);
-void MSG_ReadPos(sizebuf_t *sb, vec3_t pos);
+float MSG_ReadCoord(sizebuf_t *sb, int protocol);
+void MSG_ReadPos(sizebuf_t *sb, vec3_t pos, int protocol);
 float MSG_ReadAngle(sizebuf_t *sb);
 float MSG_ReadAngle16(sizebuf_t *sb);
 void MSG_ReadDeltaUsercmd(sizebuf_t *sb,
@@ -179,12 +186,25 @@ void Info_Print(char *s);
 #define PROTOCOL_RELEASE_VERSION 26
 /* Quake 2 Demo */
 #define PROTOCOL_DEMO_VERSION 31
+/* Quake 2 Xatrix Demo */
+#define PROTOCOL_XATRIX_VERSION 32
 /* Quake 2 Network Release */
-#define PROTOCOL_VERSION 34
+#define PROTOCOL_R97_VERSION 34
 /* ReRelease demo files */
 #define PROTOCOL_RR22_VERSION 2022
 /* ReRelease network protocol */
 #define PROTOCOL_RR23_VERSION 2023
+/* Quake 2 Customized Network Release */
+#define PROTOCOL_VERSION 2024
+
+/* Quake 2 originaly uses 255 as player model */
+#define QII97_PLAYER_MODEL 255
+
+#define IS_QII97_PROTOCOL(x) ( \
+	((x) == PROTOCOL_RELEASE_VERSION) || \
+	((x) == PROTOCOL_DEMO_VERSION) || \
+	((x) == PROTOCOL_XATRIX_VERSION) || \
+	((x) == PROTOCOL_R97_VERSION))
 
 /* ========================================= */
 
@@ -224,7 +244,8 @@ enum svc_ops_e
 	svc_playerinfo,             /* variable */
 	svc_packetentities,         /* [...] */
 	svc_deltapacketentities,    /* [...] */
-	svc_frame
+	svc_frame,
+	svc_fog,                    /* [Paril-KEX] change current fog values */
 };
 
 /* ============================================== */
@@ -524,7 +545,7 @@ extern qboolean userinfo_modified;
 /* NET */
 
 #define PORT_ANY -1
-#define MAX_MSGLEN 1400             /* max length of a message */
+#define MAX_MSGLEN 32768            /* max length of a message */
 #define PACKET_HEADER 10            /* two ints and a short */
 
 typedef enum
@@ -557,7 +578,7 @@ void NET_Config(qboolean multiplayer);
 
 qboolean NET_GetPacket(netsrc_t sock, netadr_t *net_from,
 		sizebuf_t *net_message);
-void NET_SendPacket(netsrc_t sock, int length, void *data, netadr_t to);
+void NET_SendPacket(netsrc_t sock, int length, const void *data, netadr_t to);
 
 qboolean NET_CompareAdr(netadr_t a, netadr_t b);
 qboolean NET_CompareBaseAdr(netadr_t a, netadr_t b);
@@ -624,16 +645,18 @@ qboolean Netchan_CanReliable(netchan_t *chan);
 
 #include "files.h"
 
+const byte* CM_GetRawMap(int *len);
 cmodel_t *CM_LoadMap(const char *name, qboolean clientload, unsigned *checksum);
 cmodel_t *CM_InlineModel(const char *name);       /* *1, *2, etc */
 int CM_MapSurfacesNum(void);
 mapsurface_t* CM_MapSurfaces(int surfnum);
 
+void CM_ModInit(void);
 void CM_ModFreeAll(void);
 
 int CM_NumClusters(void);
 int CM_NumInlineModels(void);
-char *CM_EntityString(void);
+const char *CM_EntityString(int *size);
 
 /* creates a clipping hull for an arbitrary box */
 int CM_HeadnodeForBox(vec3_t mins, vec3_t maxs);
@@ -643,14 +666,15 @@ int CM_PointContents(vec3_t p, int headnode);
 int CM_TransformedPointContents(vec3_t p, int headnode,
 		vec3_t origin, vec3_t angles);
 
-trace_t CM_BoxTrace(vec3_t start, vec3_t end, vec3_t mins,
-		vec3_t maxs, int headnode, int brushmask);
-trace_t CM_TransformedBoxTrace(vec3_t start, vec3_t end,
-		vec3_t mins, vec3_t maxs, int headnode,
-		int brushmask, vec3_t origin, vec3_t angles);
+trace_t CM_BoxTrace(const vec3_t start, const vec3_t end, const vec3_t mins,
+		const vec3_t maxs, int headnode, int brushmask);
+trace_t CM_TransformedBoxTrace(const vec3_t start, const vec3_t end,
+		const vec3_t mins, const vec3_t maxs, int headnode,
+		int brushmask, const vec3_t origin, const vec3_t angles);
 
-byte *CM_ClusterPVS(int cluster);
-byte *CM_ClusterPHS(int cluster);
+const byte *CM_ClusterPVS(int cluster, size_t *size);
+const byte *CM_ClusterPHS(int cluster, size_t *size);
+byte *CM_ClusterPTS(size_t *size);
 
 int CM_PointLeafnum(vec3_t p);
 
@@ -667,15 +691,29 @@ void CM_SetAreaPortalState(int portalnum, qboolean open);
 qboolean CM_AreasConnected(int area1, int area2);
 
 int CM_WriteAreaBits(byte *buffer, int area);
-qboolean CM_HeadnodeVisible(int headnode, byte *visbits);
+qboolean CM_HeadnodeVisible(int headnode, const byte *visbits);
 
 void CM_WritePortalState(FILE *f);
+int CM_LoadFile(const char *path, void **buffer);
 
+/* Shared Model load code */
+int Mod_LoadFile(const char *path, void **buffer);
+void Mod_FreeFile(const char *path);
+void Mod_AliasesInit(void);
+void Mod_AliasesFreeAll(void);
+const dmdxframegroup_t *Mod_GetModelInfo(const char *name, int *num,
+	float *mins, float *maxs);
+void Mod_GetModelFrameInfo(const char *name, int num, float *mins, float *maxs);
+void Mod_LoadImageWithPalette(const char *filename, byte **pic, byte **palette,
+	int *width, int *height, int *bitsPerPixel);
+byte * Mod_LoadEmbededLMP(const char *mod_name, int *width, int *height,
+	int *bitsPerPixel);
 /* PLAYER MOVEMENT CODE */
 
 extern float pm_airaccelerate;
 
 void Pmove(pmove_t *pmove);
+void PmoveEx(pmove_t *pmove, int *origin);
 
 /* FILESYSTEM */
 
@@ -725,8 +763,8 @@ void FS_FreeList(char **list, int nfiles);
 void FS_InitFilesystem(void);
 void FS_ShutdownFilesystem(void);
 void FS_BuildGameSpecificSearchPath(const char *dir);
-char *FS_Gamedir(void);
-char *FS_NextPath(const char *prevpath);
+const char *FS_Gamedir(void);
+const char *FS_NextPath(const char *prevpath);
 int FS_LoadFile(const char *path, void **buffer);
 qboolean FS_FileInGamedir(const char *file);
 qboolean FS_AddPAKFromGamedir(const char *pak);
@@ -739,7 +777,7 @@ char **FS_ListMods(int *nummods);
 /* properly handles partial reads */
 
 void FS_FreeFile(void *buffer);
-void FS_CreatePath(char *path);
+void FS_CreatePath(const char *path);
 
 /* MISC */
 
@@ -765,8 +803,6 @@ YQ2_ATTR_NORETURN void Com_Quit(void);
 
 /* Ugly work around for unsupported
  * format specifiers unter mingw. */
-#define YQ2_COM_PRIu64 PRIu64
-
 #ifdef WIN32
 #define YQ2_COM_PRId64 "%I64d"
 #define YQ2_COM_PRIdS "%Id"
@@ -800,16 +836,16 @@ extern cvar_t *sv_entfile;
 /* Hack for portable client */
 extern qboolean is_portable;
 
-/* Hack for external datadir */
+/* Hack for external datadir, this is where baseq2 is located */
 extern char datadir[MAX_OSPATH];
 
-/* Hack for external datadir */
+/* Hack for external datadir, this is the NAME of the folder where config
+ * and save files are located */
 extern char cfgdir[MAX_OSPATH];
 
 /* Hack for working 'game' cmd */
 extern char userGivenGame[MAX_QPATH];
-extern char **mapnames;
-extern int nummaps;
+void CleanCachedMapsList(void);
 
 extern FILE *log_stats_file;
 
@@ -819,9 +855,12 @@ extern int time_after_game;
 extern int time_before_ref;
 extern int time_after_ref;
 
+void Z_Init(void);
 void Z_Free(void *ptr);
 void *Z_Malloc(int size);           /* returns 0 filled memory */
 void *Z_TagMalloc(int size, int tag);
+void *Z_Realloc(void *ptr, int size);
+void *Z_TagRealloc(void *ptr, int size, int tag);
 void Z_FreeTags(int tag);
 
 void Qcommon_Init(int argc, char **argv);
@@ -841,12 +880,20 @@ void CL_Init(void);
 void CL_Drop(void);
 void CL_Shutdown(void);
 void CL_Frame(int packetdelta, int renderdelta, int timedelta, qboolean packetframe, qboolean renderframe);
-void Con_Print(char *text);
+void Con_Print(const char *txt);
 void SCR_BeginLoadingPlaque(void);
 
 void SV_Init(void);
-void SV_Shutdown(char *finalmsg, qboolean reconnect);
+void SV_Shutdown(const char *finalmsg, qboolean reconnect);
 void SV_Frame(int usec);
+const char *SV_LocalizationUIMessage(const char *message, const char *default_message);
+const char *SV_LocalizationMessage(const char *message, const char **sound);
+void SV_LocalizationInit(void);
+void SV_LocalizationFree(void);
+
+/* Convert protocol */
+int P_ConvertConfigStringFrom(int i, int protocol);
+int P_ConvertConfigStringTo(int i, int protocol);
 
 /* ======================================================================= */
 
@@ -854,7 +901,7 @@ void SV_Frame(int usec);
 
 // system.c
 char *Sys_ConsoleInput(void);
-void Sys_ConsoleOutput(char *string);
+void Sys_ConsoleOutput(const char *string);
 YQ2_ATTR_NORETURN void Sys_Error(const char *error, ...);
 YQ2_ATTR_NORETURN void Sys_Quit(void);
 void Sys_Init(void);
@@ -870,7 +917,7 @@ void *Sys_LoadLibrary(const char *path, const char *sym, void **handle);
 void *Sys_GetGameAPI(void *parms);
 void Sys_UnloadGame(void);
 void Sys_GetWorkDir(char *buffer, size_t len);
-qboolean Sys_SetWorkDir(char *path);
+qboolean Sys_SetWorkDir(const char *path);
 qboolean Sys_Realpath(const char *in, char *out, size_t size);
 
 // Windows only (system.c)
@@ -884,5 +931,37 @@ const char *Sys_GetBinaryDir(void);
 void Sys_SetupFPU(void);
 
 /* ======================================================================= */
+
+void Mods_NamesFinish(void);
+
+/* stringlist_t API
+ * Store strings in a dynamic array
+ */
+
+typedef struct
+{
+	char **lst;
+	int n;
+	int cap;
+} stringlist_t;
+
+/* Frees all dynamic memory and initializes the data structure back to zero */
+void StringList_Free(stringlist_t *sl);
+
+/* Looks for string s in the list.
+ * If s is NULL, returns the next free spot in the list.
+ * Otherwise returns index of s found in the list.
+ * Returns length of list + 1 if nothing was found.
+*/
+int StringList_Find(const stringlist_t *sl, const char *s);
+
+/* Returns true if s is in the list, false otherwise */
+qboolean StringList_IsInList(const stringlist_t *sl, const char *s);
+
+/* Adds s to the first free spot in the list, resizes if necessary */
+void StringList_Add(stringlist_t *sl, const char *s);
+
+#define StringList_Len(sl) (sl)->n
+#define StringList_Elem(sl, i) (sl)->lst[i]
 
 #endif

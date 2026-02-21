@@ -34,21 +34,15 @@ void
 GL3_EmitWaterPolys(msurface_t *fa)
 {
 	mpoly_t *bp;
-	float scroll = 0.0f;
+	float sscroll, tscroll = 0.0f;
 
-	if (fa->texinfo->flags & SURF_FLOWING)
-	{
-		scroll = -64.0f * ((gl3_newrefdef.time * 0.5) - (int)(gl3_newrefdef.time * 0.5));
-		if (scroll == 0.0f) // this is done in GL3_DrawGLFlowingPoly() TODO: keep?
-		{
-			scroll = -64.0f;
-		}
-	}
+	R_FlowingScroll(&r_newrefdef, fa->texinfo->flags, &sscroll, &tscroll);
 
 	qboolean updateUni3D = false;
-	if(gl3state.uni3DData.scroll != scroll)
+	if ((gl3state.uni3DData.sscroll != sscroll) || (gl3state.uni3DData.tscroll != tscroll))
 	{
-		gl3state.uni3DData.scroll = scroll;
+		gl3state.uni3DData.sscroll = sscroll;
+		gl3state.uni3DData.tscroll = tscroll;
 		updateUni3D = true;
 	}
 	// these surfaces (mostly water and lava, I think?) don't have a lightmap.
@@ -56,13 +50,13 @@ GL3_EmitWaterPolys(msurface_t *fa)
 	// so default use a factor of 0.5 (ontop of intensity)
 	// but lava should be bright and glowing, so use full brightness there
 	float lightScale = fa->texinfo->image->is_lava ? 1.0f : 0.5f;
-	if(lightScale != gl3state.uni3DData.lightScaleForTurb)
+	if (lightScale != gl3state.uni3DData.lightScaleForTurb)
 	{
 		gl3state.uni3DData.lightScaleForTurb = lightScale;
 		updateUni3D = true;
 	}
 
-	if(updateUni3D)
+	if (updateUni3D)
 	{
 		GL3_UpdateUBO3D();
 	}
@@ -111,11 +105,11 @@ GL3_SetSky(const char *name, float rotate, int autorotate, const vec3_t axis)
 		gl3image_t	*image;
 
 		image = (gl3image_t *)GetSkyImage(skyname, suf[i],
-			r_palettedtexture->value, (findimage_t)GL3_FindImage);
+			r_palettedtextures->value, (findimage_t)GL3_FindImage);
 
 		if (!image)
 		{
-			R_Printf(PRINT_ALL, "%s: can't load %s:%s sky\n",
+			Com_Printf("%s: can't load %s:%s sky\n",
 				__func__, skyname, suf[i]);
 			image = gl3_notexture;
 		}
@@ -170,12 +164,12 @@ GL3_DrawSkyBox(void)
 	// glTranslatef(gl3_origin[0], gl3_origin[1], gl3_origin[2]);
 	hmm_vec3 transl = HMM_Vec3(gl3_origin[0], gl3_origin[1], gl3_origin[2]);
 	hmm_mat4 modMVmat = HMM_MultiplyMat4(origModelMat, HMM_Translate(transl));
-	if(skyrotate != 0.0f)
+	if (skyrotate != 0.0f)
 	{
-		// glRotatef(gl3_newrefdef.time * skyrotate, skyaxis[0], skyaxis[1], skyaxis[2]);
+		// glRotatef(r_newrefdef.time * skyrotate, skyaxis[0], skyaxis[1], skyaxis[2]);
 		hmm_vec3 rotAxis = HMM_Vec3(skyaxis[0], skyaxis[1], skyaxis[2]);
 		modMVmat = HMM_MultiplyMat4(modMVmat, HMM_Rotate(
-			(skyautorotate ? gl3_newrefdef.time : 1.f) * skyrotate, rotAxis));
+			(skyautorotate ? r_newrefdef.time : 1.f) * skyrotate, rotAxis));
 	}
 	gl3state.uni3DData.transModelMat4 = modMVmat;
 	GL3_UpdateUBO3D();

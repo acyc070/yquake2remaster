@@ -52,7 +52,6 @@ static void
 SVC_Info(void)
 {
 	char string[64];
-	int i, count;
 	int version;
 
 	if (maxclients->value == 1)
@@ -65,10 +64,12 @@ SVC_Info(void)
 	if (version != PROTOCOL_VERSION)
 	{
 		Com_sprintf(string, sizeof(string), "%s: wrong version\n",
-				hostname->string, sizeof(string));
+				hostname->string);
 	}
 	else
 	{
+		int i, count;
+
 		count = 0;
 
 		for (i = 0; i < maxclients->value; i++)
@@ -154,7 +155,6 @@ SVC_DirectConnect(void)
 	client_t *cl, *newcl;
 	client_t temp;
 	edict_t *ent;
-	int edictnum;
 	int version;
 	int qport;
 	int challenge;
@@ -272,9 +272,7 @@ gotnewcl:
 	   is the only place a client_t is ever initialized */
 	*newcl = temp;
 	sv_client = newcl;
-	edictnum = (newcl - svs.clients) + 1;
-	ent = EDICT_NUM(edictnum);
-	newcl->edict = ent;
+	ent = CL_EDICT(newcl);
 	newcl->challenge = challenge; /* save challenge for checksumming */
 
 	/* get the game a chance to reject this connection or modify the userinfo */
@@ -345,7 +343,6 @@ static void
 SVC_RemoteCommand(void)
 {
 	int i;
-	char remaining[1024];
 
 	i = Rcon_Validate();
 
@@ -369,12 +366,14 @@ SVC_RemoteCommand(void)
 	}
 	else
 	{
+		char remaining[1024];
+
 		remaining[0] = 0;
 
 		for (i = 2; i < Cmd_Argc(); i++)
 		{
-			strcat(remaining, Cmd_Argv(i));
-			strcat(remaining, " ");
+			Q_strlcat(remaining, Cmd_Argv(i), sizeof(remaining));
+			Q_strlcat(remaining, " ", sizeof(remaining));
 		}
 
 		Cmd_ExecuteString(remaining);

@@ -96,50 +96,6 @@ brain_search(edict_t *self)
 }
 
 /* STAND */
-
-static mframe_t brain_frames_stand[] = {
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL}
-};
-
-mmove_t brain_move_stand =
-{
-	FRAME_stand01,
-	FRAME_stand30,
-	brain_frames_stand,
-	NULL
-};
-
 void
 brain_stand(edict_t *self)
 {
@@ -148,7 +104,9 @@ brain_stand(edict_t *self)
 		return;
 	}
 
-	self->monsterinfo.currentmove = &brain_move_stand;
+	self->monsterinfo.firstframe = FRAME_stand01;
+	self->monsterinfo.numframes = FRAME_stand30 - FRAME_stand01 + 1;
+	monster_dynamic_stand(self);
 }
 
 /* IDLE */
@@ -657,7 +615,7 @@ brain_melee(edict_t *self)
 	}
 }
 
-qboolean
+static qboolean
 brain_tounge_attack_ok(vec3_t start, vec3_t end)
 {
 	vec3_t dir, angles;
@@ -805,7 +763,7 @@ brain_laserbeam(edict_t *self)
 	if (random() > 0.8)
 	{
 		gi.sound(self, CHAN_AUTO, gi.soundindex("misc/lasfly.wav"),
-			   	1, ATTN_STATIC, 0);
+				1, ATTN_STATIC, 0);
 	}
 
 	/* check for max distance */
@@ -983,7 +941,7 @@ brain_run(edict_t *self)
 
 	if (self->monsterinfo.aiflags & AI_STAND_GROUND)
 	{
-		self->monsterinfo.currentmove = &brain_move_stand;
+		brain_stand(self);
 	}
 	else
 	{
@@ -1054,10 +1012,7 @@ brain_dead(edict_t *self)
 
 	VectorSet(self->mins, -16, -16, -24);
 	VectorSet(self->maxs, 16, 16, -8);
-	self->movetype = MOVETYPE_TOSS;
-	self->svflags |= SVF_DEADMONSTER;
-	self->nextthink = 0;
-	gi.linkentity(self);
+	monster_dynamic_dead(self);
 }
 
 void
@@ -1078,7 +1033,7 @@ brain_die(edict_t *self, edict_t *inflictor /* unused */, edict_t *attacker /* u
 	if (self->health <= self->gib_health)
 	{
 		gi.sound(self, CHAN_VOICE, gi.soundindex("misc/udeath.wav"),
-			   	1, ATTN_NORM, 0);
+				1, ATTN_NORM, 0);
 
 		for (n = 0; n < 2; n++)
 		{
@@ -1088,12 +1043,10 @@ brain_die(edict_t *self, edict_t *inflictor /* unused */, edict_t *attacker /* u
 
 		for (n = 0; n < 4; n++)
 		{
-			ThrowGib(self, "models/objects/gibs/sm_meat/tris.md2",
-					damage, GIB_ORGANIC);
+			ThrowGib(self, NULL, damage, GIB_ORGANIC);
 		}
 
-		ThrowHead(self, "models/objects/gibs/head2/tris.md2",
-				damage, GIB_ORGANIC);
+		ThrowHead(self, NULL, damage, GIB_ORGANIC);
 		self->deadflag = DEAD_DEAD;
 		return;
 	}
@@ -1187,7 +1140,7 @@ SP_monster_brain(edict_t *self)
 	VectorSet(self->mins, -16, -16, -24);
 	VectorSet(self->maxs, 16, 16, 32);
 
-	self->health = 300;
+	self->health = 300 * st.health_multiplier;
 	self->gib_health = -150;
 	self->mass = 400;
 
@@ -1211,7 +1164,7 @@ SP_monster_brain(edict_t *self)
 
 	gi.linkentity(self);
 
-	self->monsterinfo.currentmove = &brain_move_stand;
+	brain_stand(self);
 	self->monsterinfo.scale = MODEL_SCALE;
 
 	walkmonster_start(self);

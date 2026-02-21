@@ -37,12 +37,12 @@ typedef enum
 int OGG_Status(void);
 void OGG_InitTrackList(void);
 void OGG_Init(void);
-void OGG_PlayTrack(int trackNo, qboolean cdtrack, qboolean immediate);
+void OGG_PlayTrack(const char* track, qboolean cdtrack, qboolean immediate);
 void OGG_RecoverState(void);
 void OGG_SaveState(void);
 void OGG_Shutdown(void);
 void OGG_Stop(void);
 void OGG_Stream(void);
-void OGG_LoadAsWav(char *filename, wavinfo_t *info, void **buffer);
+void OGG_LoadAsWav(const char *filename, wavinfo_t *info, void **buffer);
 
 #endif

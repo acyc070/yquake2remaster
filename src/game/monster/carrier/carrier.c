@@ -41,12 +41,6 @@ void carrier_prep_spawn(edict_t *self);
 void CarrierMachineGunHold(edict_t *self);
 void CarrierRocket(edict_t *self);
 
-qboolean infront(edict_t *self, edict_t *other);
-qboolean inback(edict_t *self, edict_t *other);
-qboolean below(edict_t *self, edict_t *other);
-void drawbbox(edict_t *self);
-void ED_CallSpawn(edict_t *ent);
-
 static int sound_pain1;
 static int sound_pain2;
 static int sound_pain3;
@@ -467,11 +461,13 @@ CarrierSpawn(edict_t *self)
 		/* the second flier should be a kamikaze flyer */
 		if (mytime != 2)
 		{
-			ent = CreateMonster(spawnpoint, self->s.angles, "monster_flyer");
+			ent = CreateFlyMonster(spawnpoint, self->s.angles,
+				flyer_mins, flyer_maxs, "monster_flyer");
 		}
 		else
 		{
-			ent = CreateMonster(spawnpoint, self->s.angles, "monster_kamikaze");
+			ent = CreateFlyMonster(spawnpoint, self->s.angles,
+				flyer_mins, flyer_maxs, "monster_kamikaze");
 		}
 
 		if (!ent)
@@ -1330,10 +1326,7 @@ carrier_dead(edict_t *self)
 
 	VectorSet(self->mins, -56, -56, 0);
 	VectorSet(self->maxs, 56, 56, 80);
-	self->movetype = MOVETYPE_TOSS;
-	self->svflags |= SVF_DEADMONSTER;
-	self->nextthink = 0;
-	gi.linkentity(self);
+	monster_dynamic_dead(self);
 }
 
 void
@@ -1538,7 +1531,7 @@ SP_monster_carrier(edict_t *self)
 	VectorSet(self->maxs, 56, 56, 44);
 
 	/* 2000 - 4000 health */
-	self->health = Q_max(2000, 2000 + 1000 * ((skill->value) - 1));
+	self->health = Q_max(2000, 2000 + 1000 * ((skill->value) - 1)) * st.health_multiplier;
 
 	/* add health in coop (500 * skill) */
 	if (coop->value)

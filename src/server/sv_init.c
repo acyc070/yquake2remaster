@@ -25,23 +25,49 @@
  */
 
 #include "header/server.h"
+#include <limits.h>
 
-#define GAMEMODE_SP 0
-#define GAMEMODE_COOP 1
-#define GAMEMODE_DM 2
+/* initialize the entities array to at least this many entities */
+#define ALLOC_ENTITIES_MIN 32
+#define MAX_SV_ENTNUM SHRT_MAX
 
 server_static_t svs; /* persistant server info */
 server_t sv; /* local server */
 
+static entity_xstate_t *
+SV_AllocBaseline(int entnum)
+{
+	if ((entnum < 0) || (entnum > MAX_SV_ENTNUM))
+	{
+		return NULL;
+	}
+
+	if (entnum >= sv.numbaselines)
+	{
+		int nextpow2;
+
+		nextpow2 = (sv.numbaselines || (entnum >= ALLOC_ENTITIES_MIN)) ?
+			(int)NextPow2gt(entnum) : ALLOC_ENTITIES_MIN;
+
+		sv.baselines = Z_Realloc(sv.baselines, nextpow2 * sizeof(entity_xstate_t));
+		sv.numbaselines = nextpow2;
+	}
+
+	return &sv.baselines[entnum];
+}
+
 static int
 SV_FindIndex(const char *name, int start, int max, qboolean create)
 {
-	int i;
+	size_t len, space;
+	int i, protocol;
 
 	if (!name || !name[0])
 	{
 		return 0;
 	}
+
+	protocol = sv_client ? sv_client->protocol : PROTOCOL_VERSION;
 
 	for (i = 1; i < max && sv.configstrings[start + i][0]; i++)
 	{
@@ -58,17 +84,47 @@ SV_FindIndex(const char *name, int start, int max, qboolean create)
 
 	if (i == max)
 	{
-		Com_Error(ERR_DROP, "*Index: overflow");
+		if (!StringList_IsInList(&sv.configstrings_overflow, name))
+		{
+			if (sv.state != ss_loading)
+			{
+				Com_Printf("Failed to load %s: configstrings overflowed\n", name);
+			}
+
+			StringList_Add(&sv.configstrings_overflow, name);
+		}
+
+		return 0;
 	}
 
-	Q_strlcpy(sv.configstrings[start + i], name, sizeof(sv.configstrings[start + i]));
+	space = sizeof(sv.configstrings[start + i]);
+	len = Q_strlcpy(sv.configstrings[start + i], name, space);
+
+	if (len >= space)
+	{
+		sv.configstrings[start + i][0] = '\0';
+
+		if (!StringList_IsInList(&sv.configstrings_overflow, name))
+		{
+			if (sv.state != ss_loading)
+			{
+				Com_Printf("Failed to load %s: configstring too long: " YQ2_COM_PRIdS " > " YQ2_COM_PRIdS "\n",
+					name, len, space - 1);
+			}
+
+			StringList_Add(&sv.configstrings_overflow, name);
+		}
+
+		return 0;
+	}
 
 	if (sv.state != ss_loading)
 	{
 		/* send the update to everyone */
 		MSG_WriteChar(&sv.multicast, svc_configstring);
-		MSG_WriteShort(&sv.multicast, start + i);
-		MSG_WriteString(&sv.multicast, name);
+		/* i in native server range */
+		MSG_WriteConfigString(&sv.multicast,
+			P_ConvertConfigStringTo(start + i, protocol), name);
 		SV_Multicast(vec3_origin, MULTICAST_ALL_R);
 	}
 
@@ -94,6 +150,17 @@ SV_ImageIndex(const char *name)
 }
 
 /*
+ * Combine entity_state and entity_rrstate_t
+ */
+void
+SV_GetEntityState(const edict_t *svent, entity_xstate_t *state)
+{
+	memcpy(state, &svent->s, sizeof(entity_state_t));
+	memcpy((byte *)state + sizeof(entity_state_t),
+		&svent->rrs, sizeof(entity_rrstate_t));
+}
+
+/*
  * Entity baselines are used to compress the update messages
  * to the clients -- only the fields that differ from the
  * baseline will be transmitted
@@ -101,6 +168,7 @@ SV_ImageIndex(const char *name)
 static void
 SV_CreateBaseline(void)
 {
+	entity_xstate_t *es;
 	edict_t *svent;
 	int entnum;
 
@@ -122,7 +190,12 @@ SV_CreateBaseline(void)
 
 		/* take current state as baseline */
 		VectorCopy(svent->s.origin, svent->s.old_origin);
-		sv.baselines[entnum] = svent->s;
+
+		es = SV_AllocBaseline(entnum);
+		if (es)
+		{
+			SV_GetEntityState(svent, es);
+		}
 	}
 }
 
@@ -130,8 +203,10 @@ static void
 SV_CheckForSavegame(qboolean isautosave)
 {
 	char name[MAX_OSPATH];
+	char savename[MAX_OSPATH];
 	FILE *f;
-	int i;
+
+	Com_DPrintf("%s()\n", __func__);
 
 	if (sv_noreload->value)
 	{
@@ -143,8 +218,11 @@ SV_CheckForSavegame(qboolean isautosave)
 		return;
 	}
 
+	Q_strlcpy(savename, sv.name, sizeof(savename));
+	SV_CleanLevelFileName(savename);
+
 	Com_sprintf(name, sizeof(name), "%s/save/current/%s.sav",
-			FS_Gamedir(), sv.name);
+			FS_Gamedir(), savename);
 	f = Q_fopen(name, "rb");
 
 	if (!f)
@@ -159,11 +237,12 @@ SV_CheckForSavegame(qboolean isautosave)
 	/* get configstrings and areaportals */
 	SV_ReadLevelFile();
 
-	if (!sv.loadgame || (sv.loadgame && isautosave))
+	if (!sv.loadgame || isautosave)
 	{
 		/* coming back to a level after being in a different
 		   level, so run it for ten seconds */
 		server_state_t previousState;
+		int i;
 
 		previousState = sv.state;
 		sv.state = ss_loading;
@@ -185,8 +264,10 @@ static void
 SV_SpawnServer(char *server, char *spawnpoint, server_state_t serverstate,
 		qboolean attractloop, qboolean loadgame, qboolean isautosave)
 {
-	int i;
+	const char *entity_orig;
 	unsigned checksum;
+	char *entity;
+	int i, entitysize;
 
 	if (attractloop)
 	{
@@ -206,13 +287,14 @@ SV_SpawnServer(char *server, char *spawnpoint, server_state_t serverstate,
 	Com_SetServerState(sv.state);
 
 	/* wipe the entire per-level structure */
+	SV_ClearBaselines();
 	memset(&sv, 0, sizeof(sv));
 	svs.realtime = 0;
 	sv.loadgame = loadgame;
 	sv.attractloop = attractloop;
 
 	/* save name for levels that don't set message */
-	strcpy(sv.configstrings[CS_NAME], server);
+	Q_strlcpy(sv.configstrings[CS_NAME], server, sizeof(sv.configstrings[CS_NAME]));
 
 	if (Cvar_VariableValue("deathmatch"))
 	{
@@ -227,7 +309,7 @@ SV_SpawnServer(char *server, char *spawnpoint, server_state_t serverstate,
 
 	SZ_Init(&sv.multicast, sv.multicast_buf, sizeof(sv.multicast_buf));
 
-	strcpy(sv.name, server);
+	Q_strlcpy(sv.name, server, sizeof(sv.name));
 
 	/* leave slots at start for clients only */
 	for (i = 0; i < maxclients->value; i++)
@@ -243,8 +325,9 @@ SV_SpawnServer(char *server, char *spawnpoint, server_state_t serverstate,
 
 	sv.time = 1000;
 
-	strcpy(sv.name, server);
-	strcpy(sv.configstrings[CS_NAME], server);
+	Q_strlcpy(sv.name, server, sizeof(sv.name));
+	Q_strlcpy(sv.configstrings[CS_NAME], server,
+		sizeof(sv.configstrings[CS_NAME]));
 
 	if (serverstate != ss_game)
 	{
@@ -277,8 +360,30 @@ SV_SpawnServer(char *server, char *spawnpoint, server_state_t serverstate,
 	sv.state = ss_loading;
 	Com_SetServerState(sv.state);
 
+	/* copy original entities string */
+	entity_orig = CM_EntityString(&entitysize);
+	if (entitysize < 0)
+	{
+		entitysize = 0;
+	}
+
+	entity = malloc(entitysize + 1);
+	YQ2_COM_CHECK_OOM(entity, "malloc()", entitysize + 1)
+	if (!entity)
+	{
+		/* unaware about YQ2_ATTR_NORETURN_FUNCPTR? */
+		return;
+	}
+
+	if (entitysize)
+	{
+		memcpy(entity, entity_orig, entitysize);
+	}
+
+	entity[entitysize] = 0; /* jit entity bug - null terminate the entity string! */
 	/* load and spawn all other entities */
-	ge->SpawnEntities(sv.name, CM_EntityString(), spawnpoint);
+	ge->SpawnEntities(sv.name, entity, spawnpoint);
+	free(entity);
 
 	/* run two frames to allow everything to settle */
 	ge->RunFrame();
@@ -289,6 +394,7 @@ SV_SpawnServer(char *server, char *spawnpoint, server_state_t serverstate,
 		(int)strtol(sv.configstrings[CS_MAPCHECKSUM], (char **)NULL, 10))
 	{
 		Com_Error(ERR_DROP, "Game DLL corrupted server configstrings");
+		return;
 	}
 
 	/* all precaches are complete */
@@ -311,7 +417,7 @@ SV_SpawnServer(char *server, char *spawnpoint, server_state_t serverstate,
  * A brand new game has been started
  */
 static void
-SV_ClearGamemodeCvar(char *name, char *msg, int flags)
+SV_ClearGamemodeCvar(const char *name, char *msg, int flags)
 {
 	Cvar_FullSet(name, "0", flags);
 
@@ -382,7 +488,6 @@ void
 SV_InitGame(void)
 {
 	int i, gamemode;
-	edict_t *ent;
 	char idmaster[32];
 
 	if (svs.initialized)
@@ -431,10 +536,11 @@ SV_InitGame(void)
 		Cvar_FullSet("maxclients", "1", CVAR_SERVERINFO | CVAR_LATCH);
 	}
 
+	svs.gamemode = gamemode;
 	svs.spawncount = randk();
 	svs.clients = Z_Malloc(sizeof(client_t) * maxclients->value);
-	svs.num_client_entities = maxclients->value * UPDATE_BACKUP * 64;
-	svs.client_entities = Z_Malloc( sizeof(entity_state_t) * svs.num_client_entities);
+	svs.num_client_entities = maxclients->value * UPDATE_BACKUP * MAX_PACKET_ENTITIES;
+	svs.client_entities = Z_Malloc( sizeof(entity_xstate_t) * svs.num_client_entities);
 
 	/* init network stuff */
 	if (dedicated->value)
@@ -463,9 +569,7 @@ SV_InitGame(void)
 
 	for (i = 0; i < maxclients->value; i++)
 	{
-		ent = EDICT_NUM(i + 1);
-		ent->s.number = i + 1;
-		svs.clients[i].edict = ent;
+		CLNUM_EDICT(i)->s.number = i + 1;
 		memset(&svs.clients[i].lastcmd, 0, sizeof(svs.clients[i].lastcmd));
 	}
 }
@@ -483,12 +587,13 @@ SV_InitGame(void)
  *  map tram.cin+jail_e3
  */
 void
-SV_Map(qboolean attractloop, char *levelstring, qboolean loadgame, qboolean isautosave)
+SV_Map(qboolean attractloop, const char *levelstring, qboolean loadgame, qboolean isautosave)
 {
 	char level[MAX_QPATH];
 	char *ch;
-	int l;
+	size_t l;
 	char spawnpoint[MAX_QPATH];
+	const char *ext;
 
 	sv.loadgame = loadgame;
 	sv.attractloop = attractloop;
@@ -498,7 +603,7 @@ SV_Map(qboolean attractloop, char *levelstring, qboolean loadgame, qboolean isau
 		SV_InitGame(); /* the game is just starting */
 	}
 
-	strcpy(level, levelstring);
+	Q_strlcpy(level, levelstring, sizeof(level));
 
 	/* if there is a + in the map, set nextserver to the remainder */
 	ch = strstr(level, "+");
@@ -533,7 +638,7 @@ SV_Map(qboolean attractloop, char *levelstring, qboolean loadgame, qboolean isau
 	if (ch)
 	{
 		*ch = 0;
-		strcpy(spawnpoint, ch + 1);
+		Q_strlcpy(spawnpoint, ch + 1, sizeof(spawnpoint));
 	}
 	else
 	{
@@ -549,11 +654,14 @@ SV_Map(qboolean attractloop, char *levelstring, qboolean loadgame, qboolean isau
 		--l;
 	}
 
-	if ((l > 4) && (!strcmp(level + l - 4, ".cin") ||
-					!strcmp(level + l - 4, ".ogv") ||
-					!strcmp(level + l - 4, ".roq") ||
-					!strcmp(level + l - 4, ".mpg") ||
-					!strcmp(level + l - 4, ".smk")))
+	ext = (l <= 4) ? NULL : level + l - 4;
+
+	if (ext && (!strcmp(ext, ".cin") ||
+				!strcmp(ext, ".ogv") ||
+				!strcmp(ext, ".avi") ||
+				!strcmp(ext, ".roq") ||
+				!strcmp(ext, ".mpg") ||
+				!strcmp(ext, ".smk")))
 	{
 #ifndef DEDICATED_ONLY
 		SCR_BeginLoadingPlaque(); /* for local system */
@@ -561,7 +669,7 @@ SV_Map(qboolean attractloop, char *levelstring, qboolean loadgame, qboolean isau
 		SV_BroadcastCommand("changing\n");
 		SV_SpawnServer(level, spawnpoint, ss_cinematic, attractloop, loadgame, isautosave);
 	}
-	else if ((l > 4) && !strcmp(level + l - 4, ".dm2"))
+	else if (ext && !strcmp(ext, ".dm2"))
 	{
 #ifndef DEDICATED_ONLY
 		SCR_BeginLoadingPlaque(); /* for local system */
@@ -569,7 +677,11 @@ SV_Map(qboolean attractloop, char *levelstring, qboolean loadgame, qboolean isau
 		SV_BroadcastCommand("changing\n");
 		SV_SpawnServer(level, spawnpoint, ss_demo, attractloop, loadgame, isautosave);
 	}
-	else if ((l > 4) && !strcmp(level + l - 4, ".pcx"))
+	else if (ext && (!strcmp(ext, ".pcx") ||
+					!strcmp(ext, ".lmp") ||
+					!strcmp(ext, ".tga") ||
+					!strcmp(ext, ".jpg") ||
+					!strcmp(ext, ".png")))
 	{
 #ifndef DEDICATED_ONLY
 		SCR_BeginLoadingPlaque(); /* for local system */
@@ -583,7 +695,14 @@ SV_Map(qboolean attractloop, char *levelstring, qboolean loadgame, qboolean isau
 		SCR_BeginLoadingPlaque(); /* for local system */
 #endif
 		SV_BroadcastCommand("changing\n");
-		SV_SendClientMessages();
+
+		/* for some reason calling send messages here causes a lengthy reconnect delay */
+		if (!(SV_Optimizations() & OPTIMIZE_RECONNECT))
+		{
+			SV_SendClientMessages();
+			SV_SendPrepClientMessages();
+		}
+
 		SV_SpawnServer(level, spawnpoint, ss_game, attractloop, loadgame, isautosave);
 		Cbuf_CopyToDefer();
 	}

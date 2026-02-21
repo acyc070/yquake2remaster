@@ -30,46 +30,15 @@
 #define HEALTH_IGNORE_MAX 1
 #define HEALTH_TIMED 2
 
-qboolean Pickup_Weapon(edict_t *ent, edict_t *other);
-void Use_Weapon(edict_t *ent, gitem_t *inv);
-void Use_Weapon2(edict_t *ent, gitem_t *inv);
-void Drop_Weapon(edict_t *ent, gitem_t *inv);
-
-void Weapon_Blaster(edict_t *ent);
-void Weapon_Shotgun(edict_t *ent);
-void Weapon_SuperShotgun(edict_t *ent);
-void Weapon_Machinegun(edict_t *ent);
-void Weapon_Chaingun(edict_t *ent);
-void Weapon_HyperBlaster(edict_t *ent);
-void Weapon_RocketLauncher(edict_t *ent);
-void Weapon_Grenade(edict_t *ent);
-void Weapon_GrenadeLauncher(edict_t *ent);
-void Weapon_Railgun(edict_t *ent);
-void Weapon_BFG(edict_t *ent);
-void Weapon_ChainFist(edict_t *ent);
-void Weapon_Disintegrator(edict_t *ent);
-void Weapon_ETF_Rifle(edict_t *ent);
-void Weapon_Heatbeam(edict_t *ent);
-void Weapon_Prox(edict_t *ent);
-void Weapon_Tesla(edict_t *ent);
-void Weapon_ProxLauncher(edict_t *ent);
-
-void Weapon_Ionripper(edict_t *ent);
-void Weapon_Phalanx(edict_t *ent);
-void Weapon_Trap(edict_t *ent);
-
-static gitem_armor_t jacketarmor_info = {25, 50, .30, .00, ARMOR_JACKET};
-static gitem_armor_t combatarmor_info = {50, 100, .60, .30, ARMOR_COMBAT};
-static gitem_armor_t bodyarmor_info = {100, 200, .80, .60, ARMOR_BODY};
+gitem_armor_t jacketarmor_info = {25, 50, .30, .00, ARMOR_JACKET};
+gitem_armor_t combatarmor_info = {50, 100, .60, .30, ARMOR_COMBAT};
+gitem_armor_t bodyarmor_info = {100, 200, .80, .60, ARMOR_BODY};
 
 static int jacket_armor_index;
 static int combat_armor_index;
 static int body_armor_index;
 static int power_screen_index;
 static int power_shield_index;
-
-void Use_Quad(edict_t *ent, gitem_t *item);
-void Use_QuadFire(edict_t *ent, gitem_t *item);
 
 static int quad_drop_timeout_hack;
 static int quad_fire_drop_timeout_hack;
@@ -87,8 +56,8 @@ GetItemByIndex(int index)
 	return &itemlist[index];
 }
 
-gitem_t *
-FindItemByClassname(char *classname)
+static gitem_t *
+FindItemInList(const char *classname, gitem_t *list, int count)
 {
 	int i;
 	gitem_t *it;
@@ -98,9 +67,9 @@ FindItemByClassname(char *classname)
 		return NULL;
 	}
 
-	it = itemlist;
+	it = list;
 
-	for (i = 0; i < game.num_items; i++, it++)
+	for (i = 0; i < count; i++, it++)
 	{
 		if (!it->classname)
 		{
@@ -117,7 +86,13 @@ FindItemByClassname(char *classname)
 }
 
 gitem_t *
-FindItem(char *pickup_name)
+FindItemByClassname(const char *classname)
+{
+	return FindItemInList(classname, itemlist, game.num_items);
+}
+
+gitem_t *
+FindItem(const char *pickup_name)
 {
 	int i;
 	gitem_t *it;
@@ -158,8 +133,6 @@ DoRespawn(edict_t *ent)
 	if (ent->team)
 	{
 		edict_t *master;
-		int count;
-		int choice;
 
 		master = ent->teammaster;
 
@@ -173,6 +146,8 @@ DoRespawn(edict_t *ent)
 		}
 		else
 		{
+			int count, choice;
+
 			for (count = 0, ent = master; ent; ent = ent->chain, count++)
 			{
 			}
@@ -198,6 +173,11 @@ DoRespawn(edict_t *ent)
 			G_FreeEdict(ent);
 			ent = newEnt;
 		}
+	}
+
+	if (!ent)
+	{
+		return;
 	}
 
 	ent->svflags &= ~SVF_NOCLIENT;
@@ -270,6 +250,32 @@ Pickup_Powerup(edict_t *ent, edict_t *other)
 			}
 
 			ent->item->use(other, ent->item);
+		}
+	}
+
+	return true;
+}
+
+qboolean
+Pickup_General(edict_t *ent, edict_t *other)
+{
+	if (!ent || !other)
+	{
+		return false;
+	}
+
+	if (other->client->pers.inventory[ITEM_INDEX(ent->item)])
+	{
+		return false;
+	}
+
+	other->client->pers.inventory[ITEM_INDEX(ent->item)]++;
+
+	if (deathmatch->value)
+	{
+		if (!(ent->spawnflags & DROPPED_ITEM))
+		{
+			SetRespawn(ent, ent->item->quantity);
 		}
 	}
 
@@ -814,14 +820,9 @@ Pickup_Doppleganger(edict_t *ent, edict_t *other)
 qboolean
 Pickup_Sphere(edict_t *ent, edict_t *other)
 {
-	int quantity;
+	int quantity = 0;
 
-	if (!ent || !other)
-	{
-		return false;
-	}
-
-	if (other->client && other->client->owned_sphere)
+	if (!ent || !other || !other->client || other->client->owned_sphere)
 	{
 		return false;
 	}
@@ -855,12 +856,12 @@ Pickup_Sphere(edict_t *ent, edict_t *other)
 void
 Use_Defender(edict_t *ent, gitem_t *item)
 {
-	if (!ent || !item)
+	if (!ent || !item || !ent->client)
 	{
 		return;
 	}
 
-	if (ent->client && ent->client->owned_sphere)
+	if (ent->client->owned_sphere)
 	{
 		gi.cprintf(ent, PRINT_HIGH, "Only one sphere at a time!\n");
 		return;
@@ -875,12 +876,12 @@ Use_Defender(edict_t *ent, gitem_t *item)
 void
 Use_Hunter(edict_t *ent, gitem_t *item)
 {
-	if (!ent || !item)
+	if (!ent || !item || !ent->client)
 	{
 		return;
 	}
 
-	if (ent->client && ent->client->owned_sphere)
+	if (ent->client->owned_sphere)
 	{
 		gi.cprintf(ent, PRINT_HIGH, "Only one sphere at a time!\n");
 		return;
@@ -895,12 +896,12 @@ Use_Hunter(edict_t *ent, gitem_t *item)
 void
 Use_Vengeance(edict_t *ent, gitem_t *item)
 {
-	if (!ent || !item)
+	if (!ent || !item || !ent->client)
 	{
 		return;
 	}
 
-	if (ent->client && ent->client->owned_sphere)
+	if (ent->client->owned_sphere)
 	{
 		gi.cprintf(ent, PRINT_HIGH, "Only one sphere at a time!\n");
 		return;
@@ -919,7 +920,7 @@ Use_Quad(edict_t *ent, gitem_t *item)
 {
 	int timeout;
 
-	if (!ent || !item)
+	if (!ent || !item || !ent->client)
 	{
 		return;
 	}
@@ -957,7 +958,7 @@ Use_QuadFire(edict_t *ent, gitem_t *item)
 {
 	int timeout;
 
-	if (!ent || !item)
+	if (!ent || !item || !ent->client)
 	{
 		return;
 	}
@@ -992,7 +993,7 @@ Use_QuadFire(edict_t *ent, gitem_t *item)
 void
 Use_Breather(edict_t *ent, gitem_t *item)
 {
-	if (!ent || !item)
+	if (!ent || !item || !ent->client)
 	{
 		return;
 	}
@@ -1015,7 +1016,7 @@ Use_Breather(edict_t *ent, gitem_t *item)
 void
 Use_Envirosuit(edict_t *ent, gitem_t *item)
 {
-	if (!ent || !item)
+	if (!ent || !item || !ent->client)
 	{
 		return;
 	}
@@ -1057,6 +1058,28 @@ Use_Invulnerability(edict_t *ent, gitem_t *item)
 
 	gi.sound(ent, CHAN_ITEM, gi.soundindex(
 					"items/protect.wav"), 1, ATTN_NORM, 0);
+}
+
+void
+Use_Invisibility(edict_t *ent, gitem_t *item)
+{
+	if (!ent || !item)
+	{
+		return;
+	}
+
+	ent->client->pers.inventory[ITEM_INDEX(item)]--;
+
+	if (ent->client->invisible_framenum > level.framenum)
+	{
+		ent->client->invisible_framenum += 300;
+	}
+	else
+	{
+		ent->client->invisible_framenum = level.framenum + 300;
+	}
+
+	gi.sound(ent, CHAN_ITEM, gi.soundindex("items/protect.wav"), 1, ATTN_NORM, 0);
 }
 
 /* ====================================================================== */
@@ -1123,12 +1146,7 @@ Add_Ammo(edict_t *ent, gitem_t *item, int count)
 	int index;
 	int max;
 
-	if (!ent || !item)
-	{
-		return false;
-	}
-
-	if (!ent->client)
+	if (!ent || !item || !ent->client)
 	{
 		return false;
 	}
@@ -1384,12 +1402,7 @@ Pickup_Health(edict_t *ent, edict_t *other)
 int
 ArmorIndex(edict_t *ent)
 {
-	if (!ent)
-	{
-		return 0;
-	}
-
-	if (!ent->client)
+	if (!ent || !ent->client)
 	{
 		return 0;
 	}
@@ -1444,16 +1457,12 @@ Pickup_Armor(edict_t *ent, edict_t *other)
 			other->client->pers.inventory[old_armor_index] += 2;
 		}
 	}
-
-	/* if player has no armor, just use it */
-	else if (!old_armor_index)
+	else if (!old_armor_index) /* if player has no armor, just use it */
 	{
 		other->client->pers.inventory[ITEM_INDEX(ent->item)] =
 			newinfo->base_count;
 	}
-
-	/* use the better armor */
-	else
+	else /* use the better armor */
 	{
 		/* get info on old armor */
 		if (old_armor_index == jacket_armor_index)
@@ -1464,7 +1473,7 @@ Pickup_Armor(edict_t *ent, edict_t *other)
 		{
 			oldinfo = &combatarmor_info;
 		}
-		else /* (old_armor_index == body_armor_index) */
+		else
 		{
 			oldinfo = &bodyarmor_info;
 		}
@@ -1676,7 +1685,7 @@ Touch_Item(edict_t *ent, edict_t *other, cplane_t *plane /* unused */, csurface_
 		other->client->ps.stats[STAT_PICKUP_ICON] =
 			gi.imageindex(ent->item->icon);
 		other->client->ps.stats[STAT_PICKUP_STRING] =
-		   	CS_ITEMS + ITEM_INDEX(ent->item);
+			CS_ITEMS + ITEM_INDEX(ent->item);
 		other->client->pickup_msg_time = level.time + 3.0;
 
 		/* change selected item */
@@ -1684,7 +1693,7 @@ Touch_Item(edict_t *ent, edict_t *other, cplane_t *plane /* unused */, csurface_
 		{
 			other->client->pers.selected_item =
 				other->client->ps.stats[STAT_SELECTED_ITEM] =
-			   	ITEM_INDEX(ent->item);
+				ITEM_INDEX(ent->item);
 		}
 
 		if (ent->item->pickup == Pickup_Health)
@@ -1838,11 +1847,11 @@ Drop_Item(edict_t *ent, gitem_t *item)
 
 	if (frandk() > 0.5)
 	{
-		dropped->s.angles[1] += frandk()*45;
+		dropped->s.angles[YAW] += frandk()*45;
 	}
 	else
 	{
-		dropped->s.angles[1] -= frandk()*45;
+		dropped->s.angles[YAW] -= frandk()*45;
 	}
 
 	VectorSet(dropped->mins, -15, -15, -15);
@@ -1910,11 +1919,66 @@ Use_Item(edict_t *ent, edict_t *other /* unused */, edict_t *activator /* unused
 /* ====================================================================== */
 
 void
+FixEntityPosition(edict_t *ent)
+{
+	int i;
+
+	for (i = 0; i < 3; i++)
+	{
+		int j;
+
+		for (j = 0; j < 3; j++)
+		{
+			vec3_t pos, diff;
+			trace_t tr_pos;
+			int k;
+
+			VectorCopy(ent->s.origin, pos);
+
+			VectorSubtract(ent->maxs, ent->mins, diff);
+
+			/* move by up */
+			for (k = 0; k < i + 1; k++)
+			{
+				int v;
+
+				v = (j + k) % 3;
+				pos[v] = ent->s.origin[v] + diff[v];
+			}
+
+			tr_pos = gi.trace(pos, ent->mins, ent->maxs, ent->s.origin, ent, MASK_SOLID);
+			if (!tr_pos.startsolid)
+			{
+				VectorCopy(tr_pos.endpos, ent->s.origin);
+				return;
+			}
+
+			/* move by down */
+			for (k = 0; k < i + 1; k++)
+			{
+				int v;
+
+				v = (j + k) % 3;
+				pos[v] = ent->s.origin[v] - diff[v];
+			}
+
+			tr_pos = gi.trace(pos, ent->mins, ent->maxs, ent->s.origin, ent, MASK_SOLID);
+			if (!tr_pos.startsolid)
+			{
+				VectorCopy(tr_pos.endpos, ent->s.origin);
+				return;
+			}
+		}
+	}
+}
+
+void
 droptofloor(edict_t *ent)
 {
-	trace_t tr;
 	vec3_t dest;
+	trace_t tr;
 	float *v;
+	int i;
 
 	if (!ent)
 	{
@@ -1935,6 +1999,23 @@ droptofloor(edict_t *ent)
 		gi.setmodel(ent, ent->item->world_model);
 	}
 
+	if (strcmp(ent->classname, "key_power_cube"))
+	{
+		/* key_power_cube is inside walls */
+		vec3_t mins, maxs;
+
+		/* set real size of item model except height to items fly hack */
+		VectorCopy(ent->mins, mins);
+		VectorCopy(ent->maxs, maxs);
+		gi.GetModelInfo(ent->s.modelindex, NULL, mins, maxs);
+
+		for (i = 0; i < 2; i++)
+		{
+			ent->mins[i] = mins[i];
+			ent->maxs[i] = maxs[i];
+		}
+	}
+
 	ent->solid = SOLID_TRIGGER;
 	ent->movetype = MOVETYPE_TOSS;
 	ent->touch = Touch_Item;
@@ -1946,6 +2027,13 @@ droptofloor(edict_t *ent)
 
 	if (tr.startsolid)
 	{
+		FixEntityPosition(ent);
+
+		tr = gi.trace(ent->s.origin, ent->mins, ent->maxs, dest, ent, MASK_SOLID);
+	}
+
+	if (tr.startsolid)
+	{
 		if (strcmp(ent->classname, "foodcube") == 0)
 		{
 			VectorCopy(ent->s.origin, tr.endpos);
@@ -1953,7 +2041,8 @@ droptofloor(edict_t *ent)
 		}
 		else
 		{
-			gi.dprintf("droptofloor: %s startsolid at %s\n",
+			gi.dprintf("%s: %s startsolid at %s\n",
+					__func__,
 					ent->classname,
 					vtos(ent->s.origin));
 			G_FreeEdict(ent);
@@ -1983,7 +2072,7 @@ droptofloor(edict_t *ent)
 	{
 		ent->solid = SOLID_BBOX;
 		ent->touch = NULL;
-		ent->s.effects &= ~EF_ROTATE;
+		ent->s.effects &= ~(EF_ROTATE | EF_BOB);
 		ent->s.renderfx &= ~RF_GLOW;
 	}
 
@@ -2068,6 +2157,7 @@ PrecacheItem(gitem_t *it)
 		if ((len >= MAX_QPATH) || (len < 5))
 		{
 			gi.error("PrecacheItem: %s has bad precache string", it->classname);
+			return;
 		}
 
 		memcpy(data, start, len);
@@ -2156,6 +2246,11 @@ SpawnItem(edict_t *ent, gitem_t *item)
 	if (!ent || !item)
 	{
 		return;
+	}
+
+	if (g_itemsbobeffect->value && (item->world_model_flags & EF_ROTATE))
+	{
+		item->world_model_flags |= EF_BOB;
 	}
 
 	if (!g_disruptor->value)
@@ -2325,13 +2420,34 @@ SpawnItem(edict_t *ent, gitem_t *item)
 	}
 }
 
+void
+P_ToggleFlashlight(edict_t *ent, qboolean state)
+{
+	if (!!(ent->flags & FL_FLASHLIGHT) == state)
+	{
+		return;
+	}
+
+	ent->flags ^= FL_FLASHLIGHT;
+
+	gi.sound(ent, CHAN_AUTO,
+		gi.soundindex(ent->flags & FL_FLASHLIGHT ?
+			"items/flashlight_on.wav" : "items/flashlight_off.wav"),
+		1.f, ATTN_STATIC, 0);
+}
+
+void
+Use_Flashlight(edict_t *ent, gitem_t *inv)
+{
+	P_ToggleFlashlight(ent, !(ent->flags & FL_FLASHLIGHT));
+}
+
 /* ====================================================================== */
 
 static const gitem_t gameitemlist[] = {
 	{
 		NULL
 	}, /* leave index 0 alone */
-
 
 	/*
 	 * QUAKED item_armor_body (.3 .3 1) (-16 -16 -16) (16 16 16) TRIGGER_SPAWN
@@ -2483,12 +2599,12 @@ static const gitem_t gameitemlist[] = {
 	 */
 	{
 		"weapon_grapple",
-		NULL,
+		Pickup_Weapon,
 		Use_Weapon,
-		NULL,
+		Drop_Weapon,
 		CTFWeapon_Grapple,
 		"misc/w_pkup.wav",
-		NULL, 0,
+		"models/weapons/grapple/hook/tris.md2", EF_ROTATE,
 		"models/weapons/grapple/tris.md2",
 		"w_grapple",
 		"Grapple",
@@ -2509,12 +2625,12 @@ static const gitem_t gameitemlist[] = {
 	 */
 	{
 		"weapon_blaster",
-		NULL,
+		Pickup_Weapon,
 		Use_Weapon,
-		NULL,
+		Drop_Weapon,
 		Weapon_Blaster,
 		"misc/w_pkup.wav",
-		NULL, 0,
+		"models/weapons/g_blast/tris.md2", EF_ROTATE,
 		"models/weapons/v_blast/tris.md2",
 		"w_blaster",
 		"Blaster",
@@ -2597,7 +2713,6 @@ static const gitem_t gameitemlist[] = {
 		WEAP_MACHINEGUN,
 		NULL,
 		0,
-
 		"weapons/machgf1b.wav weapons/machgf2b.wav weapons/machgf3b.wav weapons/machgf4b.wav weapons/machgf5b.wav"
 	},
 
@@ -2622,7 +2737,6 @@ static const gitem_t gameitemlist[] = {
 		WEAP_CHAINGUN,
 		NULL,
 		0,
-
 		"weapons/chngnu1a.wav weapons/chngnl1a.wav weapons/machgf3b.wav` weapons/chngnd1a.wav"
 	},
 
@@ -2671,7 +2785,6 @@ static const gitem_t gameitemlist[] = {
 		WEAP_GRENADES,
 		NULL,
 		AMMO_GRENADES,
-
 		"weapons/hgrent1a.wav weapons/hgrena1b.wav weapons/hgrenc1b.wav weapons/hgrenb1a.wav weapons/hgrenb2a.wav "
 	},
 
@@ -2696,7 +2809,6 @@ static const gitem_t gameitemlist[] = {
 		0,
 		NULL,
 		AMMO_TRAP,
-
 		"weapons/trapcock.wav weapons/traploop.wav weapons/trapsuck.wav weapons/trapdown.wav"
 	},
 
@@ -2721,7 +2833,6 @@ static const gitem_t gameitemlist[] = {
 		WEAP_GRENADELAUNCHER,
 		NULL,
 		0,
-
 		"models/objects/grenade/tris.md2 weapons/grenlf1a.wav weapons/grenlr1b.wav weapons/grenlb1b.wav"
 	},
 
@@ -2770,7 +2881,6 @@ static const gitem_t gameitemlist[] = {
 		WEAP_ROCKETLAUNCHER,
 		NULL,
 		0,
-
 		"models/objects/rocket/tris.md2 weapons/rockfly.wav weapons/rocklf1a.wav weapons/rocklr1b.wav models/objects/debris2/tris.md2"
 	},
 
@@ -2795,7 +2905,6 @@ static const gitem_t gameitemlist[] = {
 		WEAP_HYPERBLASTER,
 		NULL,
 		0,
-
 		"weapons/hyprbu1a.wav weapons/hyprbl1a.wav weapons/hyprbf1a.wav weapons/hyprbd1a.wav misc/lasfly.wav"
 	},
 
@@ -2874,7 +2983,6 @@ static const gitem_t gameitemlist[] = {
 	/*
 	 * QUAKED weapon_phalanx (.3 .3 1) (-16 -16 -16) (16 16 16)
 	 */
-
 	{
 		"weapon_phalanx",
 		Pickup_Weapon,
@@ -2917,7 +3025,6 @@ static const gitem_t gameitemlist[] = {
 		WEAP_BFG,
 		NULL,
 		0,
-
 		"sprites/s_bfg1.sp2 sprites/s_bfg2.sp2 sprites/s_bfg3.sp2 weapons/bfg__f1y.wav weapons/bfg__l1a.wav weapons/bfg__x1b.wav weapons/bfg_hum.wav"
 	},
 
@@ -2967,6 +3074,53 @@ static const gitem_t gameitemlist[] = {
 		NULL,
 		1,
 		"models/items/spawngro/tris.md2 models/proj/disintegrator/tris.md2 weapons/disrupt.wav weapons/disint2.wav weapons/disrupthit.wav",
+	},
+
+	/*
+	 * QUAKED weapon_flaregun (.3 .3 1) (-16 -16 -16) (16 16 16)
+	 */
+	{
+		"weapon_flaregun",
+		Pickup_Weapon,
+		Use_Weapon,
+		Drop_Weapon,
+		Weapon_FlareGun,
+		"misc/w_pkup.wav",
+		"models/weapons/g_flareg/tris.md2", EF_ROTATE,
+		"models/weapons/v_flareg/tris.md2",
+		"a_grenades",
+		"Flare Gun",
+		0,
+		1,
+		"Grenades",
+		IT_WEAPON,
+		WEAP_FLAREGUN,
+		"",
+	},
+
+	/*
+	 * QUAKED weapon_beta_disintegrator (.3 .3 1) (-16 -16 -16) (16 16 16) TRIGGER_SPAWN
+	 */
+	{
+		"weapon_beta_disintegrator",
+		Pickup_Weapon,
+		Use_Weapon,
+		Drop_Weapon,
+		Weapon_Beta_Disintegrator,
+		"misc/w_pkup.wav",
+		"models/weapons/g_disint/tris.md2",
+		EF_ROTATE | EF_BOB,
+		"models/weapons/v_disint/tris.md2",
+		"w_disintegrator",
+		"Disintegrator",
+		0,
+		1,
+		"Rounds",
+		IT_WEAPON | IT_STAY_COOP,
+		WEAP_BETA_DISRUPTOR,
+		NULL,
+		0,
+		"",
 	},
 
 	/*
@@ -3302,6 +3456,31 @@ static const gitem_t gameitemlist[] = {
 		NULL,
 		0,
 		"items/protect.wav items/protect2.wav items/protect4.wav"
+	},
+
+	/*
+	 * QUAKED item_invisibility (.3 .3 1) (-16 -16 -16) (16 16 16)
+	 */
+	{
+		"item_invisibility",
+		Pickup_Powerup,
+		Use_Invisibility,
+		Drop_General,
+		NULL,
+		"items/pkup.wav",
+		"models/items/cloaker/tris.md2",
+		EF_ROTATE,
+		NULL,
+		"p_cloaker",
+		"Invisibility",
+		2,
+		300,
+		NULL,
+		IT_POWERUP,
+		0,
+		NULL,
+		0,
+		NULL,
 	},
 
 	/*
@@ -3715,6 +3894,81 @@ static const gitem_t gameitemlist[] = {
 	},
 
 	/*
+	 * QUAKED key_explosive_charges (0 .5 .8) (-16 -16 -16) (16 16 16) TRIGGER_SPAWN NO_TOUCH
+	 * warehouse circuits, key for N64
+	 */
+	{
+		"key_explosive_charges",
+		Pickup_Key,
+		NULL,
+		Drop_General,
+		NULL,
+		"items/pkup.wav",
+		"models/items/n64/charge/tris.md2", EF_ROTATE,
+		NULL,
+		"n64/i_charges",
+		"Explosive Charges",
+		2,
+		0,
+		NULL,
+		IT_STAY_COOP | IT_KEY,
+		0,
+		NULL,
+		0,
+		""
+	},
+
+	/*
+	 * QUAKED key_yellow_key (0 .5 .8) (-16 -16 -16) (16 16 16)
+	 * normal door key - yellow, key for N64
+	 */
+	{
+		"key_yellow_key",
+		Pickup_Key,
+		NULL,
+		Drop_General,
+		NULL,
+		"items/pkup.wav",
+		"models/items/n64/yellow_key/tris.md2", EF_ROTATE,
+		NULL,
+		"n64/i_yellow_key",
+		"Yellow Key",
+		2,
+		0,
+		NULL,
+		IT_STAY_COOP | IT_KEY,
+		0,
+		NULL,
+		0,
+		""
+	},
+
+	/*
+	 * QUAKED key_power_core (0 .5 .8) (-16 -16 -16) (16 16 16)
+	 * key for N64
+	 */
+	{
+		"key_power_core",
+		Pickup_Key,
+		NULL,
+		Drop_General,
+		NULL,
+		"items/pkup.wav",
+		"models/items/n64/power_core/tris.md2", EF_ROTATE,
+		NULL,
+		"k_pyramid",
+		"Power Core",
+		2,
+		0,
+		NULL,
+		IT_STAY_COOP | IT_KEY,
+		0,
+		NULL,
+		0,
+		""
+	},
+
+	/*
 	 * QUAKED key_pyramid (0 .5 .8) (-16 -16 -16) (16 16 16) TRIGGER_SPAWN
 	 * key for the entrance of jail3
 	 */
@@ -3982,7 +4236,6 @@ static const gitem_t gameitemlist[] = {
 		0,
 		NULL,
 		0,
-
 		"items/s_health.wav items/n_health.wav items/l_health.wav items/m_health.wav"
 	},
 
@@ -4122,6 +4375,27 @@ static const gitem_t gameitemlist[] = {
 		"ctf/tech4.wav"
 	},
 
+	{
+		"item_flashlight",
+		Pickup_General,
+		Use_Flashlight,
+		Drop_General,
+		NULL,
+		"items/pkup.wav",
+		"models/items/flashlight/tris.md2", EF_ROTATE,
+		NULL,
+		"p_torch",
+		"Flashlight",
+		2,
+		0,
+		NULL,
+		IT_STAY_COOP,
+		0,
+		NULL,
+		0,
+		"items/flashlight_on.wav items/flashlight_off.wav",
+	},
+
 	/* end of list marker */
 	{NULL}
 };
@@ -4222,6 +4496,56 @@ SP_item_health_mega(edict_t *self)
 	self->style = HEALTH_IGNORE_MAX | HEALTH_TIMED;
 }
 
+/*
+ * QUAKED item_health_half (.3 .3 1) (-10 -10 -10) (10 10 10) TRIGGER_SPAWN
+ *
+ * Heretic 2: health full pack (30)
+ */
+void
+SP_item_health_half(edict_t *self)
+{
+	if (!self)
+	{
+		return;
+	}
+
+	if (deathmatch->value && ((int)dmflags->value & DF_NO_HEALTH))
+	{
+		G_FreeEdict(self);
+		return;
+	}
+
+	self->count = 10;
+	SpawnItem(self, FindItem("Health"));
+	self->s.effects |= EF_ROTATE;
+	gi.soundindex("items/l_health.wav");
+}
+
+/*
+ * QUAKED item_health_full (.3 .3 1) (-10 -10 -10) (10 10 10) TRIGGER_SPAWN
+ *
+ * Heretic 2: health full pack (30)
+ */
+void
+SP_item_health_full(edict_t *self)
+{
+	if (!self)
+	{
+		return;
+	}
+
+	if (deathmatch->value && ((int)dmflags->value & DF_NO_HEALTH))
+	{
+		G_FreeEdict(self);
+		return;
+	}
+
+	self->count = 30;
+	SpawnItem(self, FindItem("Health"));
+	self->s.effects |= EF_ROTATE;
+	gi.soundindex("items/l_health.wav");
+}
+
 void
 SP_item_foodcube(edict_t *self)
 {
@@ -4247,9 +4571,91 @@ SP_item_foodcube(edict_t *self)
 void
 InitItems(void)
 {
+	gitem_t *dyn_items;
+	int dyn_count, num_items;
+
+	if (sizeof(gameitemlist) > sizeof(itemlist))
+	{
+		gi.error("Defined items more than %d\n", MAX_ITEMS);
+		return;
+	}
+
 	memset(itemlist, 0, sizeof(itemlist));
 	memcpy(itemlist, gameitemlist, sizeof(gameitemlist));
-	game.num_items = sizeof(gameitemlist) / sizeof(gameitemlist[0]) - 1;
+	num_items = ARRLEN(gameitemlist) - 1;
+
+	dyn_items = GetDynamicItems(&dyn_count);
+	if (dyn_items)
+	{
+		if (dyn_count > 0)
+		{
+			size_t i;
+
+			for (i = 0; i < dyn_count; i ++)
+			{
+				gitem_t *it;
+
+				it = FindItemInList(dyn_items[i].classname, itemlist, num_items);
+				if (!it)
+				{
+					memcpy(itemlist + num_items, dyn_items + i, sizeof(gitem_t));
+					/* Add callbacks */
+					if (!strncmp(itemlist[num_items].classname, "weapon_", 7))
+					{
+						itemlist[num_items].pickup = Pickup_Weapon;
+						itemlist[num_items].use = Use_Weapon;
+						itemlist[num_items].drop = Drop_Weapon;
+						itemlist[num_items].world_model_flags = EF_ROTATE;
+						itemlist[num_items].flags = IT_WEAPON;
+					}
+					else if (!strncmp(itemlist[num_items].classname, "item_", 5))
+					{
+						itemlist[num_items].pickup = Pickup_General;
+						itemlist[num_items].drop = Drop_General;
+						itemlist[num_items].world_model_flags = EF_ROTATE;
+					}
+					else if (!strncmp(itemlist[num_items].classname, "key_", 4))
+					{
+						itemlist[num_items].pickup = Pickup_Key;
+						itemlist[num_items].drop = Drop_General;
+						itemlist[num_items].world_model_flags = EF_ROTATE;
+						itemlist[num_items].flags = IT_KEY;
+					}
+					else if (!strncmp(itemlist[num_items].classname, "ammo_", 5))
+					{
+						itemlist[num_items].pickup = Pickup_Ammo;
+						itemlist[num_items].use = Use_Weapon;
+						itemlist[num_items].drop = Drop_Ammo;
+						itemlist[num_items].flags = IT_AMMO;
+					}
+
+					num_items ++;
+
+					if (num_items >= MAX_ITEMS)
+					{
+						gi.dprintf("No space for additional items\n");
+						break;
+					}
+				}
+			}
+		}
+
+		free(dyn_items);
+	}
+
+	game.num_items = num_items;
+}
+
+qboolean
+ItemHasValidModel(gitem_t *item)
+{
+	const dmdxframegroup_t * frames;
+	int num, modelindex;
+
+	modelindex = gi.modelindex(item->world_model);
+	frames = gi.GetModelInfo(modelindex, &num, NULL, NULL);
+
+	return frames && (num > 0);
 }
 
 /*
@@ -4277,9 +4683,8 @@ SetItemNames(void)
 void
 SP_xatrix_item(edict_t *self)
 {
-	gitem_t *item;
-	int i;
 	char *spawnClass = NULL;
+	gitem_t *item;
 
 	if (!self)
 	{
@@ -4327,19 +4732,11 @@ SP_xatrix_item(edict_t *self)
 		spawnClass = "weapon_plasmabeam";
 	}
 
-	/* check item spawn functions */
-	for (i = 0, item = itemlist; i < game.num_items; i++, item++)
+	item = FindItemInList(spawnClass, itemlist, game.num_items);
+	if (item)
 	{
-		if (!item->classname)
-		{
-			continue;
-		}
-
-		if (!strcmp(item->classname, spawnClass))
-		{
-			/* found it */
-			SpawnItem(self, item);
-			return;
-		}
+		/* found it */
+		SpawnItem(self, item);
+		return;
 	}
 }

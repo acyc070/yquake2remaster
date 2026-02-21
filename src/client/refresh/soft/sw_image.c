@@ -21,9 +21,8 @@
 
 #include "header/local.h"
 
-#define	MAX_RIMAGES	1024
 static image_t		*r_whitetexture_mip = NULL;
-static image_t		r_images[MAX_RIMAGES];
+static image_t		r_images[MAX_TEXTURES];
 static int		numr_images;
 static int		image_max = 0;
 
@@ -40,7 +39,7 @@ R_ImageList_f (void)
 	image_t	*image;
 	qboolean	freeup;
 
-	R_Printf(PRINT_ALL, "------------------\n");
+	Com_Printf("------------------\n");
 	texels = 0;
 	used = 0;
 
@@ -60,35 +59,36 @@ R_ImageList_f (void)
 		switch (image->type)
 		{
 		case it_skin:
-			R_Printf(PRINT_ALL, "M");
+			Com_Printf("M");
 			break;
 		case it_sprite:
-			R_Printf(PRINT_ALL, "S");
+			Com_Printf("S");
 			break;
 		case it_wall:
-			R_Printf(PRINT_ALL, "W");
+			Com_Printf("W");
 			break;
 		case it_pic:
-			R_Printf(PRINT_ALL, "P");
+			Com_Printf("P");
 			break;
 		default:
-			R_Printf(PRINT_ALL, " ");
+			Com_Printf(" ");
 			break;
 		}
 
-		R_Printf(PRINT_ALL,  " %3i %3i : %s (%dx%d) %s\n",
+		Com_Printf(" %3i %3i : %s (%dx%d) %s\n",
 			image->asset_width, image->asset_height, image->name,
 			image->width, image->height, in_use);
 	}
-	R_Printf(PRINT_ALL, "Total texel count: %i\n", texels);
+	Com_Printf("Total texel count: %i\n", texels);
 	freeup = R_ImageHasFreeSpace();
-	R_Printf(PRINT_ALL, "Used %d of %d images%s.\n", used, image_max, freeup ? ", has free space" : "");
+	Com_Printf("Used %d of %d / %d images%s.\n",
+		used, image_max, MAX_TEXTURES, freeup ? ", has free space" : "");
 }
 
 //=======================================================
 
 static image_t *
-R_FindFreeImage(char *name)
+R_FindFreeImage(const char *name)
 {
 	image_t		*image;
 	int			i;
@@ -111,8 +111,12 @@ R_FindFreeImage(char *name)
 
 	if (i == numr_images)
 	{
-		if (numr_images == MAX_RIMAGES)
+		if (numr_images == MAX_TEXTURES)
+		{
 			Com_Error(ERR_DROP, "%s: Max images", __func__);
+			return NULL;
+		}
+
 		numr_images++;
 	}
 	image = &r_images[i];
@@ -217,6 +221,22 @@ Get_BestImageSize(const image_t *image, int *req_width, int *req_height)
 
 static byte *d_16to8table = NULL; // 16 to 8 bit conversion table
 
+int
+R_ConvertRGBColor(unsigned color)
+{
+	YQ2_ALIGNAS_TYPE(unsigned) byte rgbcolor[4];
+	unsigned int r, g, b, c;
+
+	*(int *)rgbcolor = color;
+	r = ( rgbcolor[0] >> 3 ) & 31;
+	g = ( rgbcolor[1] >> 2 ) & 63;
+	b = ( rgbcolor[2] >> 3 ) & 31;
+
+	c = r | ( g << 5 ) | ( b << 11 );
+
+	return d_16to8table[c & 0xFFFF];
+}
+
 void
 R_Convert32To8bit(const unsigned char* pic_in, pixel_t* pic_out, size_t size,
 	qboolean transparent)
@@ -226,7 +246,7 @@ R_Convert32To8bit(const unsigned char* pic_in, pixel_t* pic_out, size_t size,
 	if (!d_16to8table)
 		return;
 
-	for(i=0; i < size; i++)
+	for (i=0; i < size; i++)
 	{
 		if (pic_in[3] > 128 || !transparent)
 		{
@@ -256,7 +276,7 @@ R_LoadPic8
 ================
 */
 static image_t *
-R_LoadPic8 (char *name, byte *pic, int width, int realwidth, int height, int realheight,
+R_LoadPic8(const char *name, const byte *pic, int width, int realwidth, int height, int realheight,
 	size_t data_size, imagetype_t type)
 {
 	image_t	*image;
@@ -275,6 +295,7 @@ R_LoadPic8 (char *name, byte *pic, int width, int realwidth, int height, int rea
 	if (strlen(name) >= sizeof(image->name))
 	{
 		Com_Error(ERR_DROP, "%s: '%s' is too long", __func__, name);
+		return NULL;
 	}
 
 	strcpy (image->name, name);
@@ -331,7 +352,7 @@ R_LoadPic8 (char *name, byte *pic, int width, int realwidth, int height, int rea
 }
 
 image_t *
-R_LoadPic(char *name, byte *pic, int width, int realwidth, int height, int realheight,
+R_LoadPic(const char *name, const byte *pic, int width, int realwidth, int height, int realheight,
 	size_t data_size, imagetype_t type, int bits)
 {
 	if (!realwidth || !realheight)
@@ -340,7 +361,7 @@ R_LoadPic(char *name, byte *pic, int width, int realwidth, int height, int realh
 		realheight = height;
 	}
 
-	if (data_size <= 0 || !width || !height)
+	if (!data_size || !width || !height)
 	{
 		return NULL;
 	}
@@ -449,10 +470,36 @@ R_LoadPic(char *name, byte *pic, int width, int realwidth, int height, int realh
 		}
 		else
 		{
-			return R_LoadPic8 (name, pic,
-				width, realwidth,
-				height, realheight,
-				data_size, type);
+			if ((width != realwidth) &&
+				(height != realheight) &&
+				type != it_pic
+			)
+			{
+				/* image could be prescalled */
+				byte *scaled = NULL;
+				image_t	*image;
+
+				scaled = malloc(realwidth * realheight);
+				if (!scaled)
+					return NULL;
+
+				R_ImageShrink(pic, scaled, width, realwidth, height, realheight);
+
+				image = R_LoadPic8(name, scaled,
+								realwidth, realwidth,
+								realwidth, realheight,
+								realwidth * realheight, type);
+				free(scaled);
+
+				return image;
+			}
+			else
+			{
+				return R_LoadPic8 (name, pic,
+					width, realwidth,
+					height, realheight,
+					data_size, type);
+			}
 		}
 	}
 }
@@ -506,18 +553,20 @@ Finds or loads the given image or NULL
 ===============
 */
 image_t	*
-R_FindImage(const char *name, imagetype_t type)
+R_FindImage(const char *originname, imagetype_t type)
 {
-	image_t	*image;
-	int	i, len;
-	char *ptr;
-	char namewe[256];
+	char namewe[256], name[256] = {0};
 	const char* ext;
+	image_t *image;
+	size_t len;
+	int i;
 
-	if (!name)
+	if (!originname)
 	{
 		return NULL;
 	}
+
+	Q_strlcpy(name, originname, sizeof(name));
 
 	/* just return white image if show lightmap only */
 	if ((type == it_wall || type == it_skin) && r_lightmap->value)
@@ -525,29 +574,26 @@ R_FindImage(const char *name, imagetype_t type)
 		return r_whitetexture_mip;
 	}
 
+	/* fix backslashes */
+	Q_replacebackslash(name);
+
 	ext = COM_FileExtension(name);
-	if(!ext[0])
+	if (!ext[0])
 	{
 		/* file has no extension */
 		return NULL;
 	}
 
-	len = strlen(name);
-
 	/* Remove the extension */
-	memset(namewe, 0, 256);
-	memcpy(namewe, name, len - (strlen(ext) + 1));
-
-	if (len < 5)
+	len = (ext - name) - 1;
+	if ((len < 1) || (len > sizeof(namewe) - 1))
 	{
+		Com_DPrintf("%s: Bad filename %s\n", __func__, name);
 		return NULL;
 	}
 
-	/* fix backslashes */
-	while ((ptr = strchr(name, '\\')))
-	{
-		*ptr = '/';
-	}
+	memcpy(namewe, name, len);
+	namewe[len] = 0;
 
 	// look for it
 	for (i=0, image=r_images ; i<numr_images ; i++,image++)
@@ -563,11 +609,11 @@ R_FindImage(const char *name, imagetype_t type)
 	// load the pic from disk
 	//
 	image = (image_t *)R_LoadImage(name, namewe, ext, type,
-		r_retexturing->value, (loadimage_t)R_LoadPic);
+		(loadimage_t)R_LoadPic);
 
 	if (!image && r_validation->value)
 	{
-		R_Printf(PRINT_ALL, "%s: can't load %s\n", __func__, name);
+		Com_Printf("%s: can't load %s\n", __func__, name);
 	}
 
 	return image;
@@ -627,7 +673,7 @@ R_ImageHasFreeSpace(void)
 	}
 
 	// should same size of free slots as currently used
-	return (numr_images + used) < MAX_RIMAGES;
+	return (numr_images + used) < MAX_TEXTURES;
 }
 
 static struct texture_buffer {
@@ -707,8 +753,8 @@ R_InitImages (void)
 	registration_sequence = 1;
 	image_max = 0;
 
-	GetPCXPalette(&vid_colormap, (unsigned *)d_8to24table);
-	GetPCXPalette24to8(d_8to24table, &d_16to8table);
+	ri.VID_GetPalette(&vid_colormap, (unsigned *)d_8to24table);
+	ri.VID_GetPalette24to8(d_8to24table, &d_16to8table);
 	vid_alphamap = vid_colormap + 64*256;
 	R_InitTextures ();
 }

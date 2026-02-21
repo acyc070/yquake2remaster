@@ -33,8 +33,6 @@
 static qboolean world_rendered;
 static qboolean RE_IsHighDPIaware = false;
 
-viddef_t	vid;
-
 refimport_t	ri;
 
 model_t		*r_worldmodel;
@@ -75,43 +73,16 @@ static float r_vulkan_correction[16] = { 1.f,  0.f, 0.f, 0.f,
 //
 // screen size info
 //
-refdef_t	r_newrefdef;
-
 int		r_viewcluster, r_viewcluster2, r_oldviewcluster, r_oldviewcluster2;
 
-static cvar_t	*r_norefresh;
-static cvar_t	*r_drawentities;
-cvar_t	*r_drawworld;
-static cvar_t	*r_speeds;
-static cvar_t	*r_fullbright;
-cvar_t	*r_novis;
-cvar_t	*r_cull;
-cvar_t	*r_lerpmodels;
-cvar_t	*r_lefthand;
-cvar_t	*r_vsync;
-static cvar_t	*r_mode;
-cvar_t	*r_gunfov;
-cvar_t	*r_farsee;
-static cvar_t	*r_customwidth;
-static cvar_t	*r_customheight;
-
-cvar_t	*r_lightlevel;	// FIXME: This is a HACK to get the client's light level
-
+cvar_t	*vk_znear;
 cvar_t	*vk_overbrightbits;
-cvar_t	*r_validation;
 cvar_t	*vk_picmip;
-cvar_t	*r_palettedtexture;
-cvar_t	*r_flashblend;
 cvar_t	*vk_finish;
 #if defined(__APPLE__)
 cvar_t  *vk_molten_fastmath;
 cvar_t  *vk_molten_metalbuffers;
 #endif
-cvar_t	*r_clear;
-cvar_t	*r_lockpvs;
-static cvar_t	*r_polyblend;
-cvar_t	*r_modulate;
-cvar_t	*vk_shadows;
 cvar_t	*vk_pixel_size;
 static cvar_t	*vk_particle_size;
 static cvar_t	*vk_particle_att_a;
@@ -121,28 +92,12 @@ static cvar_t	*vk_particle_min_size;
 static cvar_t	*vk_particle_max_size;
 static cvar_t	*vk_custom_particles;
 cvar_t	*vk_postprocess;
-cvar_t	*r_dynamic;
-cvar_t	*vk_msaa;
-cvar_t	*r_showtris;
-cvar_t	*r_lightmap;
 cvar_t	*vk_texturemode;
 cvar_t	*vk_lmaptexturemode;
-cvar_t	*vk_aniso;
 cvar_t	*vk_mip_nearfilter;
 cvar_t	*vk_sampleshading;
 cvar_t	*vk_device_idx;
-cvar_t	*r_retexturing;
-cvar_t	*r_scale8bittextures;
 static cvar_t	*vk_underwater;
-cvar_t	*r_nolerp_list;
-cvar_t	*r_lerp_list;
-cvar_t	*r_2D_unfiltered;
-cvar_t	*r_videos_unfiltered;
-cvar_t	*r_fixsurfsky;
-
-cvar_t	*vid_fullscreen;
-cvar_t	*vid_gamma;
-static cvar_t	*viewsize;
 
 #if defined(__APPLE__)
 PFN_vkGetPhysicalDeviceMetalFeaturesMVK qvkGetPhysicalDeviceMetalFeaturesMVK;
@@ -151,7 +106,8 @@ PFN_vkSetMoltenVKConfigurationMVK qvkSetMoltenVKConfigurationMVK;
 #endif
 
 
-void R_RotateForEntity (entity_t *e, float *mvMatrix)
+void
+R_RotateForEntity(entity_t *e, float *mvMatrix)
 {
 	Mat_Rotate(mvMatrix, -e->angles[2], 1.f, 0.f, 0.f);
 	Mat_Rotate(mvMatrix, -e->angles[0], 0.f, 1.f, 0.f);
@@ -163,11 +119,14 @@ static void
 R_DrawSpriteModel(entity_t *currententity, const model_t *currentmodel)
 {
 	float alpha = 1.0F;
-	vec3_t point;
+	vec3_t point, scale;
 	dsprframe_t *frame;
 	float *up, *right;
 	dsprite_t *psprite;
 	image_t *skin = NULL;
+	vec3_t spriteQuad[4];
+
+	VectorCopy(currententity->scale, scale);
 
 	/* don't even bother culling, because it's just
 	   a single polygon without a surface cache */
@@ -185,16 +144,14 @@ R_DrawSpriteModel(entity_t *currententity, const model_t *currentmodel)
 		alpha = currententity->alpha;
 	}
 
-	vec3_t spriteQuad[4];
-
-	VectorMA(currententity->origin, -frame->origin_y, up, point);
-	VectorMA(point, -frame->origin_x, right, spriteQuad[0]);
-	VectorMA(currententity->origin, frame->height - frame->origin_y, up, point);
-	VectorMA(point, -frame->origin_x, right, spriteQuad[1]);
-	VectorMA(currententity->origin, frame->height - frame->origin_y, up, point);
-	VectorMA(point, frame->width - frame->origin_x, right, spriteQuad[2]);
-	VectorMA(currententity->origin, -frame->origin_y, up, point);
-	VectorMA(point, frame->width - frame->origin_x, right, spriteQuad[3]);
+	VectorMA(currententity->origin, -frame->origin_y * scale[0], up, point);
+	VectorMA(point, -frame->origin_x * scale[1], right, spriteQuad[0]);
+	VectorMA(currententity->origin, (frame->height - frame->origin_y) * scale[0], up, point);
+	VectorMA(point, -frame->origin_x * scale[1], right, spriteQuad[1]);
+	VectorMA(currententity->origin, (frame->height - frame->origin_y) * scale[0], up, point);
+	VectorMA(point, (frame->width - frame->origin_x) * scale[1], right, spriteQuad[2]);
+	VectorMA(currententity->origin, -frame->origin_y * scale[0], up, point);
+	VectorMA(point, (frame->width - frame->origin_x) * scale[1], right, spriteQuad[3]);
 
 	float quadVerts[] = { spriteQuad[0][0], spriteQuad[0][1], spriteQuad[0][2], 0.f, 1.f,
 						  spriteQuad[1][0], spriteQuad[1][1], spriteQuad[1][2], 0.f, 0.f,
@@ -217,7 +174,7 @@ R_DrawSpriteModel(entity_t *currententity, const model_t *currentmodel)
 	float gamma = 2.1F - vid_gamma->value;
 
 	vkCmdPushConstants(vk_activeCmdbuffer, vk_drawTexQuadPipeline[vk_state.current_renderpass].layout,
-		VK_SHADER_STAGE_FRAGMENT_BIT, 17 * sizeof(float), sizeof(gamma), &gamma);
+		VK_SHADER_STAGE_FRAGMENT_BIT, PUSH_CONSTANT_VERTEX_SIZE * sizeof(float), sizeof(gamma), &gamma);
 
 	if (currententity->frame < currentmodel->numskins)
 	{
@@ -247,9 +204,9 @@ R_DrawNullModel(entity_t *currententity)
 	}
 	else
 	{
-		R_LightPoint(r_worldmodel->grid, currententity, &r_newrefdef,
+		R_LightPoint(r_worldmodel->grid, currententity,
 			r_worldmodel->surfaces, r_worldmodel->nodes, currententity->origin,
-			shadelight, r_modulate->value, lightspot);
+			shadelight, lightspot);
 	}
 
 	float model[16];
@@ -291,8 +248,8 @@ R_DrawNullModel(entity_t *currententity)
 		verts[i][2] = shadelight[2];
 	}
 
-	VkBuffer vbo;
-	VkDeviceSize vboOffset;
+	VkBuffer vbo, *buffer;
+	VkDeviceSize vboOffset, dstOffset;
 	uint32_t uboOffset;
 	VkDescriptorSet uboDescriptorSet;
 	uint8_t *vertData = QVk_GetVertexBuffer(sizeof(verts), &vbo, &vboOffset);
@@ -300,17 +257,23 @@ R_DrawNullModel(entity_t *currententity)
 	memcpy(vertData, verts, sizeof(verts));
 	memcpy(uboData,  model, sizeof(model));
 
+	Mesh_VertsRealloc(24);
+	R_GenFanIndexes(vertIdxData, 0, 4);
+	R_GenFanIndexes(vertIdxData + 4 * 3, 6, 10);
+	buffer = UpdateIndexBuffer(vertIdxData, 24 * sizeof(uint16_t), &dstOffset);
+
 	QVk_BindPipeline(&vk_drawNullModelPipeline);
-	vkCmdBindDescriptorSets(vk_activeCmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_drawNullModelPipeline.layout, 0, 1, &uboDescriptorSet, 1, &uboOffset);
+	vkCmdBindDescriptorSets(vk_activeCmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		vk_drawNullModelPipeline.layout, 0, 1, &uboDescriptorSet, 1, &uboOffset);
 	vkCmdBindVertexBuffers(vk_activeCmdbuffer, 0, 1, &vbo, &vboOffset);
-	vkCmdBindIndexBuffer(vk_activeCmdbuffer, QVk_GetTriangleFanIbo(12), 0, VK_INDEX_TYPE_UINT16);
-	vkCmdDrawIndexed(vk_activeCmdbuffer, 12, 1, 0, 0, 0);
-	vkCmdDrawIndexed(vk_activeCmdbuffer, 12, 1, 0, 6, 0);
+	vkCmdBindIndexBuffer(vk_activeCmdbuffer, *buffer, dstOffset, VK_INDEX_TYPE_UINT16);
+	vkCmdDrawIndexed(vk_activeCmdbuffer, 24, 1, 0, 0, 0);
 }
 
 static void
 R_DrawEntitiesOnList(void)
 {
+	qboolean translucent_entities = false;
 	int i;
 
 	if (!r_drawentities->value)
@@ -323,9 +286,10 @@ R_DrawEntitiesOnList(void)
 	{
 		entity_t *currententity = &r_newrefdef.entities[i];
 
-		if (currententity->flags & RF_TRANSLUCENT)
+		if (currententity->flags & (RF_TRANSLUCENT | RF_FLARE))
 		{
-			continue; /* solid */
+			translucent_entities = true;
+			continue; /* not solid */
 		}
 
 		if (currententity->flags & RF_BEAM)
@@ -354,11 +318,16 @@ R_DrawEntitiesOnList(void)
 					R_DrawSpriteModel(currententity, currentmodel);
 					break;
 				default:
-					R_Printf(PRINT_ALL, "%s: Bad modeltype %d\n",
+					Com_Printf("%s: Bad modeltype %d\n",
 						__func__, currentmodel->type);
-					return;
+					break;
 			}
 		}
+	}
+
+	if (!translucent_entities)
+	{
+		return;
 	}
 
 	/* draw transparent entities
@@ -369,7 +338,7 @@ R_DrawEntitiesOnList(void)
 	{
 		entity_t *currententity = &r_newrefdef.entities[i];
 
-		if (!(currententity->flags & RF_TRANSLUCENT))
+		if (!(currententity->flags & (RF_TRANSLUCENT | RF_FLARE)))
 		{
 			continue; /* solid */
 		}
@@ -400,7 +369,7 @@ R_DrawEntitiesOnList(void)
 					R_DrawSpriteModel(currententity, currentmodel);
 					break;
 				default:
-					R_Printf(PRINT_ALL, "%s: Bad modeltype %d\n",
+					Com_Printf("%s: Bad modeltype %d\n",
 						__func__, currentmodel->type);
 					return;
 			}
@@ -409,7 +378,7 @@ R_DrawEntitiesOnList(void)
 }
 
 static void
-Vk_DrawParticles(int num_particles, const particle_t particles[], const unsigned *colortable)
+Vk_DrawParticles(int num_particles, const particle_t particles[])
 {
 	typedef struct {
 		float x,y,z,r,g,b,a,u,v;
@@ -418,11 +387,12 @@ Vk_DrawParticles(int num_particles, const particle_t particles[], const unsigned
 	const particle_t *p;
 	int				i;
 	vec3_t			up, right;
-	YQ2_ALIGNAS_TYPE(unsigned) byte	color[4];
 	pvertex*	currentvertex;
 
 	if (!num_particles)
+	{
 		return;
+	}
 
 	VectorScale(vup, 1.5, up);
 	VectorScale(vright, 1.5, right);
@@ -437,6 +407,7 @@ Vk_DrawParticles(int num_particles, const particle_t particles[], const unsigned
 	currentvertex = visibleParticles;
 	for (p = particles, i = 0; i < num_particles; i++, p++)
 	{
+		YQ2_ALIGNAS_TYPE(unsigned) byte	color[4];
 		float	scale;
 
 		// hack a scale up to keep particles from disapearing
@@ -453,7 +424,7 @@ Vk_DrawParticles(int num_particles, const particle_t particles[], const unsigned
 			scale = 1 + scale * 0.004;
 		}
 
-		*(int *)color = colortable[p->color];
+		*(int *)color = p->color;
 
 		float r = color[0] / 255.f;
 		float g = color[1] / 255.f;
@@ -503,7 +474,7 @@ Vk_DrawParticles(int num_particles, const particle_t particles[], const unsigned
 	float gamma = 2.1F - vid_gamma->value;
 
 	vkCmdPushConstants(vk_activeCmdbuffer, vk_drawTexQuadPipeline[vk_state.current_renderpass].layout,
-		VK_SHADER_STAGE_FRAGMENT_BIT, 17 * sizeof(float), sizeof(gamma), &gamma);
+		VK_SHADER_STAGE_FRAGMENT_BIT, PUSH_CONSTANT_VERTEX_SIZE * sizeof(float), sizeof(gamma), &gamma);
 
 	if (vk_custom_particles->value == 2)
 	{
@@ -562,7 +533,7 @@ R_DrawParticles(void)
 
 		for (i = 0, p = r_newrefdef.particles; i < r_newrefdef.num_particles; i++, p++)
 		{
-			*(int *)color = d_8to24table[p->color];
+			*(int *)color = p->color;
 
 			float r = color[0] / 255.f;
 			float g = color[1] / 255.f;
@@ -593,7 +564,7 @@ R_DrawParticles(void)
 	}
 	else
 	{
-		Vk_DrawParticles(r_newrefdef.num_particles, r_newrefdef.particles, d_8to24table);
+		Vk_DrawParticles(r_newrefdef.num_particles, r_newrefdef.particles);
 	}
 }
 
@@ -610,14 +581,15 @@ R_PolyBlend(void)
 		return;
 	}
 
-	float polyTransform[] = { 0.f, 0.f, vid.width, vid.height, v_blend[0], v_blend[1], v_blend[2], v_blend[3] };
-	QVk_DrawColorRect(polyTransform, sizeof(polyTransform), RP_WORLD);
+	QVk_DrawColorRect(
+		0.f, 0.f, 1.0f, 1.0f,
+		v_blend[0], v_blend[1], v_blend[2], v_blend[3],
+		RP_WORLD);
 }
 
 static void
 R_SetupFrame(void)
 {
-	int i;
 	mleaf_t *leaf;
 
 	r_framecount++;
@@ -674,10 +646,7 @@ R_SetupFrame(void)
 		}
 	}
 
-	for (i = 0; i < 4; i++)
-	{
-		v_blend[i] = r_newrefdef.blend[i];
-	}
+	R_CombineBlendWithFog(v_blend, false);
 
 	c_brush_polys = 0;
 	c_alias_polys = 0;
@@ -686,10 +655,12 @@ R_SetupFrame(void)
 	   unlike OpenGL, draw a rectangle in proper location - it's easier to do in Vulkan */
 	if (r_newrefdef.rdflags & RDF_NOWORLDMODEL)
 	{
-		float clearArea[] = { (float)r_newrefdef.x / vid.width, (float)r_newrefdef.y / vid.height,
-							  (float)r_newrefdef.width / vid.width, (float)r_newrefdef.height / vid.height,
-							  .3f, .3f, .3f, 1.f };
-		QVk_DrawColorRect(clearArea, sizeof(clearArea), RP_UI);
+		QVk_DrawColorRect(
+			(float)r_newrefdef.x / vid.width,
+			(float)r_newrefdef.y / vid.height,
+			(float)r_newrefdef.width / vid.width,
+			(float)r_newrefdef.height / vid.height,
+			.3f, .3f, .3f, 1.f , RP_UI);
 	}
 }
 
@@ -831,15 +802,17 @@ R_SetupVulkan (void)
 	float	r_proj_fovx;
 	float	r_proj_fovy;
 	int		x, x2, y2, y, w, h;
-	float dist = (r_farsee->value == 0) ? 4096.0f : 8192.0f;
+	float dist = (r_farsee->value == 0) ? 4096.0f : (r_worldmodel->radius * 2);
+	const float zNear = Q_max(vk_znear->value, 0.1f);
 
-	//
-	// set up viewport
-	//
-	x = floor(r_newrefdef.x * vid.width / vid.width);
-	x2 = ceil((r_newrefdef.x + r_newrefdef.width) * vid.width / vid.width);
-	y = floor(vid.height - r_newrefdef.y * vid.height / vid.height);
-	y2 = ceil(vid.height - (r_newrefdef.y + r_newrefdef.height) * vid.height / vid.height);
+	/* Render old elements before change viewport */
+	QVk_Draw2DCallsRender();
+
+	/* set up viewport */
+	x = floor(r_newrefdef.x * vid.width / (float)vid.width);
+	x2 = ceil((r_newrefdef.x + r_newrefdef.width) * vid.width / (float)vid.width);
+	y = floor(vid.height - r_newrefdef.y * vid.height / (float)vid.height);
+	y2 = ceil(vid.height - (r_newrefdef.y + r_newrefdef.height) * vid.height / (float)vid.height);
 
 	w = x2 - x;
 	h = y - y2;
@@ -869,7 +842,7 @@ R_SetupVulkan (void)
 	r_proj_fovx = r_newrefdef.fov_x;
 	r_proj_fovy = r_newrefdef.fov_y;
 	r_proj_aspect = (float)r_newrefdef.width / r_newrefdef.height;
-	Mat_Perspective(r_projection_matrix, r_vulkan_correction, r_proj_fovy, r_proj_aspect, 4, dist);
+	Mat_Perspective(r_projection_matrix, r_vulkan_correction, r_proj_fovy, r_proj_aspect, zNear, dist);
 
 	R_SetFrustum(vup, vpn, vright, r_origin, r_proj_fovx, r_proj_fovy,
 		frustum);
@@ -887,7 +860,8 @@ R_SetupVulkan (void)
 	// precalculate view-projection matrix
 	Mat_Mul(r_view_matrix, r_projection_matrix, r_viewproj_matrix);
 	// view-projection matrix will always be stored as the first push constant item, so set no offset
-	vkCmdPushConstants(vk_activeCmdbuffer, vk_drawTexQuadPipeline[vk_state.current_renderpass].layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(r_viewproj_matrix), r_viewproj_matrix);
+	vkCmdPushConstants(vk_activeCmdbuffer, vk_drawTexQuadPipeline[vk_state.current_renderpass].layout,
+		VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(r_viewproj_matrix), r_viewproj_matrix);
 }
 
 static void R_Flash( void )
@@ -915,6 +889,7 @@ RE_RenderView(refdef_t *fd)
 	if (!r_worldmodel && !(r_newrefdef.rdflags & RDF_NOWORLDMODEL))
 	{
 		Com_Error(ERR_DROP, "%s: NULL worldmodel", __func__);
+		return;
 	}
 
 	if (r_speeds->value)
@@ -968,7 +943,7 @@ RE_RenderView(refdef_t *fd)
 
 	if (r_speeds->value)
 	{
-		R_Printf(PRINT_ALL, "%4i wpoly %4i epoly %i tex %i lmaps\n",
+		Com_Printf("%4i wpoly %4i epoly %i tex %i lmaps\n",
 			c_brush_polys,
 			c_alias_polys,
 			c_visible_textures,
@@ -978,6 +953,8 @@ RE_RenderView(refdef_t *fd)
 
 qboolean RE_EndWorldRenderpass(void)
 {
+	float dummy[PUSH_CONSTANT_VERTEX_SIZE] = {0};
+
 	// still some issues?
 	if (!vk_frameStarted)
 	{
@@ -1024,7 +1001,9 @@ qboolean RE_EndWorldRenderpass(void)
 		r_newrefdef.height,
 	};
 	vkCmdPushConstants(vk_activeCmdbuffer, vk_worldWarpPipeline.layout,
-		VK_SHADER_STAGE_FRAGMENT_BIT, 17 * sizeof(float), sizeof(pushConsts), pushConsts);
+		VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(dummy), dummy);
+	vkCmdPushConstants(vk_activeCmdbuffer, vk_worldWarpPipeline.layout,
+		VK_SHADER_STAGE_FRAGMENT_BIT, PUSH_CONSTANT_VERTEX_SIZE * sizeof(float), sizeof(pushConsts), pushConsts);
 	vkCmdBindDescriptorSets(vk_activeCmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_worldWarpPipeline.layout, 0, 1, &vk_colorbuffer.descriptorSet, 0, NULL);
 	QVk_BindPipeline(&vk_worldWarpPipeline);
 	// Restore full viewport for future steps.
@@ -1057,7 +1036,7 @@ R_SetVulkan2D(const VkViewport* viewport, const VkRect2D* scissor)
 	{
 		float pushConsts[] = { vk_postprocess->value, (2.1 - vid_gamma->value)};
 		vkCmdPushConstants(vk_activeCmdbuffer, vk_postprocessPipeline.layout,
-			VK_SHADER_STAGE_FRAGMENT_BIT, 17 * sizeof(float), sizeof(pushConsts), pushConsts);
+			VK_SHADER_STAGE_FRAGMENT_BIT, PUSH_CONSTANT_VERTEX_SIZE * sizeof(float), sizeof(pushConsts), pushConsts);
 		vkCmdBindDescriptorSets(vk_activeCmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_postprocessPipeline.layout, 0, 1, &vk_colorbufferWarp.descriptorSet, 0, NULL);
 		QVk_BindPipeline(&vk_postprocessPipeline);
 		vkCmdDraw(vk_activeCmdbuffer, 3, 1, 0, 0);
@@ -1075,9 +1054,9 @@ R_SetLightLevel(entity_t *currententity)
 	}
 
 	/* save off light value for server to look at */
-	R_LightPoint(r_worldmodel->grid, currententity, &r_newrefdef,
+	R_LightPoint(r_worldmodel->grid, currententity,
 		r_worldmodel->surfaces, r_worldmodel->nodes, r_newrefdef.vieworg,
-		shadelight, r_modulate->value, lightspot);
+		shadelight, lightspot);
 
 	/* pick the greatest component, which should be the
 	 * same as the mono value returned by software */
@@ -1124,35 +1103,12 @@ R_Register(void)
 {
 	/* Init default value */
 	R_InitTemporaryLMBuffer();
+	R_InitCvar();
 
-	r_lefthand = ri.Cvar_Get("hand", "0", CVAR_USERINFO | CVAR_ARCHIVE);
-	r_norefresh = ri.Cvar_Get("r_norefresh", "0", 0);
-	r_fullbright = ri.Cvar_Get("r_fullbright", "0", 0);
-	r_drawentities = ri.Cvar_Get("r_drawentities", "1", 0);
-	r_drawworld = ri.Cvar_Get("r_drawworld", "1", 0);
-	r_novis = ri.Cvar_Get("r_novis", "0", 0);
-	r_cull = ri.Cvar_Get("r_cull", "1", 0);
-	r_lerpmodels = ri.Cvar_Get("r_lerpmodels", "1", 0);
-	r_speeds = ri.Cvar_Get("r_speeds", "0", 0);
-	r_lightlevel = ri.Cvar_Get("r_lightlevel", "0", 0);
-	r_mode = ri.Cvar_Get("r_mode", "11", CVAR_ARCHIVE);
-	r_vsync = ri.Cvar_Get("r_vsync", "0", CVAR_ARCHIVE);
-	r_gunfov = ri.Cvar_Get("r_gunfov", "80", CVAR_ARCHIVE);
-	r_farsee = ri.Cvar_Get("r_farsee", "0", CVAR_LATCH | CVAR_ARCHIVE);
-	r_customwidth = ri.Cvar_Get("r_customwidth", "1024", CVAR_ARCHIVE);
-	r_customheight = ri.Cvar_Get("r_customheight", "768", CVAR_ARCHIVE);
-
+	vk_znear = ri.Cvar_Get("vk_znear", "4", CVAR_ARCHIVE);
 	vk_overbrightbits = ri.Cvar_Get("vk_overbrightbits", "1.0", CVAR_ARCHIVE);
-	r_validation = ri.Cvar_Get("r_validation", "0", CVAR_ARCHIVE);
 	vk_picmip = ri.Cvar_Get("vk_picmip", "0", 0);
-	r_palettedtexture = ri.Cvar_Get("r_palettedtexture", "0", 0);
-	r_flashblend = ri.Cvar_Get("r_flashblend", "0", 0);
 	vk_finish = ri.Cvar_Get("vk_finish", "0", CVAR_ARCHIVE);
-	r_clear = ri.Cvar_Get("r_clear", "0", CVAR_ARCHIVE);
-	r_lockpvs = ri.Cvar_Get("r_lockpvs", "0", 0);
-	r_polyblend = ri.Cvar_Get("r_polyblend", "1", 0);
-	r_modulate = ri.Cvar_Get("r_modulate", "1", CVAR_ARCHIVE);
-	vk_shadows = ri.Cvar_Get("r_shadows", "0", CVAR_ARCHIVE);
 	vk_pixel_size = ri.Cvar_Get("vk_pixel_size", "1", CVAR_ARCHIVE);
 	vk_particle_size = ri.Cvar_Get("vk_particle_size", "40", CVAR_ARCHIVE);
 	vk_particle_att_a = ri.Cvar_Get("vk_particle_att_a", "0.01", CVAR_ARCHIVE);
@@ -1162,13 +1118,8 @@ R_Register(void)
 	vk_particle_max_size = ri.Cvar_Get("vk_particle_max_size", "40", CVAR_ARCHIVE);
 	vk_custom_particles = ri.Cvar_Get("vk_custom_particles", "1", CVAR_ARCHIVE);
 	vk_postprocess = ri.Cvar_Get("vk_postprocess", "1", CVAR_ARCHIVE);
-	r_dynamic = ri.Cvar_Get("r_dynamic", "1", 0);
-	vk_msaa = ri.Cvar_Get("r_msaa_samples", "0", CVAR_ARCHIVE);
-	r_showtris = ri.Cvar_Get("r_showtris", "0", 0);
-	r_lightmap = ri.Cvar_Get("r_lightmap", "0", 0);
 	vk_texturemode = ri.Cvar_Get("vk_texturemode", "VK_MIPMAP_LINEAR", CVAR_ARCHIVE);
 	vk_lmaptexturemode = ri.Cvar_Get("vk_lmaptexturemode", "VK_MIPMAP_LINEAR", CVAR_ARCHIVE);
-	vk_aniso = ri.Cvar_Get("r_anisotropic", "0", CVAR_ARCHIVE);
 	vk_mip_nearfilter = ri.Cvar_Get("vk_mip_nearfilter", "0", CVAR_ARCHIVE);
 	vk_sampleshading = ri.Cvar_Get("vk_sampleshading", "1", CVAR_ARCHIVE);
 	vk_device_idx = ri.Cvar_Get("vk_device", "-1", CVAR_ARCHIVE);
@@ -1176,28 +1127,7 @@ R_Register(void)
 	vk_molten_fastmath = ri.Cvar_Get("vk_molten_fastmath", "0", CVAR_ARCHIVE);
 	vk_molten_metalbuffers = ri.Cvar_Get("vk_molten_metalbuffer", "0", CVAR_ARCHIVE);
 #endif
-	r_retexturing = ri.Cvar_Get("r_retexturing", "1", CVAR_ARCHIVE);
-	r_scale8bittextures = ri.Cvar_Get("r_scale8bittextures", "0", CVAR_ARCHIVE);
 	vk_underwater = ri.Cvar_Get("vk_underwater", "1", CVAR_ARCHIVE);
-	/* don't bilerp characters and crosshairs */
-	r_nolerp_list = ri.Cvar_Get("r_nolerp_list", DEFAULT_NOLERP_LIST, CVAR_ARCHIVE);
-	/* textures that should always be filtered, even if r_2D_unfiltered or an unfiltered gl mode is used */
-	r_lerp_list = ri.Cvar_Get("r_lerp_list", "", CVAR_ARCHIVE);
-	/* don't bilerp any 2D elements */
-	r_2D_unfiltered = ri.Cvar_Get("r_2D_unfiltered", "0", CVAR_ARCHIVE);
-	/* don't bilerp videos */
-	r_videos_unfiltered = ri.Cvar_Get("r_videos_unfiltered", "0", CVAR_ARCHIVE);
-	r_fixsurfsky = ri.Cvar_Get("r_fixsurfsky", "0", CVAR_ARCHIVE);
-
-	// clamp vk_msaa to accepted range so that video menu doesn't crash on us
-	if (vk_msaa->value < 0)
-	{
-		ri.Cvar_Set("r_msaa_samples", "0");
-	}
-
-	vid_fullscreen = ri.Cvar_Get("vid_fullscreen", "0", CVAR_ARCHIVE);
-	vid_gamma = ri.Cvar_Get("vid_gamma", "1.0", CVAR_ARCHIVE);
-	viewsize = ri.Cvar_Get("viewsize", "100", CVAR_ARCHIVE);
 
 	ri.Cmd_AddCommand("vk_strings", Vk_Strings_f);
 	ri.Cmd_AddCommand("vk_mem", Vk_Mem_f);
@@ -1212,13 +1142,13 @@ R_Register(void)
 static int
 Vkimp_SetMode(int *pwidth, int *pheight, int mode, int fullscreen)
 {
-	R_Printf(PRINT_ALL, "Setting mode %d:", mode);
+	Com_Printf("Setting mode %d:", mode);
 
 	/* mode -1 is not in the vid mode table - so we keep the values in pwidth
 	   and pheight and don't even try to look up the mode info */
 	if ((mode >= 0) && !ri.Vid_GetModeInfo(pwidth, pheight, mode))
 	{
-		R_Printf(PRINT_ALL, " invalid mode\n");
+		Com_Printf(" invalid mode\n");
 		return rserr_invalid_mode;
 	}
 
@@ -1227,12 +1157,12 @@ Vkimp_SetMode(int *pwidth, int *pheight, int mode, int fullscreen)
 	{
 		if(!ri.GLimp_GetDesktopMode(pwidth, pheight))
 		{
-			R_Printf( PRINT_ALL, " can't detect mode\n" );
+			Com_Printf(" can't detect mode\n" );
 			return rserr_invalid_mode;
 		}
 	}
 
-	R_Printf(PRINT_ALL, " %dx%d (vid_fullscreen %i)\n", *pwidth, *pheight, fullscreen);
+	Com_Printf(" %dx%d (vid_fullscreen %i)\n", *pwidth, *pheight, fullscreen);
 
 	if (!ri.GLimp_InitGraphics(fullscreen, pwidth, pheight))
 	{
@@ -1254,7 +1184,7 @@ R_SetMode(void)
 	fullscreen = (int)vid_fullscreen->value;
 	vid_gamma->modified = false;
 
-	vk_msaa->modified = false;
+	r_msaa_samples->modified = false;
 	r_clear->modified = false;
 	r_validation->modified = false;
 	vk_mip_nearfilter->modified = false;
@@ -1281,13 +1211,13 @@ R_SetMode(void)
 		{
 			ri.Cvar_SetValue("r_mode", vk_state.prev_mode);
 			r_mode->modified = false;
-			R_Printf(PRINT_ALL, "%s() - invalid mode\n", __func__);
+			Com_Printf("%s() - invalid mode\n", __func__);
 		}
 
 		// try setting it back to something safe
 		if (Vkimp_SetMode((int*)&vid.width, (int*)&vid.height, vk_state.prev_mode, false) != rserr_ok)
 		{
-			R_Printf(PRINT_ALL, "%s() - could not revert to safe mode\n", __func__);
+			Com_Printf("%s() - could not revert to safe mode\n", __func__);
 			return false;
 		}
 	}
@@ -1301,10 +1231,10 @@ RE_Init
 */
 static qboolean RE_Init( void )
 {
-	R_Printf(PRINT_ALL, "Refresh: " REF_VERSION "\n");
-	R_Printf(PRINT_ALL, "Platform: " YQ2OSTYPE "\n");
-	R_Printf(PRINT_ALL, "Architecture: " YQ2ARCH "\n");
-	R_Printf(PRINT_ALL, "Build date: " BUILD_DATE "\n\n");
+	Com_Printf("Refresh: " REF_VERSION "\n");
+	Com_Printf("Platform: " YQ2OSTYPE "\n");
+	Com_Printf("Architecture: " YQ2ARCH "\n");
+	Com_Printf("Build date: " BUILD_DATE "\n\n");
 
 	R_Register();
 
@@ -1313,7 +1243,7 @@ static qboolean RE_Init( void )
 	// set video mode/screen resolution
 	if (!R_SetMode())
 	{
-		R_Printf(PRINT_ALL, "%s() - could not R_SetMode()\n", __func__);
+		Com_Printf("%s() - could not R_SetMode()\n", __func__);
 		return false;
 	}
 
@@ -1322,7 +1252,7 @@ static qboolean RE_Init( void )
 	// print device information during startup
 	Vk_Strings_f();
 
-	R_Printf(PRINT_ALL, "Successfully initialized Vulkan!\n");
+	Com_Printf("Successfully initialized Vulkan!\n");
 
 	return true;
 }
@@ -1379,7 +1309,10 @@ RE_BeginFrame(float camera_separation)
 		}
 	}
 
-	// if ri.Sys_Error() had been issued mid-frame, we might end up here without properly submitting the image, so call QVk_EndFrame to be safe
+	/*
+	 * if Com_Error() had been issued mid-frame, we might end up here without
+	 * properly submitting the image, so call QVk_EndFrame to be safe
+	 */
 	QVk_EndFrame(true);
 
 	/*
@@ -1388,22 +1321,22 @@ RE_BeginFrame(float camera_separation)
 	if (vk_texturemode->modified || vk_lmaptexturemode->modified ||
 		r_nolerp_list->modified || r_2D_unfiltered->modified ||
 		r_lerp_list->modified || r_videos_unfiltered->modified ||
-		vk_aniso->modified)
+		r_anisotropic->modified)
 	{
-		if (vk_texturemode->modified || vk_aniso->modified ||
+		if (vk_texturemode->modified || r_anisotropic->modified ||
 			r_nolerp_list->modified || r_2D_unfiltered->modified)
 		{
 			Vk_TextureMode(vk_texturemode->string);
 			vk_texturemode->modified = false;
 		}
 
-		if (vk_lmaptexturemode->modified || vk_aniso->modified)
+		if (vk_lmaptexturemode->modified || r_anisotropic->modified)
 		{
 			Vk_LmapTextureMode(vk_lmaptexturemode->string);
 			vk_lmaptexturemode->modified = false;
 		}
 
-		vk_aniso->modified = false;
+		r_anisotropic->modified = false;
 		r_nolerp_list->modified = false;
 		r_lerp_list->modified = false;
 		r_2D_unfiltered->modified = false;
@@ -1560,7 +1493,7 @@ RE_InitContext(void *win)
 
 	if(window == NULL)
 	{
-		R_Printf(PRINT_ALL, "%s() must not be called with NULL argument!", __func__);
+		Com_Printf("%s() must not be called with NULL argument!", __func__);
 		return false;
 	}
 
@@ -1573,16 +1506,20 @@ RE_InitContext(void *win)
 #if SDL_VERSION_ATLEAST(2, 26, 0)
 	// Figure out if we are high dpi aware.
 	int flags = SDL_GetWindowFlags(window);
+#ifdef USE_SDL3
+	RE_IsHighDPIaware = (flags & SDL_WINDOW_HIGH_PIXEL_DENSITY) ? true : false;
+#else
 	RE_IsHighDPIaware = (flags & SDL_WINDOW_ALLOW_HIGHDPI) ? true : false;
+#endif
 	if (RE_IsHighDPIaware)
 	{
-		R_Printf(PRINT_ALL, "%s() - HighDPI is enabled\n", __func__);
+		Com_Printf("%s() - HighDPI is enabled\n", __func__);
 	}
 #endif
 
 	if (!QVk_Init())
 	{
-		R_Printf(PRINT_ALL, "%s() - could not initialize Vulkan!\n", __func__);
+		Com_Printf("%s() - could not initialize Vulkan!\n", __func__);
 		return false;
 	}
 
@@ -1593,9 +1530,13 @@ RE_InitContext(void *win)
 
 qboolean Vkimp_CreateSurface(SDL_Window *window)
 {
+#ifdef USE_SDL3
+	if (!SDL_Vulkan_CreateSurface(window, vk_instance, NULL, &vk_surface))
+#else
 	if (!SDL_Vulkan_CreateSurface(window, vk_instance, &vk_surface))
+#endif
 	{
-		R_Printf(PRINT_ALL, "%s() SDL_Vulkan_CreateSurface failed: %s",
+		Com_Printf("%s() SDL_Vulkan_CreateSurface failed: %s",
 				__func__, SDL_GetError());
 		return false;
 	}
@@ -1662,10 +1603,15 @@ static int RE_PrepareForWindow(void)
 {
 	if (SDL_Vulkan_LoadLibrary(NULL))
 	{
-		R_Printf(PRINT_ALL, "%s() Loader import failed: %s", __func__, SDL_GetError());
+		Com_Printf("%s() Loader import failed: %s", __func__, SDL_GetError());
 	}
 
+#ifdef USE_SDL3
+	volkInitializeCustom((void *)SDL_Vulkan_GetVkGetInstanceProcAddr());
+#else
 	volkInitializeCustom(SDL_Vulkan_GetVkGetInstanceProcAddr());
+#endif
+
 #if defined(__APPLE__)
 	void *molten = dlopen("libMoltenVK.dylib", RTLD_LOCAL | RTLD_NOW);
 	if (!molten)
@@ -1684,6 +1630,20 @@ static int RE_PrepareForWindow(void)
 	return SDL_WINDOW_VULKAN;
 }
 
+
+static int
+RE_GetSDLVersion(void)
+{
+#ifdef USE_SDL3
+	int version = SDL_GetVersion();
+	return SDL_VERSIONNUM_MAJOR(version);
+#else
+	SDL_version ver;
+	SDL_VERSION(&ver);
+	return ver.major;
+#endif
+}
+
 /*
 ===============
 GetRefAPI
@@ -1697,6 +1657,7 @@ GetRefAPI(refimport_t imp)
 	ri = imp;
 
 	refexport.api_version = API_VERSION;
+	refexport.framework_version = RE_GetSDLVersion();
 
 	refexport.BeginRegistration = RE_BeginRegistration;
 	refexport.RegisterModel = RE_RegisterModel;
@@ -1711,6 +1672,7 @@ GetRefAPI(refimport_t imp)
 	refexport.DrawPicScaled = RE_Draw_PicScaled;
 	refexport.DrawStretchPic = RE_Draw_StretchPic;
 	refexport.DrawCharScaled = RE_Draw_CharScaled;
+	refexport.DrawStringScaled = RE_Draw_StringScaled;
 	refexport.DrawTileClear = RE_Draw_TileClear;
 	refexport.DrawFill = RE_Draw_Fill;
 	refexport.DrawFadeScreen= RE_Draw_FadeScreen;
@@ -1737,51 +1699,4 @@ GetRefAPI(refimport_t imp)
 	Swap_Init ();
 
 	return refexport;
-}
-
-void R_Printf(int level, const char* msg, ...)
-{
-	va_list argptr;
-	va_start(argptr, msg);
-	ri.Com_VPrintf(level, msg, argptr);
-	va_end(argptr);
-}
-
-/*
- * this is only here so the functions in shared source files
- * (shared.c, rand.c, flash.c, mem.c/hunk.c) can link
- */
-void
-Sys_Error(const char *error, ...)
-{
-	va_list argptr;
-	char text[4096]; // MAXPRINTMSG == 4096
-
-	va_start(argptr, error);
-	vsnprintf(text, sizeof(text), error, argptr);
-	va_end(argptr);
-
-	ri.Sys_Error(ERR_FATAL, "%s", text);
-}
-
-void
-Com_Printf(const char *msg, ...)
-{
-	va_list argptr;
-	va_start(argptr, msg);
-	ri.Com_VPrintf(PRINT_ALL, msg, argptr);
-	va_end(argptr);
-}
-
-void
-Com_Error(int code, const char *fmt, ...)
-{
-	va_list argptr;
-	char text[4096]; // MAXPRINTMSG == 4096
-
-	va_start(argptr, fmt);
-	vsnprintf(text, sizeof(text), fmt, argptr);
-	va_end(argptr);
-
-	ri.Sys_Error(code, "%s", text);
 }

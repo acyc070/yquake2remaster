@@ -69,13 +69,14 @@ compress_for_stbiw(unsigned char *data, int data_len, int *out_len, int quality)
  * RGB or RGBA. The pixels must be given row-wise, stating at the top
  * left.
  */
-void VID_WriteScreenshot(int width, int height, int comp, const void* data)
+static void
+VID_WriteScreenshot(int width, int height, int comp, const void* data)
 {
 	char picname[80];
 	char checkname[MAX_OSPATH];
 	int i, success = 0;
 	static const char* supportedFormats[] = { "tga", "bmp", "png", "jpg" };
-	static const int numFormats = sizeof(supportedFormats)/sizeof(supportedFormats[0]);
+	static const int numFormats = ARRLEN(supportedFormats);
 	int format = 0; // 0=tga, 1=bmp, 2=png, 3=jpg
 	int quality = 85;
 	int argc = Cmd_Argc();
@@ -105,7 +106,7 @@ void VID_WriteScreenshot(int width, int height, int comp, const void* data)
 		if (argc > 2)
 		{
 			const char* q = Cmd_Argv(2);
-			int qualityStrLen = strlen(q);
+			size_t qualityStrLen = strlen(q);
 
 			for (i = 0; i < qualityStrLen; ++i)
 			{
@@ -240,14 +241,15 @@ vidmode_t vid_modes[] = {
 	{"Mode 29: 3840x2160", 3840, 2160, 29},
 	{"Mode 30: 4096x2160", 4096, 2160, 30},
 	{"Mode 31: 5120x2880", 5120, 2880, 31},
+	{"Mode 32: 1600x900", 1600, 900, 32},
 };
 
-#define VID_NUM_MODES (sizeof(vid_modes) / sizeof(vid_modes[0]))
+#define VID_NUM_MODES ARRLEN(vid_modes)
 
 /*
  * Callback function for the 'vid_listmodes' cmd.
  */
-void
+static void
 VID_ListModes_f(void)
 {
 	int i;
@@ -264,7 +266,7 @@ VID_ListModes_f(void)
 /*
  * Returns informations about the given mode.
  */
-qboolean
+static qboolean
 VID_GetModeInfo(int *width, int *height, int mode)
 {
 	if ((mode < 0) || (mode >= VID_NUM_MODES))
@@ -341,7 +343,7 @@ VID_HasRenderer(const char *renderer)
 /*
  * Called by the renderer to request a restart.
  */
-void
+static void
 VID_RequestRestart(ref_restart_t rs)
 {
 	restart_state = rs;
@@ -350,7 +352,7 @@ VID_RequestRestart(ref_restart_t rs)
 /*
  * Restarts the renderer.
  */
-void
+static void
 VID_Restart_f(void)
 {
 	if (restart_state == RESTART_UNDEF)
@@ -364,7 +366,7 @@ VID_Restart_f(void)
 /*
  * Shuts the renderer down and unloads it.
  */
-void
+static void
 VID_ShutdownRenderer(void)
 {
 	if (ref_active)
@@ -375,16 +377,18 @@ VID_ShutdownRenderer(void)
 		Sys_FreeLibrary(reflib_handle);
 		reflib_handle = NULL;
 		memset(&re, 0, sizeof(re));
+
+		CL_ClearTEntModels();
 	}
 
-	// Declare the refresher as inactive
+	/* Declare the refresher as inactive */
 	ref_active = false;
 }
 
 /*
  * Loads and initializes a renderer.
  */
-qboolean
+static qboolean
 VID_LoadRenderer(void)
 {
 	refimport_t	ri;
@@ -413,7 +417,7 @@ VID_LoadRenderer(void)
 	}
 
 	// Mkay, let's load the requested renderer.
-	GetRefAPI = Sys_LoadLibrary(reflib_path, "GetRefAPI", &reflib_handle);
+	GetRefAPI = (GetRefAPI_t)Sys_LoadLibrary(reflib_path, "GetRefAPI", &reflib_handle);
 
 	// Okay, we couldn't load it. It's up to the
 	// caller to recover from this.
@@ -439,12 +443,17 @@ VID_LoadRenderer(void)
 	ri.FS_Gamedir = FS_Gamedir;
 	ri.FS_LoadFile = FS_LoadFile;
 	ri.FS_AllocFile = Z_Malloc;
+	ri.Mod_LoadFile = Mod_LoadFile;
+	ri.Mod_FreeFile = Mod_FreeFile;
 	ri.GLimp_InitGraphics = GLimp_InitGraphics;
 	ri.GLimp_GetDesktopMode = GLimp_GetDesktopMode;
 	ri.Sys_Error = Com_Error;
 	ri.Vid_GetModeInfo = VID_GetModeInfo;
 	ri.Vid_MenuInit = VID_MenuInit;
 	ri.Vid_WriteScreenshot = VID_WriteScreenshot;
+	ri.VID_ImageDecode = SCR_LoadImageWithPalette;
+	ri.VID_GetPalette = VID_GetPalette;
+	ri.VID_GetPalette24to8 = VID_GetPalette24to8;
 	ri.Vid_RequestRestart = VID_RequestRestart;
 
 	// Exchange our export struct with the renderers import struct.
@@ -456,9 +465,17 @@ VID_LoadRenderer(void)
 	// Let's check if we've got a compatible renderer.
 	if (re.api_version != API_VERSION)
 	{
+		Com_Printf("%s has incompatible api_version %d!\n", reflib_name, re.api_version);
+
 		VID_ShutdownRenderer();
 
-		Com_Printf("%s has incompatible api_version %d!\n", reflib_name, re.api_version);
+		return false;
+	}
+	else if (re.framework_version != GLimp_GetFrameworkVersion())
+	{
+		Com_Printf("%s has incompatible sdl_version %d!\n", reflib_name, re.framework_version);
+
+		VID_ShutdownRenderer();
 
 		return false;
 	}
@@ -500,10 +517,14 @@ VID_CheckChanges(void)
 		{
 			rs = RESTART_FULL;
 			vid_fullscreen->modified = false;
-		} else {
+		}
+		else
+		{
 			rs = RESTART_NO;
 		}
-	} else {
+	}
+	else
+	{
 		rs = restart_state;
 		restart_state = RESTART_NO;
 	}
@@ -525,9 +546,11 @@ VID_CheckChanges(void)
 		// Mkay, let's try our luck.
 		while (!VID_LoadRenderer())
 		{
-			// We try: custom -> gl3 -> gl1 -> soft.
+			// We try: custom -> gl3 -> gles3 -> gl1 -> gles1 -> soft.
 			if ((strcmp(vid_renderer->string, "gl3") != 0) &&
+				(strcmp(vid_renderer->string, "gles3") != 0) &&
 				(strcmp(vid_renderer->string, "gl1") != 0) &&
+				(strcmp(vid_renderer->string, "gles1") != 0) &&
 				(strcmp(vid_renderer->string, "soft") != 0))
 			{
 				Com_Printf("Retrying with gl3...\n");
@@ -535,10 +558,20 @@ VID_CheckChanges(void)
 			}
 			else if (strcmp(vid_renderer->string, "gl3") == 0)
 			{
+				Com_Printf("Retrying with gles3...\n");
+				Cvar_Set("vid_renderer", "gles3");
+			}
+			else if (strcmp(vid_renderer->string, "gles3") == 0)
+			{
 				Com_Printf("Retrying with gl1...\n");
 				Cvar_Set("vid_renderer", "gl1");
 			}
 			else if (strcmp(vid_renderer->string, "gl1") == 0)
+			{
+				Com_Printf("Retrying with gles1...\n");
+				Cvar_Set("vid_renderer", "gles1");
+			}
+			else if (strcmp(vid_renderer->string, "gles1") == 0)
 			{
 				Com_Printf("Retrying with soft...\n");
 				Cvar_Set("vid_renderer", "soft");
@@ -547,6 +580,7 @@ VID_CheckChanges(void)
 			{
 				// Sorry, no usable renderer found.
 				Com_Error(ERR_FATAL, "No usable renderer found!\n");
+				return;
 			}
 		}
 
@@ -569,7 +603,7 @@ VID_Init(void)
 	// Console variables
 	vid_gamma = Cvar_Get("vid_gamma", "1.0", CVAR_ARCHIVE);
 	vid_fullscreen = Cvar_Get("vid_fullscreen", "0", CVAR_ARCHIVE);
-	vid_renderer = Cvar_Get("vid_renderer", "gl1", CVAR_ARCHIVE);
+	vid_renderer = Cvar_Get("vid_renderer", "gl3", CVAR_ARCHIVE);
 
 	// Commands
 	Cmd_AddCommand("vid_restart", VID_Restart_f);
@@ -581,7 +615,10 @@ VID_Init(void)
 	if (!GLimp_Init())
 	{
 		Com_Error(ERR_FATAL, "Couldn't initialize the graphics subsystem!\n");
+		return;
 	}
+
+	VID_ImageInit();
 
 	// Load the renderer and get things going.
 	VID_CheckChanges();
@@ -594,6 +631,9 @@ void
 VID_Shutdown(void)
 {
 	VID_ShutdownRenderer();
+
+	VID_ImageDestroy();
+
 	GLimp_Shutdown();
 }
 
@@ -695,7 +735,16 @@ Draw_PicScaled(int x, int y, const char *pic, float factor)
 {
 	if (ref_active)
 	{
-		re.DrawPicScaled(x, y, pic, factor);
+		re.DrawPicScaled(x, y, pic, factor, NULL);
+	}
+}
+
+void
+Draw_PicScaledAltText(int x, int y, const char *pic, float factor, const char *alttext)
+{
+	if (ref_active)
+	{
+		re.DrawPicScaled(x, y, pic, factor, alttext);
 	}
 }
 
@@ -705,6 +754,15 @@ Draw_CharScaled(int x, int y, int num, float scale)
 	if (ref_active)
 	{
 		re.DrawCharScaled(x, y, num, scale);
+	}
+}
+
+void
+Draw_StringScaled(int x, int y, float scale, qboolean alt, const char *message)
+{
+	if (ref_active)
+	{
+		re.DrawStringScaled(x, y, scale, alt, message);
 	}
 }
 

@@ -25,30 +25,41 @@
  */
 
 #include "header/local.h"
+#include "../files/stb_truetype.h"
 
-image_t *draw_chars;
+static float gl_font_size = 8.0;
+static int gl_font_height = 128;
+image_t *draw_chars = NULL;
+static image_t *draw_font = NULL;
+static image_t *draw_font_alt = NULL;
+static stbtt_bakedchar *draw_fontcodes = NULL;
 
 extern qboolean scrap_dirty;
+static qboolean draw_chars_has_alt;
 void Scrap_Upload(void);
 
 extern unsigned r_rawpalette[256];
 
+void R_LoadTTFFont(const char *ttffont, int vid_height, float *r_font_size,
+	int *r_font_height, stbtt_bakedchar **draw_fontcodes,
+	struct image_s **draw_font, struct image_s **draw_font_alt,
+	loadimage_t R_LoadPic);
+
 void
 Draw_InitLocal(void)
 {
-	/* load console characters */
-	draw_chars = R_FindPic("conchars", (findimage_t)R_FindImage);
-	/* Daikatana */
-	if (!draw_chars)
-	{
-		draw_chars = R_FindPic ("dkchars", (findimage_t)R_FindImage);
-	}
+	R_LoadTTFFont(r_ttffont->string, vid.height, &gl_font_size, &gl_font_height,
+		&draw_fontcodes, &draw_font, &draw_font_alt, R_LoadPic);
 
-	if (!draw_chars)
-	{
-		Com_Error(ERR_FATAL, "%s: Couldn't load pics/conchars",
-			__func__);
-	}
+	draw_chars = R_LoadConsoleChars((findimage_t)R_FindImage);
+	/* Heretic 2 uses more than 128 symbols in image */
+	draw_chars_has_alt = !(draw_chars && !strcmp(draw_chars->name, "pics/misc/conchars.m32"));
+}
+
+void
+RDraw_FreeLocal(void)
+{
+	free(draw_fontcodes);
 }
 
 /*
@@ -81,33 +92,70 @@ RDraw_CharScaled(int x, int y, int num, float scale)
 	fcol = col * 0.0625;
 	size = 0.0625;
 
-	scaledSize = 8*scale;
+	scaledSize = 8 * scale;
 
-	R_Bind(draw_chars->texnum);
+	R_UpdateGLBuffer(buf_2d, draw_chars->texnum, 0, 0, 1);
 
-	GLfloat vtx[] = {
-		x, y,
-		x + scaledSize, y,
-		x + scaledSize, y + scaledSize,
-		x, y + scaledSize
-	};
+	R_Buffer2DQuad(x, y, x + scaledSize, y + scaledSize,
+		fcol, frow, fcol + size, frow + size);
+}
 
-	GLfloat tex[] = {
-		fcol, frow,
-		fcol + size, frow,
-		fcol + size, frow + size,
-		fcol, frow + size
-	};
+void
+RDraw_StringScaled(int x, int y, float scale, qboolean alt, const char *message)
+{
+	while (*message)
+	{
+		unsigned value = R_NextUTF8Code(&message);
 
-	glEnableClientState( GL_VERTEX_ARRAY );
-	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
+		if (draw_fontcodes && draw_font && draw_font_alt)
+		{
+			float font_scale;
 
-	glVertexPointer( 2, GL_FLOAT, 0, vtx );
-	glTexCoordPointer( 2, GL_FLOAT, 0, tex );
-	glDrawArrays( GL_TRIANGLE_FAN, 0, 4 );
+			font_scale = gl_font_size / 8.0;
 
-	glDisableClientState( GL_VERTEX_ARRAY );
-	glDisableClientState( GL_TEXTURE_COORD_ARRAY );
+			if (value >= 32 && value < MAX_FONTCODE)
+			{
+				float xf = 0, yf = 0, xdiff;
+				stbtt_aligned_quad q;
+
+				stbtt_GetBakedQuad(draw_fontcodes, gl_font_height, gl_font_height,
+					value - 32, &xf, &yf, &q, 1);
+
+				xdiff = (8 - xf / font_scale) / 2;
+				if (xdiff < 0)
+				{
+					xdiff = 0;
+				}
+
+				R_UpdateGLBuffer(buf_2d, alt ? draw_font_alt->texnum : draw_font->texnum, 0, 0, 1);
+
+				R_Buffer2DQuad(
+					(float)(x + (xdiff + q.x0 / font_scale) * scale),
+					(float)(y + q.y0 * scale / font_scale + 8 * scale),
+					x + (xdiff + q.x1 / font_scale) * scale,
+					y + q.y1 * scale / font_scale + 8 * scale,
+					q.s0, q.t0, q.s1, q.t1);
+				x += Q_max(8, xf / font_scale) * scale;
+			}
+			else
+			{
+				x += 8 * scale;
+			}
+		}
+		else
+		{
+			int xor;
+
+			xor = (alt && draw_chars_has_alt) ? 0x80 : 0;
+
+			if (value > ' ' && value < 128)
+			{
+				RDraw_CharScaled(x, y, value ^ xor, scale);
+			}
+
+			x += 8 * scale;
+		}
+	}
 }
 
 image_t *
@@ -119,7 +167,7 @@ RDraw_FindPic(const char *name)
 void
 RDraw_GetPicSize(int *w, int *h, const char *pic)
 {
-	image_t *gl;
+	const image_t *gl;
 
 	gl = R_FindPic(pic, (findimage_t)R_FindImage);
 
@@ -142,7 +190,7 @@ RDraw_StretchPic(int x, int y, int w, int h, const char *pic)
 
 	if (!gl)
 	{
-		R_Printf(PRINT_ALL, "Can't find pic: %s\n", pic);
+		Com_Printf("Can't find pic: %s\n", pic);
 		return;
 	}
 
@@ -151,35 +199,14 @@ RDraw_StretchPic(int x, int y, int w, int h, const char *pic)
 		Scrap_Upload();
 	}
 
-	R_Bind(gl->texnum);
+	R_UpdateGLBuffer(buf_2d, gl->texnum, 0, 0, 1);
 
-	GLfloat vtx[] = {
-		x, y,
-		x + w, y,
-		x + w, y + h,
-		x, y + h
-	};
-
-	GLfloat tex[] = {
-		gl->sl, gl->tl,
-		gl->sh, gl->tl,
-		gl->sh, gl->th,
-		gl->sl, gl->th
-	};
-
-	glEnableClientState( GL_VERTEX_ARRAY );
-	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
-
-	glVertexPointer( 2, GL_FLOAT, 0, vtx );
-	glTexCoordPointer( 2, GL_FLOAT, 0, tex );
-	glDrawArrays( GL_TRIANGLE_FAN, 0, 4 );
-
-	glDisableClientState( GL_VERTEX_ARRAY );
-	glDisableClientState( GL_TEXTURE_COORD_ARRAY );
+	R_Buffer2DQuad(x, y, x + w, y + h,
+		gl->sl, gl->tl, gl->sh, gl->th);
 }
 
 void
-RDraw_PicScaled(int x, int y, const char *pic, float factor)
+RDraw_PicScaled(int x, int y, const char *pic, float factor, const char *alttext)
 {
 	image_t *gl;
 
@@ -187,13 +214,28 @@ RDraw_PicScaled(int x, int y, const char *pic, float factor)
 
 	if (!gl)
 	{
-		R_Printf(PRINT_ALL, "Can't find pic: %s\n", pic);
+		if (alttext && alttext[0])
+		{
+			/* Show alttext if provided */
+			RDraw_StringScaled(x, y, factor, false, alttext);
+			return;
+		}
+
+		Com_Printf("Can't find pic: %s\n", pic);
 		return;
 	}
 
 	if (scrap_dirty)
 	{
 		Scrap_Upload();
+	}
+
+	if (gl->texnum == TEXNUM_SCRAPS)
+	{
+		R_UpdateGLBuffer(buf_2d, TEXNUM_SCRAPS, 0, 0, 1);
+		R_Buffer2DQuad(x, y, x + gl->width * factor, y + gl->height * factor,
+			gl->sl, gl->tl, gl->sh, gl->th);
+		return;
 	}
 
 	R_Bind(gl->texnum);
@@ -231,41 +273,20 @@ RDraw_PicScaled(int x, int y, const char *pic, float factor)
 void
 RDraw_TileClear(int x, int y, int w, int h, const char *pic)
 {
-	image_t *image;
+	const image_t *image;
 
 	image = R_FindPic(pic, (findimage_t)R_FindImage);
 
 	if (!image)
 	{
-		R_Printf(PRINT_ALL, "Can't find pic: %s\n", pic);
+		Com_Printf("Can't find pic: %s\n", pic);
 		return;
 	}
 
-	R_Bind(image->texnum);
+	R_UpdateGLBuffer(buf_2d, image->texnum, 0, 0, 1);
 
-	GLfloat vtx[] = {
-		x, y,
-		x + w, y,
-		x + w, y + h,
-		x, y + h
-	};
-
-	GLfloat tex[] = {
-		x / 64.0, y / 64.0,
-		( x + w ) / 64.0, y / 64.0,
-		( x + w ) / 64.0, ( y + h ) / 64.0,
-		x / 64.0, ( y + h ) / 64.0
-	};
-
-	glEnableClientState( GL_VERTEX_ARRAY );
-	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
-
-	glVertexPointer( 2, GL_FLOAT, 0, vtx );
-	glTexCoordPointer( 2, GL_FLOAT, 0, tex );
-	glDrawArrays( GL_TRIANGLE_FAN, 0, 4 );
-
-	glDisableClientState( GL_VERTEX_ARRAY );
-	glDisableClientState( GL_TEXTURE_COORD_ARRAY );
+	R_Buffer2DQuad(x, y, x + w, y + h, x / 64.0, y / 64.0,
+		( x + w ) / 64.0, ( y + h ) / 64.0);
 }
 
 /*
@@ -282,7 +303,8 @@ RDraw_Fill(int x, int y, int w, int h, int c)
 
 	if ((unsigned)c > 255)
 	{
-		Com_Error(ERR_FATAL, "Draw_Fill: bad color");
+		Com_Error(ERR_FATAL, "%s: bad color", __func__);
+		return;
 	}
 
 	glDisable(GL_TEXTURE_2D);
@@ -312,6 +334,7 @@ RDraw_Fill(int x, int y, int w, int h, int c)
 void
 RDraw_FadeScreen(void)
 {
+	R_ApplyGLBuffer();	// draw what needs to be hidden
 	glEnable(GL_BLEND);
 	glDisable(GL_TEXTURE_2D);
 	glColor4f(0, 0, 0, 0.8);
@@ -341,12 +364,12 @@ RDraw_StretchRaw(int x, int y, int w, int h, int cols, int rows, const byte *dat
 	GLfloat tex[8];
 	float hscale = 1.0f;
 	int frac, fracstep;
-	int i, j, trows;
+	int i, j;
 	int row;
 
 	R_Bind(0);
 
-	if(gl_config.npottextures || rows <= 256 || bits == 32)
+	if (gl_config.npottextures || rows <= 256 || bits == 32)
 	{
 		// X, X
 		tex[0] = 0;
@@ -368,7 +391,6 @@ RDraw_StretchRaw(int x, int y, int w, int h, int cols, int rows, const byte *dat
 	{
 		// Scale params
 		hscale = rows / 256.0;
-		trows = 256;
 
 		// X, X
 		tex[0] = 1.0 / 512.0;
@@ -396,8 +418,6 @@ RDraw_StretchRaw(int x, int y, int w, int h, int cols, int rows, const byte *dat
 
 	if (!gl_config.palettedtexture || bits == 32)
 	{
-		unsigned image32[320*240]; /* was 256 * 256, but we want a bit more space */
-
 		/* .. because now if non-power-of-2 textures are supported, we just load
 		 * the data into a texture in the original format, without skipping any
 		 * pixels to fit into a 256x256 texture.
@@ -409,21 +429,30 @@ RDraw_StretchRaw(int x, int y, int w, int h, int cols, int rows, const byte *dat
 					cols, rows, 0, GL_RGBA, GL_UNSIGNED_BYTE,
 					data);
 		}
-		else if(gl_config.npottextures || rows <= 256)
+		else if (gl_config.npottextures || rows <= 256)
 		{
+			unsigned image32[320*240]; /* was 256 * 256, but we want a bit more space */
 			unsigned* img = image32;
 
-			if(cols*rows > 320*240)
+			if (cols*rows > 320*240)
 			{
 				/* in case there is a bigger video after all,
 				 * malloc enough space to hold the frame */
-				img = (unsigned*)malloc(cols*rows*4);
+				img = (unsigned*)malloc(cols * rows * 4);
+
+				YQ2_COM_CHECK_OOM(img, "malloc()",
+					cols * rows * 4)
+				if (!img)
+				{
+					/* unaware about YQ2_ATTR_NORETURN_FUNCPTR? */
+					return;
+				}
 			}
 
-			for(i=0; i<rows; ++i)
+			for (i=0; i<rows; ++i)
 			{
 				int rowOffset = i*cols;
-				for(j=0; j<cols; ++j)
+				for (j=0; j<cols; ++j)
 				{
 					byte palIdx = data[rowOffset+j];
 					img[rowOffset+j] = r_rawpalette[palIdx];
@@ -434,7 +463,7 @@ RDraw_StretchRaw(int x, int y, int w, int h, int cols, int rows, const byte *dat
 								cols, rows, 0, GL_RGBA, GL_UNSIGNED_BYTE,
 								img);
 
-			if(img != image32)
+			if (img != image32)
 			{
 				free(img);
 			}
@@ -442,11 +471,12 @@ RDraw_StretchRaw(int x, int y, int w, int h, int cols, int rows, const byte *dat
 		else
 		{
 			unsigned int image32[320*240];
-			unsigned *dest;
+			int trows = 256;
 
 			for (i = 0; i < trows; i++)
 			{
 				const byte *source;
+				unsigned *dest;
 
 				row = (int)(i * hscale);
 
@@ -475,10 +505,11 @@ RDraw_StretchRaw(int x, int y, int w, int h, int cols, int rows, const byte *dat
 	else
 	{
 		unsigned char image8[256 * 256];
-		unsigned char *dest;
+		int trows = 256;
 
 		for (i = 0; i < trows; i++)
 		{
+			unsigned char *dest;
 			const byte *source;
 
 			row = (int)(i * hscale);

@@ -30,22 +30,11 @@
 
 #include "../ref_shared.h"
 
-// don't need HDR stuff
-#define STBI_NO_LINEAR
-#define STBI_NO_HDR
-// make sure STB_image uses standard malloc(), as we'll use standard free() to deallocate
-#define STBI_MALLOC(sz)    malloc(sz)
-#define STBI_REALLOC(p,sz) realloc(p,sz)
-#define STBI_FREE(p)       free(p)
-// Switch of the thread local stuff. Breaks mingw under Windows.
-#define STBI_NO_THREAD_LOCALS
-// include implementation part of stb_image into this file
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
-
 // include resize implementation
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
 #include "stb_image_resize.h"
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "../files/stb_truetype.h"
 
 /*
  * Add extension to file name
@@ -71,32 +60,31 @@ FixFileExt(const char *origname, const char *ext, char *filename, size_t size)
 qboolean
 LoadSTB(const char *origname, const char* type, byte **pic, int *width, int *height)
 {
+	int w, h, bitsPerPixel;
 	char filename[256];
+	byte* data = NULL;
 
 	FixFileExt(origname, type, filename, sizeof(filename));
 
 	*pic = NULL;
 
-	byte* rawdata = NULL;
-	int rawsize = ri.FS_LoadFile(filename, (void **)&rawdata);
-	if (rawdata == NULL)
-	{
-		return false;
-	}
-
-	int w, h, bytesPerPixel;
-	byte* data = NULL;
-	data = stbi_load_from_memory(rawdata, rawsize, &w, &h, &bytesPerPixel, STBI_rgb_alpha);
+	ri.VID_ImageDecode(filename, &data, NULL, &w, &h, &bitsPerPixel);
 	if (data == NULL)
 	{
-		R_Printf(PRINT_ALL, "%s couldn't load data from %s: %s!\n", __func__, filename, stbi_failure_reason());
-		ri.FS_FreeFile(rawdata);
 		return false;
 	}
 
-	ri.FS_FreeFile(rawdata);
+	if (bitsPerPixel != 32)
+	{
+		free(data);
 
-	R_Printf(PRINT_DEVELOPER, "%s() loaded: %s\n", __func__, filename);
+		Com_Printf("%s unexpected file format of %s with %d bytes per pixel!\n",
+			__func__, filename, bitsPerPixel);
+
+		return false;
+	}
+
+	Com_DPrintf("%s() loaded: %s\n", __func__, filename);
 
 	*pic = data;
 	*width = w;
@@ -117,8 +105,8 @@ ResizeSTB(const byte *input_pixels, int input_width, int input_height,
 	return false;
 }
 
-// We have 16 color palette, 256 / 16 should be enough
-#define COLOR_DISTANCE 16
+/* 8 looks good for smoothed textures with whole width as rstep */
+#define COLOR_DISTANCE 8
 
 void
 SmoothColorImage(unsigned *dst, size_t size, size_t rstep)
@@ -162,7 +150,7 @@ SmoothColorImage(unsigned *dst, size_t size, size_t rstep)
 				}
 
 				// compare next pixels
-				for(k = 1; k <= step; k ++)
+				for (k = 1; k <= step; k ++)
 				{
 					if (dst[k] != dst[0])
 					{
@@ -176,7 +164,7 @@ SmoothColorImage(unsigned *dst, size_t size, size_t rstep)
 				// mirror steps
 				if (k < step)
 				{
-					// R_Printf(PRINT_ALL, "%s %d -> %d\n", __func__, k, step);
+					// Com_Printf("%s %d -> %d\n", __func__, k, step);
 					// change place for start effect
 					last_diff += (step - k);
 					step = k;
@@ -202,11 +190,17 @@ SmoothColorImage(unsigned *dst, size_t size, size_t rstep)
 				c_step = c_end - c_beg;
 				d_step = d_end - d_beg;
 
-				if ((abs(a_step) <= COLOR_DISTANCE) &&
-				    (abs(b_step) <= COLOR_DISTANCE) &&
-				    (abs(c_step) <= COLOR_DISTANCE) &&
-				    (abs(d_step) <= COLOR_DISTANCE) &&
-				    step > 0)
+				if (step > 0 &&
+					(abs(a_step) < COLOR_DISTANCE) &&
+					(abs(b_step) < COLOR_DISTANCE) &&
+					(abs(c_step) < COLOR_DISTANCE) &&
+					(abs(d_step) < COLOR_DISTANCE) &&
+					(
+						abs(a_step) > 1 ||
+						abs(b_step) > 1 ||
+						abs(c_step) > 1 ||
+						abs(d_step) > 1
+					))
 				{
 					// generate color change steps
 					a_step = (a_step << 16) / step;
@@ -215,7 +209,7 @@ SmoothColorImage(unsigned *dst, size_t size, size_t rstep)
 					d_step = (d_step << 16) / step;
 
 					// apply color changes
-					for (k=0; k < step; k++)
+					for (k = 0; k < step; k++)
 					{
 						*last_diff = (((a_beg + ((a_step * k) >> 16)) << 0) & 0x000000ff) |
 									 (((b_beg + ((b_step * k) >> 16)) << 8) & 0x0000ff00) |
@@ -466,6 +460,10 @@ LoadHiColorImage(const char *name, const char* namewe, const char *ext,
 	{
 		GetM32Info(name, &realwidth, &realheight);
 	}
+	else if (strcmp(ext, "swl") == 0)
+	{
+		GetSWLInfo(name, &realwidth, &realheight);
+	}
 
 	/* try to load a tga, png or jpg (in that order/priority) */
 	if (  LoadSTB(namewe, "tga", &pic, &width, &height)
@@ -498,38 +496,89 @@ LoadHiColorImage(const char *name, const char* namewe, const char *ext,
 
 static struct image_s *
 LoadImage_Ext(const char *name, const char* namewe, const char *ext, imagetype_t type,
-	qboolean r_retexturing, loadimage_t load_image)
+	loadimage_t load_image)
 {
 	struct image_s	*image = NULL;
 
 	// with retexturing and not skin
-	if (r_retexturing)
+	if (r_retexturing->value)
 	{
 		image = LoadHiColorImage(name, namewe, ext, type, load_image);
 	}
 
 	if (!image)
 	{
-		if (!strcmp(ext, "pcx"))
-		{
-			byte	*pic = NULL;
-			byte	*palette = NULL;
-			int width = 0, height = 0;
+		int width = 0, height = 0, realwidth = 0, realheight = 0;
+		byte *pic = NULL, *palette = NULL;
+		char filename[256];
+		int bitsPerPixel;
 
-			LoadPCX (namewe, &pic, &palette, &width, &height);
-			if (!pic)
+		/* name could not be used here as could have different extension
+		 * originaly */
+		FixFileExt(namewe, ext, filename, sizeof(filename));
+
+		ri.VID_ImageDecode(filename, &pic, &palette, &width, &height, &bitsPerPixel);
+
+		if (!pic)
+		{
+			Com_DPrintf("Bad %s file %s\n", ext, filename);
+			return NULL;
+		}
+
+		realheight = height;
+		realwidth = width;
+
+		if (bitsPerPixel == 32)
+		{
+			image = load_image(name, pic,
+				width, realwidth,
+				height, realheight,
+				width * height,
+				type, bitsPerPixel);
+		}
+		else
+		{
+			if (r_retexturing->value >= 2)
 			{
-				return NULL;
+				byte *image_scale = NULL;
+
+				/* scale image paletted images */
+				image_scale = malloc(width * height * 4);
+				YQ2_COM_CHECK_OOM(image_scale, "malloc()",
+					width * height * 4)
+				if (!image_scale)
+				{
+					/* unaware about YQ2_ATTR_NORETURN_FUNCPTR? */
+					return NULL;
+				}
+
+				scale2x(pic, image_scale, width, height);
+
+				/* replace pic with scale */
+				free(pic);
+				pic = image_scale;
+
+				width *= 2;
+				height *= 2;
 			}
 
-			if (r_retexturing && palette)
+			if (r_retexturing->value && palette)
 			{
 				byte *image_buffer = NULL;
 				int i, size;
 
 				size = width * height;
 
-				image_buffer = malloc (size * 4);
+				/* convert to full color */
+				image_buffer = malloc(size * 4);
+				YQ2_COM_CHECK_OOM(image_buffer, "malloc()",
+					size * 4)
+				if (!image_buffer)
+				{
+					/* unaware about YQ2_ATTR_NORETURN_FUNCPTR? */
+					return NULL;
+				}
+
 				for(i = 0; i < size; i++)
 				{
 					unsigned char value = pic[i];
@@ -539,56 +588,32 @@ LoadImage_Ext(const char *name, const char* namewe, const char *ext, imagetype_t
 					image_buffer[i * 4 + 3] = value == 255 ? 0 : 255;
 				}
 
+				if (r_scale8bittextures->value)
+				{
+					SmoothColorImage((unsigned*)image_buffer, size, width);
+				}
+
 				image = load_image(name, image_buffer,
-					width, width,
-					height, height,
+					width, realwidth,
+					height, realheight,
 					size, type, 32);
 				free (image_buffer);
 			}
 			else
 			{
 				image = load_image(name, pic,
-					width, width,
-					height, height,
-					width * height, type, 8);
-			}
-
-			if (palette)
-			{
-				free(palette);
-			}
-			free(pic);
-		}
-		else if (!strcmp(ext, "wal"))
-		{
-			image = LoadWal(name, namewe, type, load_image);
-		}
-		else if (!strcmp(ext, "m8"))
-		{
-			image = LoadM8(name, namewe, type, load_image);
-		}
-		else if (!strcmp(ext, "m32"))
-		{
-			image = LoadM32(name, namewe, type, load_image);
-		}
-		else if (!strcmp(ext, "tga") ||
-		         !strcmp(ext, "png") ||
-		         !strcmp(ext, "jpg"))
-		{
-			byte *pic = NULL;
-			int width = 0, height = 0;
-
-			if (LoadSTB (namewe, ext, &pic, &width, &height) && pic)
-			{
-				image = load_image(name, pic,
-					width, width,
-					height, height,
-					width * height,
-					type, 32);
-
-				free(pic);
+					width, realwidth,
+					height, realheight,
+					width * height, type, bitsPerPixel);
 			}
 		}
+
+		if (palette)
+		{
+			free(palette);
+		}
+
+		free(pic);
 	}
 
 	return image;
@@ -596,47 +621,59 @@ LoadImage_Ext(const char *name, const char* namewe, const char *ext, imagetype_t
 
 struct image_s *
 R_LoadImage(const char *name, const char* namewe, const char *ext, imagetype_t type,
-	qboolean r_retexturing, loadimage_t load_image)
+	loadimage_t load_image)
 {
 	struct image_s	*image = NULL;
 
 	/* original name */
-	image = LoadImage_Ext(name, namewe, ext, type, r_retexturing, load_image);
+	image = LoadImage_Ext(name, namewe, ext, type, load_image);
 
 	/* pcx check */
 	if (!image)
 	{
-		image = LoadImage_Ext(name, namewe, "pcx", type, r_retexturing, load_image);
+		image = LoadImage_Ext(name, namewe, "pcx", type, load_image);
 	}
 
 	/* wal check */
 	if (!image)
 	{
-		image = LoadImage_Ext(name, namewe, "wal", type, r_retexturing, load_image);
+		image = LoadImage_Ext(name, namewe, "wal", type, load_image);
 	}
 
 	/* tga check */
 	if (!image)
 	{
-		image = LoadImage_Ext(name, namewe, "tga", type, r_retexturing, load_image);
+		image = LoadImage_Ext(name, namewe, "tga", type, load_image);
 	}
 
 	/* m32 check */
 	if (!image)
 	{
-		image = LoadImage_Ext(name, namewe, "m32", type, r_retexturing, load_image);
+		image = LoadImage_Ext(name, namewe, "m32", type, load_image);
 	}
 
 	/* m8 check */
 	if (!image)
 	{
-		image = LoadImage_Ext(name, namewe, "m8", type, r_retexturing, load_image);
+		image = LoadImage_Ext(name, namewe, "m8", type, load_image);
+	}
+
+	/* swl check */
+	if (!image)
+	{
+		image = LoadImage_Ext(name, namewe, "swl", type, load_image);
 	}
 
 	/* png check */
 	if (!image)
 	{
-		image = LoadImage_Ext(name, namewe, "png", type, r_retexturing, load_image);
+		image = LoadImage_Ext(name, namewe, "png", type, load_image);
+	}
+
+	/* atd check */
+	if (!image)
+	{
+		image = LoadImage_Ext(name, namewe, "atd", type, load_image);
 	}
 
 	return image;
@@ -646,8 +683,8 @@ struct image_s*
 GetSkyImage(const char *skyname, const char* surfname, qboolean palettedtexture,
 	findimage_t find_image)
 {
-	struct image_s	*image = NULL;
-	char	pathname[MAX_QPATH];
+	struct image_s *image = NULL;
+	char pathname[MAX_QPATH];
 
 	/* Quake 2 */
 	if (palettedtexture)
@@ -672,17 +709,58 @@ GetSkyImage(const char *skyname, const char* surfname, qboolean palettedtexture,
 		image = find_image(pathname, it_sky);
 	}
 
+	/* Anachronox */
+	if (!image)
+	{
+		Com_sprintf(pathname, sizeof(pathname), "graphics/sky/%s%s.tga",
+			skyname, surfname);
+		image = find_image(pathname, it_sky);
+	}
+
+	/* Daikatana */
+	if (!image)
+	{
+		Com_sprintf(pathname, sizeof(pathname), "env/32bit/%s%s.tga",
+			skyname, surfname);
+		image = find_image(pathname, it_sky);
+	}
+
+	/* q2test */
+	if (!image && palettedtexture)
+	{
+		Com_sprintf(pathname, sizeof(pathname), "env/sky1%s.pcx",
+				surfname);
+		image = find_image(pathname, it_sky);
+	}
+
+	if (!image)
+	{
+		Com_sprintf(pathname, sizeof(pathname), "env/sky1%s.tga",
+				surfname);
+		image = find_image(pathname, it_sky);
+	}
+
 	return image;
 }
 
 struct image_s *
 GetTexImage(const char *name, findimage_t find_image)
 {
-	char	pathname[MAX_QPATH];
+	struct image_s *image = NULL;
+	char pathname[MAX_QPATH];
 
 	/* Quake 2 */
 	Com_sprintf(pathname, sizeof(pathname), "textures/%s.wal", name);
-	return find_image(pathname, it_wall);
+	image = find_image(pathname, it_wall);
+
+	/* Quake 1 */
+	if (!image)
+	{
+		Com_sprintf(pathname, sizeof(pathname), "%s.lmp", name);
+		image = find_image(pathname, it_wall);
+	}
+
+	return image;
 }
 
 struct image_s *
@@ -697,27 +775,44 @@ R_FindPic(const char *name, findimage_t find_image)
 		const char* ext;
 
 		ext = COM_FileExtension(name);
-		if(!ext[0])
+		if (!ext[0])
 		{
 			/* file has no extension */
-			strncpy(namewe, name, sizeof(namewe) - 1);
-			namewe[sizeof(namewe) - 1] = 0;
+			Q_strlcpy(namewe, name, sizeof(namewe));
 		}
 		else
 		{
-			int len;
-
-			len = strlen(name);
+			size_t len;
 
 			/* Remove the extension */
-			memset(namewe, 0, MAX_QPATH);
-			memcpy(namewe, name, len - (strlen(ext) + 1));
-			namewe[len - (strlen(ext))] = 0;
+			len = (ext - name) - 1;
+			if ((len < 1) || (len > sizeof(namewe) - 1))
+			{
+				Com_DPrintf("%s: Bad filename %s\n", __func__, name);
+				return NULL;
+			}
+
+			memcpy(namewe, name, len);
+			namewe[len] = 0;
 		}
 
 		/* Quake 2 */
 		Com_sprintf(pathname, sizeof(pathname), "pics/%s.pcx", namewe);
 		image = find_image(pathname, it_pic);
+
+		/* Quake 2 RR */
+		if (!image)
+		{
+			Com_sprintf(pathname, sizeof(pathname), "%s.pcx", namewe);
+			image = find_image(pathname, it_pic);
+		}
+
+		/* Anachronox */
+		if (!image)
+		{
+			Com_sprintf(pathname, sizeof(pathname), "graphics/%s.pcx", namewe);
+			image = find_image(pathname, it_pic);
+		}
 
 		/* Heretic 2 */
 		if (!image)
@@ -732,4 +827,183 @@ R_FindPic(const char *name, findimage_t find_image)
 	}
 
 	return image;
+}
+
+unsigned
+R_NextUTF8Code(const char **curr)
+{
+	unsigned value = 0, size = 0, i;
+
+	value = **curr;
+	if (!(value & 0x80))
+	{
+		size = 1;
+	}
+	else if ((value & 0xE0) == 0xC0)
+	{
+		size = 2;
+		value = (value & 0x1F) << 6;
+	}
+	else if ((value & 0xF0) == 0xE0)
+	{
+		size = 3;
+		value = (value & 0x0F) << 12;
+	}
+	else if ((value & 0xF8) == 0xF0)
+	{
+		size = 4;
+		value = (value & 0x07) << 18;
+	}
+	else
+	{
+		(*curr) ++;
+		/* incorrect utf8 encoding */
+		return 0;
+	}
+
+	(*curr) ++;
+	size --;
+
+	for (i = 0; (i < size); i++)
+	{
+		int c;
+
+		c = **curr;
+		if ((c & 0xC0) != 0x80)
+		{
+			break;
+		}
+		value |= (c & 0x3F) << ((size - i - 1) * 6);
+		(*curr) ++;
+	}
+
+	return value;
+}
+
+struct image_s *
+R_LoadConsoleChars(findimage_t find_image)
+{
+	struct image_s *draw_chars;
+
+	/* load console characters */
+	draw_chars = R_FindPic("conchars", find_image);
+
+	/* Anachronox */
+	if (!draw_chars)
+	{
+		draw_chars = R_FindPic("fonts/conchars", find_image);
+	}
+
+	/* Daikatana */
+	if (!draw_chars)
+	{
+		draw_chars = R_FindPic("dkchars", find_image);
+	}
+
+	if (!draw_chars)
+	{
+		Com_Error(ERR_FATAL, "%s: Couldn't load pics/conchars",
+			__func__);
+	}
+
+	return draw_chars;
+}
+
+void
+R_LoadTTFFont(const char *ttffont, int vid_height, float *r_font_size,
+	int *r_font_height, stbtt_bakedchar **draw_fontcodes,
+	struct image_s **draw_font, struct image_s **draw_font_alt,
+	loadimage_t R_LoadPic)
+{
+	int size, i, power_two = 1, texture_size, symbols;
+	byte *data, *font_mask, *font_data;
+	char font_name[MAX_QPATH] = {0};
+
+	snprintf(font_name, sizeof(font_name), "fonts/%s.ttf", ttffont);
+
+	size = ri.FS_LoadFile(font_name, (void **)&data);
+	if (size <= 0)
+	{
+		return;
+	}
+
+	*r_font_size = (vid_height / 240.0) * 4.0;
+	if (*r_font_size < 8)
+	{
+		*r_font_size = 8.0;
+	}
+
+	*r_font_height = *r_font_size * sqrt(MAX_FONTCODE);
+	while (power_two < *r_font_height)
+	{
+		power_two <<= 1;
+	}
+	*r_font_height = power_two;
+
+	texture_size = (*r_font_height) * (*r_font_height);
+	font_mask = malloc(texture_size);
+	YQ2_COM_CHECK_OOM(font_mask, "malloc()", texture_size)
+	font_data = malloc(texture_size * 4);
+	YQ2_COM_CHECK_OOM(font_data, "malloc()", texture_size * 4)
+	*draw_fontcodes = malloc(MAX_FONTCODE * sizeof(**draw_fontcodes));
+	YQ2_COM_CHECK_OOM(*draw_fontcodes, "malloc()",
+		MAX_FONTCODE * sizeof(**draw_fontcodes))
+	if (!font_mask || !font_data || !*draw_fontcodes)
+	{
+		free(font_mask);
+		free(font_data);
+		free(*draw_fontcodes);
+		*draw_fontcodes = NULL;
+		/* unaware about YQ2_ATTR_NORETURN_FUNCPTR? */
+		return;
+	}
+
+	symbols = stbtt_BakeFontBitmap(data,
+		0 /* file offset */,
+		*r_font_size * 1.5 /* symbol size ~ as console font */,
+		font_mask,
+		*r_font_height, *r_font_height,
+		32 /* Start font code */, MAX_FONTCODE,
+		*draw_fontcodes);
+	if (symbols < 0)
+	{
+		Com_Printf("%s(): Not enough space, loaded only %d symbols\n",
+			__func__, -symbols);
+	}
+	else
+	{
+		Com_DPrintf("%s(): Symbols took %d of %d texture\n",
+			__func__, symbols, *r_font_height);
+	}
+
+	for (i = 0; i < texture_size; i++)
+	{
+		font_data[i * 4 + 0] = font_mask[i];
+		font_data[i * 4 + 1] = font_mask[i];
+		font_data[i * 4 + 2] = font_mask[i];
+		font_data[i * 4 + 3] = font_mask[i] > 16 ? 255 : 0;
+	}
+
+	*draw_font = R_LoadPic("***ttf***", font_data,
+		*r_font_height, *r_font_height, *r_font_height, *r_font_height,
+		texture_size, it_pic, 32);
+
+	for (i = 0; i < texture_size; i++)
+	{
+		font_data[i * 4 + 0] = 0x0;
+		font_data[i * 4 + 1] = font_mask[i];
+		font_data[i * 4 + 2] = 0x0;
+		font_data[i * 4 + 3] = font_mask[i] > 16 ? 255 : 0;
+	}
+
+	*draw_font_alt = R_LoadPic("***ttf_alt***", font_data,
+		*r_font_height, *r_font_height, *r_font_height, *r_font_height,
+		texture_size, it_pic, 32);
+
+	free(font_data);
+	free(font_mask);
+	ri.FS_FreeFile((void *)data);
+
+	Com_Printf("%s(): Loaded font %s %.0fp.\n",
+		__func__, font_name, *r_font_size);
 }

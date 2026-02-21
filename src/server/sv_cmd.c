@@ -91,7 +91,6 @@ SV_SetPlayer(void)
 {
 	client_t *cl;
 	int i;
-	int idnum;
 	char *s;
 
 	if (Cmd_Argc() < 2)
@@ -104,6 +103,8 @@ SV_SetPlayer(void)
 	/* numeric values are just slot numbers */
 	if ((s[0] >= '0') && (s[0] <= '9'))
 	{
+		int idnum;
+
 		idnum = (int)strtol(Cmd_Argv(1), (char **)NULL, 10);
 
 		if ((idnum < 0) || (idnum >= maxclients->value))
@@ -113,7 +114,7 @@ SV_SetPlayer(void)
 		}
 
 		sv_client = &svs.clients[idnum];
-		sv_player = sv_client->edict;
+		sv_player = CL_EDICT(sv_client);
 
 		if (!sv_client->state)
 		{
@@ -135,7 +136,7 @@ SV_SetPlayer(void)
 		if (!strcmp(cl->name, s))
 		{
 			sv_client = cl;
-			sv_player = sv_client->edict;
+			sv_player = CL_EDICT(cl);
 			return true;
 		}
 	}
@@ -175,10 +176,7 @@ SV_DemoMap_f(void)
 static void
 SV_GameMap_f(void)
 {
-	char *map;
-	int i;
-	client_t *cl;
-	qboolean *savedInuse;
+	char *map, mapvalue[MAX_QPATH];
 
 	if (Cmd_Argc() != 2)
 	{
@@ -186,12 +184,19 @@ SV_GameMap_f(void)
 		return;
 	}
 
-	Com_DPrintf("SV_GameMap(%s)\n", Cmd_Argv(1));
+	if (strlen(Cmd_Argv(1)) >= sizeof(mapvalue))
+	{
+		Com_Printf("gamemap is too long\n");
+		return;
+	}
+
+	Com_DPrintf("%s(%s)\n", __func__, Cmd_Argv(1));
 
 	FS_CreatePath(va("%s/save/current/", FS_Gamedir()));
 
 	/* check for clearing the current savegame */
-	map = Cmd_Argv(1);
+	strcpy(mapvalue, Cmd_Argv(1));
+	map = mapvalue;
 
 	if (map[0] == '*')
 	{
@@ -203,28 +208,36 @@ SV_GameMap_f(void)
 		/* save the map just exited */
 		if (sv.state == ss_game)
 		{
+			bitlist_t savedInuse[BITLIST_SIZE(MAX_CLIENTS)];
+			int i;
+
 			/* clear all the client inuse flags before saving so that
 			   when the level is re-entered, the clients will spawn
 			   at spawn points instead of occupying body shells */
-			savedInuse = malloc(maxclients->value * sizeof(qboolean));
+			memset(savedInuse, 0, sizeof(savedInuse));
 
-			YQ2_COM_CHECK_OOM(savedInuse, "malloc()", maxclients->value * sizeof(qboolean))
-
-			for (i = 0, cl = svs.clients; i < maxclients->value; i++, cl++)
+			for (i = 0; i < maxclients->value; i++)
 			{
-				savedInuse[i] = cl->edict->inuse;
-				cl->edict->inuse = false;
+				edict_t *clent;
+
+				clent = CLNUM_EDICT(i);
+
+				if (clent->inuse)
+				{
+					BITLIST_SET(savedInuse, i);
+				}
+
+				clent->inuse = false;
 			}
 
 			SV_WriteLevelFile();
 
 			/* we must restore these for clients to transfer over correctly */
-			for (i = 0, cl = svs.clients; i < maxclients->value; i++, cl++)
+			for (i = 0; i < maxclients->value; i++)
 			{
-				cl->edict->inuse = savedInuse[i];
+				CLNUM_EDICT(i)->inuse =
+					BITLIST_ISSET(savedInuse, i) ? true : false;
 			}
-
-			free(savedInuse);
 		}
 	}
 
@@ -239,7 +252,8 @@ SV_GameMap_f(void)
 	char mapPath[MAX_QPATH];
 	{
 		qboolean haveStar = (map[0] == '*');
-		snprintf(mapPath, sizeof(mapPath), "maps/%s.bsp", haveStar ? map+1 : map);
+		Com_sprintf(mapPath, sizeof(mapPath), "maps/%s.bsp",
+			haveStar ? map + 1 : map);
 
 		fileHandle_t f = -1;
 		if(FS_FOpenFile(mapPath, &f, false) >= 0)
@@ -258,7 +272,6 @@ SV_GameMap_f(void)
 			map[strlen(map)-4] = '\0'; // cut off ".bsp"
 		}
 	}
-
 
 	/* start up the next map */
 	SV_Map(false, map, false, false);
@@ -282,7 +295,6 @@ static void
 SV_Map_f(void)
 {
 	char *map;
-	char expanded[MAX_QPATH];
 
 	if (Cmd_Argc() != 2)
 	{
@@ -295,6 +307,8 @@ SV_Map_f(void)
 
 	if (!strstr(map, ".") && !strstr(map, "$") && (*map != '*'))
 	{
+		char expanded[MAX_QPATH];
+
 		Com_sprintf(expanded, sizeof(expanded), "maps/%s.bsp", map);
 
 		if (FS_LoadFile(expanded, NULL) == -1)
@@ -317,18 +331,19 @@ SV_ListMaps_f(void)
 {
 	char **userMapNames;
 	int nUserMaps = 0;
-	int i;
-	char* mapName;
+	char* mapName, *lastsep;
 
 	Com_Printf("\n");
 
 	if ((userMapNames = FS_ListFiles2("maps/*.bsp", &nUserMaps, 0, 0)) != NULL)
 	{
+		int i;
+
 		for (i = 0; i < nUserMaps - 1; i++)
 		{
-			if (strrchr(userMapNames[i], '/'))
+			if ((lastsep = strrchr(userMapNames[i], '/')))
 			{
-				mapName = strrchr(userMapNames[i], '/') + 1;
+				mapName = lastsep + 1;
 			}
 			else
 			{
@@ -382,7 +397,8 @@ SV_Kick_f(void)
 static void
 SV_Status_f(void)
 {
-	int i, j, l;
+	int i, j;
+	size_t l;
 	client_t *cl;
 	char *s;
 	int ping;
@@ -406,7 +422,7 @@ SV_Status_f(void)
 		}
 
 		Com_Printf("%2i ", i);
-		Com_Printf("%5i ", cl->edict->client->ps.stats[STAT_FRAGS]);
+		Com_Printf("%5i ", CL_EDICT(cl)->client->ps.stats[STAT_FRAGS]);
 
 		if (cl->state == cs_connected)
 		{
@@ -477,7 +493,7 @@ SV_ConSay_f(void)
 		p[strlen(p) - 1] = 0;
 	}
 
-	strcat(text, p);
+	Q_strlcat(text, p, sizeof(text));
 
 	for (j = 0, client = svs.clients; j < maxclients->value; j++, client++)
 	{
@@ -520,7 +536,7 @@ SV_DumpUser_f(void)
 
 	if (Cmd_Argc() != 2)
 	{
-		Com_Printf("Usage: info <userid>\n");
+		Com_Printf("Usage: dumpuser <userid>\n");
 		return;
 	}
 
@@ -596,7 +612,7 @@ SV_ServerRecord_f(void)
 	/* serverdata needs to go over for all types of servers
 	   to make sure the protocol is right, and to set the gamedir */
 	MSG_WriteByte(&buf, svc_serverdata);
-	MSG_WriteLong(&buf, PROTOCOL_VERSION);
+	MSG_WriteLong(&buf, SV_GetRecomendedProtocol());
 	MSG_WriteLong(&buf, svs.spawncount);
 
 	/* 2 means server demo */
@@ -612,8 +628,11 @@ SV_ServerRecord_f(void)
 		if (sv.configstrings[i][0])
 		{
 			MSG_WriteByte(&buf, svc_configstring);
-			MSG_WriteShort(&buf, i);
-			MSG_WriteString(&buf, sv.configstrings[i]);
+
+			/* i in native server range */
+			MSG_WriteConfigString(&buf,
+				P_ConvertConfigStringTo(i, sv_client->protocol),
+				sv.configstrings[i]);
 
 			if (buf.cursize + 67 >= buf.maxsize)
 			{
@@ -682,7 +701,6 @@ SV_ServerCommand_f(void)
 static void
 SV_Gamemode_f(void)
 {
-	int none;
 	char *arg;
 
 	if (Cmd_Argc() != 2)
@@ -695,6 +713,8 @@ SV_Gamemode_f(void)
 
 	if (*arg == '?')
 	{
+		int none;
+
 		none = 1;
 
 		if (Cvar_VariableValue("deathmatch"))

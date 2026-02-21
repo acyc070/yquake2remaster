@@ -30,9 +30,10 @@ static int		r_stepback;
 static int		r_lightwidth;
 static int		r_numvblocks;
 static unsigned char	*r_source, *r_sourcemax;
-static unsigned		*r_lightptr;
+static light_t		*r_lightptr;
 
-void RI_BuildLightMap(drawsurf_t *drawsurf);
+void RI_BuildLightMap(drawsurf_t* drawsurf, const refdef_t *r_newrefdef,
+	float modulate, int r_framecount);
 
 static int	sc_size;
 static surfcache_t	*sc_rover;
@@ -41,7 +42,7 @@ surfcache_t	*sc_base;
 /*
  * Color light apply is not required
  */
-static qboolean
+static int
 R_GreyscaledLight(const light3_t light)
 {
 	light3_t light_masked;
@@ -71,7 +72,8 @@ R_DrawSurfaceBlock_Light (pixel_t *prowdest, pixel_t *psource, size_t size,
 	// Full same light from both side
 	if (light_masked_right != LIGHTMASK && light_masked_left == light_masked_right)
 	{
-		pixel_t *dest, *dest_max, *src;
+		const pixel_t *dest_max;
+		pixel_t *dest, *src;
 
 		dest = prowdest;
 		dest_max = prowdest + size;
@@ -93,7 +95,7 @@ R_DrawSurfaceBlock_Light (pixel_t *prowdest, pixel_t *psource, size_t size,
 		int b, j;
 		light3_t lightstep, light;
 
-		for(j=0; j<3; j++)
+		for (j=0; j<3; j++)
 		{
 			int lighttemp;
 
@@ -106,10 +108,12 @@ R_DrawSurfaceBlock_Light (pixel_t *prowdest, pixel_t *psource, size_t size,
 		for (b=(size-1); b>=0; b--)
 		{
 			pixel_t pix;
+			int j;
+
 			pix = psource[b];
 			prowdest[b] = R_ApplyLight(pix, light);
 
-			for(j=0; j<3; j++)
+			for (j=0; j<3; j++)
 				light[j] += lightstep[j];
 		}
 	}
@@ -139,8 +143,9 @@ R_DrawSurfaceBlock8_anymip (int level, int surfrowbytes)
 		// FIXME: use delta rather than both right and left, like ASM?
 		memcpy(lightleft, r_lightptr, sizeof(light3_t));
 		memcpy(lightright, r_lightptr + 3, sizeof(light3_t));
+
 		r_lightptr += r_lightwidth * 3;
-		for(i=0; i<3; i++)
+		for (i=0; i<3; i++)
 		{
 			lightleftstep[i] = (r_lightptr[i] - lightleft[i]) >> level;
 			lightrightstep[i] = (r_lightptr[i + 3] - lightright[i]) >> level;
@@ -154,7 +159,7 @@ R_DrawSurfaceBlock8_anymip (int level, int surfrowbytes)
 
 			psource += sourcetstep;
 
-			for(j=0; j<3; j++)
+			for (j=0; j<3; j++)
 			{
 				lightright[j] += lightrightstep[j];
 				lightleft[j] += lightleftstep[j];
@@ -175,7 +180,7 @@ R_DrawSurface
 ===============
 */
 static void
-R_DrawSurface (drawsurf_t *drawsurf)
+R_DrawSurface (drawsurf_t *drawsurf, light_t *blocklights, const light_t *blocklight_max)
 {
 	unsigned char	*basetptr;
 	int		smax, tmax, twidth;
@@ -286,7 +291,7 @@ R_InitCaches (void)
 	// round up to page size
 	size = (size + 8191) & ~8191;
 
-	R_Printf(PRINT_ALL,"%ik surface cache.\n", size/1024);
+	Com_DPrintf("%ik surface cache.\n", size / 1024);
 
 	sc_size = size;
 	sc_base = (surfcache_t *)malloc(size);
@@ -341,11 +346,13 @@ D_SCAlloc(int width, int size)
 	if ((width < 0) || (width > 256))
 	{
 		Com_Error(ERR_FATAL, "%s: bad cache width %d\n", __func__, width);
+		return NULL;
 	}
 
 	if ((size <= 0) || (size > 0x10000))
 	{
 		Com_Error(ERR_FATAL, "%s: bad cache size %d\n", __func__, size);
+		return NULL;
 	}
 
 	/* Add header size */
@@ -353,7 +360,9 @@ D_SCAlloc(int width, int size)
 	size = (size + 3) & ~3;
 	if (size > sc_size)
 	{
-		Com_Error(ERR_FATAL, "%s: %i > cache size of %i", __func__, size, sc_size);
+		Com_Error(ERR_FATAL, "%s: %i > cache size of %i",
+			__func__, size, sc_size);
+		return NULL;
 	}
 
 	/* if there is not size bytes after the rover, reset to the start */
@@ -377,6 +386,7 @@ D_SCAlloc(int width, int size)
 		if (!sc_rover)
 		{
 			Com_Error(ERR_FATAL, "%s: hit the end of memory", __func__);
+			return NULL;
 		}
 
 		if (sc_rover->owner)
@@ -496,10 +506,10 @@ D_CacheSurface(const entity_t *currententity, msurface_t *surface, int miplevel)
 	c_surf++;
 
 	// calculate the lightings
-	RI_BuildLightMap(&r_drawsurf);
+	RI_BuildLightMap(&r_drawsurf, &r_newrefdef, r_modulate->value, r_framecount);
 
 	// rasterize the surface into the cache
-	R_DrawSurface(&r_drawsurf);
+	R_DrawSurface(&r_drawsurf, blocklights, blocklight_max);
 
 	return cache;
 }

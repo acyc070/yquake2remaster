@@ -54,7 +54,6 @@ int alias_count; /* for detecting runaway loops */
 cmdalias_t *cmd_alias;
 int cmd_wait;
 static int cmd_argc;
-static int cmd_argc;
 static char *cmd_argv[MAX_STRING_TOKENS];
 static char *cmd_null_string = "";
 static char cmd_args[MAX_STRING_CHARS];
@@ -67,7 +66,7 @@ char defer_text_buf[32768];
  * until next frame.  This allows commands like: bind g "impulse 5 ;
  * +attack ; wait ; -attack ; impulse 2"
  */
-void
+static void
 Cmd_Wait_f(void)
 {
 	cmd_wait = Sys_Milliseconds();
@@ -85,13 +84,13 @@ Cbuf_Init(void)
 void
 Cbuf_AddText(const char *text)
 {
-	int l;
+	size_t l;
 
 	l = strlen(text);
 
 	if (cmd_text.cursize + l >= cmd_text.maxsize)
 	{
-		Com_Printf("Cbuf_AddText: overflow\n");
+		Com_Printf("%s: overflow\n", __func__);
 		return;
 	}
 
@@ -299,7 +298,7 @@ qboolean
 Cbuf_AddLateCommands(void)
 {
 	int i, j;
-	int s;
+	size_t s;
 	char *text, c;
 	int argc;
 	qboolean has_args = false;
@@ -362,7 +361,7 @@ Cbuf_AddLateCommands(void)
 /*
  * Execute a script file
  */
-void
+static void
 Cmd_Exec_f(void)
 {
 	char *f, *f2;
@@ -400,7 +399,9 @@ Cmd_Exec_f(void)
 /*
  * Inserts the current value of a variable as command text
  */
-void Cmd_Vstr_f( void ) {
+static void
+Cmd_Vstr_f(void)
+{
 	const char	*v;
 
 	if (Cmd_Argc() != 2) {
@@ -415,7 +416,7 @@ void Cmd_Vstr_f( void ) {
 /*
  * Just prints the rest of the line to the console
  */
-void
+static void
 Cmd_Echo_f(void)
 {
 	int i;
@@ -432,7 +433,7 @@ Cmd_Echo_f(void)
  * Creates a new command that executes
  * a command string (possibly ; seperated)
  */
-void
+static void
 Cmd_Alias_f(void)
 {
 	cmdalias_t *a;
@@ -485,15 +486,15 @@ Cmd_Alias_f(void)
 
 	for (i = 2; i < c; i++)
 	{
-		strcat(cmd, Cmd_Argv(i));
+		Q_strlcat(cmd, Cmd_Argv(i), sizeof(cmd));
 
 		if (i != (c - 1))
 		{
-			strcat(cmd, " ");
+			Q_strlcat(cmd, " ", sizeof(cmd));
 		}
 	}
 
-	strcat(cmd, "\n");
+	Q_strlcat(cmd, "\n", sizeof(cmd));
 
 	a->value = CopyString(cmd);
 }
@@ -524,10 +525,11 @@ Cmd_Args(void)
 	return cmd_args;
 }
 
-char *
+static char *
 Cmd_MacroExpandString(char *text)
 {
-	int i, j, count, len;
+	size_t len;
+	int i, count;
 	qboolean inquote;
 	char *scan;
 	static char expanded[MAX_STRING_CHARS];
@@ -550,6 +552,8 @@ Cmd_MacroExpandString(char *text)
 
 	for (i = 0; i < len; i++)
 	{
+		size_t j;
+
 		if (scan[i] == '"')
 		{
 			inquote ^= 1;
@@ -590,7 +594,7 @@ Cmd_MacroExpandString(char *text)
 		memcpy(temporary + i, token, j);
 		strcpy(temporary + i + j, start);
 
-		strcpy(expanded, temporary);
+		Q_strlcpy(expanded, temporary, sizeof(expanded));
 		scan = expanded;
 		i--;
 
@@ -665,7 +669,7 @@ Cmd_TokenizeString(char *text, qboolean macroExpand)
 		{
 			int l;
 
-			strcpy(cmd_args, text);
+			Q_strlcpy(cmd_args, text, sizeof(cmd_args));
 
 			/* strip off any trailing whitespace */
 			l = strlen(cmd_args) - 1;
@@ -784,10 +788,11 @@ const char *
 Cmd_CompleteCommand(const char *partial)
 {
 	cmd_function_t *cmd;
-	int len, i, o, p;
+	size_t len;
+	int i, o, p;
 	cmdalias_t *a;
 	cvar_t *cvar;
-	const char *pmatch[1024];
+	const char **pmatch;
 	qboolean diff = false;
 
 	len = strlen(partial);
@@ -797,6 +802,8 @@ Cmd_CompleteCommand(const char *partial)
 		return NULL;
 	}
 
+	i = 0;
+
 	/* check for exact match */
 	for (cmd = cmd_functions; cmd; cmd = cmd->next)
 	{
@@ -804,6 +811,8 @@ Cmd_CompleteCommand(const char *partial)
 		{
 			return cmd->name;
 		}
+
+		i++;
 	}
 
 	for (a = cmd_alias; a; a = a->next)
@@ -812,6 +821,8 @@ Cmd_CompleteCommand(const char *partial)
 		{
 			return a->name;
 		}
+
+		i++;
 	}
 
 	for (cvar = cvar_vars; cvar; cvar = cvar->next)
@@ -820,12 +831,24 @@ Cmd_CompleteCommand(const char *partial)
 		{
 			return cvar->name;
 		}
+
+		i++;
 	}
 
-	for (i = 0; i < 1024; i++)
+	if (!i)
 	{
-		pmatch[i] = NULL;
+		return NULL;
 	}
+
+	pmatch = malloc(i * sizeof(char *));
+	YQ2_COM_CHECK_OOM(pmatch, "malloc()", i * sizeof(char *))
+	if (!pmatch)
+	{
+		/* unaware about YQ2_ATTR_NORETURN_FUNCPTR? */
+		return NULL;
+	}
+
+	memset(pmatch, 0, i * sizeof(char *));
 
 	i = 0;
 
@@ -861,45 +884,53 @@ Cmd_CompleteCommand(const char *partial)
 	{
 		if (i == 1)
 		{
-			return pmatch[0];
+			Q_strlcpy(retval, pmatch[0], sizeof(retval));
 		}
-
-		/* Sort it */
-		qsort(pmatch, i, sizeof(pmatch[0]), Q_sort_strcomp);
-
-		Com_Printf("\n\n");
-
-		for (o = 0; o < i; o++)
+		else
 		{
-			Com_Printf("  %s\n", pmatch[o]);
-		}
+			/* Sort it */
+			qsort(pmatch, i, sizeof(pmatch[0]), Q_sort_strcomp);
 
-		strcpy(retval, "");
-		p = 0;
-
-		while (!diff && p < 256)
-		{
-			retval[p] = pmatch[0][p];
+			Com_Printf("\n\n");
 
 			for (o = 0; o < i; o++)
 			{
-				if (p > strlen(pmatch[o]))
-				{
-					continue;
-				}
-
-				if (retval[p] != pmatch[o][p])
-				{
-					retval[p] = 0;
-					diff = true;
-				}
+				Com_Printf("  %s\n", pmatch[o]);
 			}
 
-			p++;
+			strcpy(retval, "");
+			p = 0;
+
+			while (!diff && p < 256)
+			{
+				retval[p] = pmatch[0][p];
+
+				for (o = 0; o < i; o++)
+				{
+					if (p > strlen(pmatch[o]))
+					{
+						continue;
+					}
+
+					if (retval[p] != pmatch[o][p])
+					{
+						retval[p] = 0;
+						diff = true;
+					}
+				}
+
+				p++;
+			}
 		}
+
+		/* remove list */
+		free(pmatch);
 
 		return retval;
 	}
+
+	/* remove list */
+	free(pmatch);
 
 	return NULL;
 }
@@ -908,22 +939,34 @@ const char *
 Cmd_CompleteMapCommand(const char *partial)
 {
 	char **mapNames;
-	int i, j, k, nbMatches, len, nMaps;
-	char *mapName;
-	char *pmatch[1024];
-	qboolean partialFillContinue = true;
+	int nMaps;
 
 	if ((mapNames = FS_ListFiles2("maps/*.bsp", &nMaps, 0, 0)) != NULL)
 	{
+		size_t len;
+		int i, j, k, nbMatches;
+		char *mapName, *lastsep;
+		const char **pmatch;
+		qboolean partialFillContinue = true;
+
 		len = strlen(partial);
 		nbMatches = 0;
-		memset(retval, 0, strlen(retval));
+		memset(retval, 0, sizeof(retval));
+
+		pmatch = malloc(nMaps * sizeof(char*));
+		YQ2_COM_CHECK_OOM(pmatch, "malloc()", nMaps * sizeof(char*))
+		if (!pmatch)
+		{
+			/* unaware about YQ2_ATTR_NORETURN_FUNCPTR? */
+			FS_FreeList(mapNames, nMaps);
+			return retval;
+		}
 
 		for (i = 0; i < nMaps - 1; i++)
 		{
-			if (strrchr(mapNames[i], '/'))
+			if ((lastsep = strrchr(mapNames[i], '/')))
 			{
-				mapName = strrchr(mapNames[i], '/') + 1;
+				mapName = lastsep + 1;
 			}
 			else
 			{
@@ -935,8 +978,9 @@ Cmd_CompleteMapCommand(const char *partial)
 			/* check for exact match */
 			if (!Q_strcasecmp(partial, mapName))
 			{
-				strcpy(retval, partial);
+				Q_strlcpy(retval, partial, sizeof(retval));
 			}
+
 			/* check for partial match */
 			else if (!Q_strncasecmp(partial, mapName, len))
 			{
@@ -947,11 +991,14 @@ Cmd_CompleteMapCommand(const char *partial)
 
 		if (nbMatches == 1)
 		{
-			strcpy(retval, pmatch[0]);
+			Q_strlcpy(retval, pmatch[0], sizeof(retval));
 		}
 		else if (nbMatches > 1)
 		{
 			Com_Printf("\n=================\n\n");
+
+			/* Sort it */
+			qsort(pmatch, nbMatches, sizeof(pmatch[0]), Q_sort_strcomp);
 
 			for (j = 0; j < nbMatches; j++)
 			{
@@ -981,6 +1028,7 @@ Cmd_CompleteMapCommand(const char *partial)
 			}
 		}
 
+		free(pmatch);
 		FS_FreeList(mapNames, nMaps);
 	}
 
@@ -1095,7 +1143,7 @@ Cmd_ExecuteString(char *text)
 #endif
 }
 
-void
+static void
 Cmd_List_f(void)
 {
 	cmd_function_t *cmd;

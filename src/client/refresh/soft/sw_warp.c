@@ -47,11 +47,11 @@ RE_SetSky(const char *name, float rotate, int autorotate, const vec3_t axis)
 		image_t	*image;
 
 		image = (image_t *)GetSkyImage(skyname, suf[r_skysideimage[i]],
-			r_palettedtexture->value, (findimage_t)R_FindImage);
+			r_palettedtextures->value, (findimage_t)R_FindImage);
 
 		if (!image)
 		{
-			R_Printf(PRINT_ALL, "%s: can't load %s:%s sky\n",
+			Com_Printf("%s: can't load %s:%s sky\n",
 				__func__, skyname, suf[r_skysideimage[i]]);
 			image = r_notexture_mip;
 		}

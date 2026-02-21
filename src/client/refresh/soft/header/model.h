@@ -108,6 +108,7 @@ typedef struct model_s
 	msurface_t **marksurfaces;
 
 	int numvisibility;
+	int numclusters;
 	dvis_t *vis;
 
 	byte *lightdata;
@@ -135,7 +136,6 @@ const byte *Mod_ClusterPVS(int cluster, const model_t *model);
 
 void Mod_Modellist_f(void);
 void Mod_FreeAll(void);
-void Mod_Free(model_t *mod);
 
 extern	int	registration_sequence;
 

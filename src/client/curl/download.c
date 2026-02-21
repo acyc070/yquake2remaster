@@ -33,6 +33,7 @@
 
 cvar_t *cl_http_downloads;
 cvar_t *cl_http_filelists;
+cvar_t *cl_http_verifypeer;
 cvar_t *cl_http_proxy;
 cvar_t *cl_http_max_connections;
 cvar_t *cl_http_show_dw_progress;
@@ -81,7 +82,7 @@ static size_t CL_HTTP_Recv(void *ptr, size_t size, size_t nmemb, void *stream)
 
 	if (!dl->fileSize)
 	{
-		double length = 0;
+		curl_off_t length = 0;
 
 		qcurl_easy_getinfo(dl->curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &length);
 
@@ -96,12 +97,17 @@ static size_t CL_HTTP_Recv(void *ptr, size_t size, size_t nmemb, void *stream)
 
 		dl->fileSize = ceil(length) + 1;
 		dl->tempBuffer = malloc(dl->fileSize);
+		if (!dl->tempBuffer)
+		{
+			return 0;
+		}
 	}
 	else if (dl->position + bytes >= dl->fileSize)
 	{
 		dl->fileSize *= 2;
 		char *tempBuffer = realloc(dl->tempBuffer, dl->fileSize);
-		if (!tempBuffer) {
+		if (!tempBuffer)
+		{
 			free(dl->tempBuffer);
 			dl->tempBuffer = 0;
 			return 0;
@@ -264,6 +270,9 @@ static void CL_StartHTTPDownload (dlqueue_t *entry, dlhandle_t *dl)
 	}
 
 	// Make sure that the download handle is in empty state.
+	if (dl->tempBuffer) {
+		free(dl->tempBuffer);
+	}
 	dl->tempBuffer = NULL;
 	dl->fileSize = 0;
 	dl->position = 0;
@@ -290,6 +299,8 @@ static void CL_StartHTTPDownload (dlqueue_t *entry, dlhandle_t *dl)
 		qcurl_easy_setopt(dl->curl, CURLOPT_WRITEFUNCTION, CL_HTTP_Recv);
 	}
 
+	qcurl_easy_setopt(dl->curl, CURLOPT_SSL_VERIFYPEER, (long)cl_http_verifypeer->value);
+	qcurl_easy_setopt(dl->curl, CURLOPT_PROXY_SSL_VERIFYPEER, (long)cl_http_verifypeer->value);
 	qcurl_easy_setopt(dl->curl, CURLOPT_PROXY, cl_http_proxy->string);
 	qcurl_easy_setopt(dl->curl, CURLOPT_LOW_SPEED_TIME, (long)cl_http_bw_limit_tmout->value);
 	qcurl_easy_setopt(dl->curl, CURLOPT_LOW_SPEED_LIMIT, (long)cl_http_bw_limit_rate->value);
@@ -477,6 +488,10 @@ static void CL_ParseFileList(dlhandle_t *dl)
 		return;
 	}
 
+	if (!dl->tempBuffer) {
+		return;
+	}
+
 	char *list = dl->tempBuffer;
 
 	for (;;)
@@ -542,7 +557,8 @@ static void CL_ReVerifyHTTPQueue (void)
  * Processesall finished downloads. React on
  * errors, if there're none process the file.
  */
-static void CL_FinishHTTPDownload(void)
+static void
+CL_FinishHTTPDownload(void)
 {
 	CURL *curl;
 	char tempName[MAX_OSPATH];
@@ -580,7 +596,8 @@ static void CL_FinishHTTPDownload(void)
 
 		if (i == MAX_HTTP_HANDLES)
 		{
-			Com_Error(ERR_DROP, "CL_FinishHTTPDownload: Handle not found");
+			Com_Error(ERR_DROP, "%s: Handle not found", __func__);
+			return;
 		}
 
 		// Some files aren't saved but read
@@ -741,7 +758,10 @@ static void CL_FinishHTTPDownload(void)
 		{
 			// Rename the temporary file to it's final location
 			Com_sprintf(tempName, sizeof(tempName), "%s/%s", FS_Gamedir(), dl->queueEntry->quakePath);
-			Sys_Rename(dl->filePath, tempName);
+			if (Sys_Rename(dl->filePath, tempName))
+			{
+				Com_Printf("Failed to rename.\n");
+			}
 
 			// Pak files are special because they contain
 			// other files that we may be downloading...
@@ -916,7 +936,6 @@ void CL_HTTP_Cleanup(qboolean fullShutdown)
 		if (last)
 		{
 			free(last);
-			last = NULL;
 		}
 
 		last = q;
@@ -979,7 +998,6 @@ void CL_SetHTTPServer (const char *URL)
 		if (last)
 		{
 			free(last);
-			last = NULL;
 		}
 
 		last = q;
@@ -988,7 +1006,6 @@ void CL_SetHTTPServer (const char *URL)
 	if (last)
 	{
 		free(last);
-		last = NULL;
 	}
 
 	memset (&cls.downloadQueue, 0, sizeof(cls.downloadQueue));
@@ -1003,6 +1020,11 @@ void CL_SetHTTPServer (const char *URL)
 	size_t urllen = strlen(URL);
 	char *cleanURL = strdup(URL);
 	YQ2_COM_CHECK_OOM(cleanURL, "strdup(URL)", strlen(URL))
+	if (!cleanURL)
+	{
+		/* unaware about YQ2_ATTR_NORETURN_FUNCPTR? */
+		return;
+	}
 
 	if (cleanURL[urllen - 1] == '/')
 	{
@@ -1015,7 +1037,8 @@ void CL_SetHTTPServer (const char *URL)
 	// Initializes a new multihandle.
 	if (multi)
 	{
-		Com_Error(ERR_DROP, "HTTP download: Still have old handle?!");
+		Com_Error(ERR_DROP, "%s: Still have old handle?!", __func__);
+		return;
 	}
 
 	multi = qcurl_multi_init();
@@ -1098,6 +1121,11 @@ qboolean CL_QueueHTTPDownload(const char *quakePath, qboolean gamedirForFilelist
 	q->next = malloc(sizeof(*q));
 
 	YQ2_COM_CHECK_OOM(q->next, "malloc(sizeof(*q))", sizeof(*q))
+	if (!q->next)
+	{
+		/* unaware about YQ2_ATTR_NORETURN_FUNCPTR? */
+		return false;
+	}
 
 	q = q->next;
 	q->next = NULL;
@@ -1169,7 +1197,7 @@ qboolean CL_PendingHTTPDownloads(void)
 		return false;
 	}
 
-	return pendingCount + handleCount;
+	return ((pendingCount + handleCount) > 0);
 }
 
 /*

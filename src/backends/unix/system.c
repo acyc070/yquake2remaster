@@ -33,6 +33,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <errno.h>
 #include <sys/stat.h>
 #include <sys/select.h> /* for fd_set */
 #ifndef FNDELAY
@@ -56,13 +57,20 @@ qboolean stdin_active = true;
 // Terminal supports colors
 static qboolean color_active = false;
 
-// Config dir
-char cfgdir[MAX_OSPATH] = CFGDIR;
-
 // Console logfile
 extern FILE	*logfile;
 
+// Config dir name
+char cfgdir[MAX_OSPATH] = CFGDIRNAME;
+static qboolean user_cfgdir = false;
+
 /* ================================================================ */
+
+void setCustomCfgDir(const char* dir)
+{
+	Q_strlcpy(cfgdir, dir, MAX_OSPATH);
+	user_cfgdir = true;
+}
 
 void
 Sys_Error(const char *error, ...)
@@ -70,8 +78,13 @@ Sys_Error(const char *error, ...)
 	va_list argptr;
 	char string[1024];
 
-	/* change stdin to non blocking */
-	fcntl(0, F_SETFL, fcntl(0, F_GETFL, 0) & ~FNDELAY);
+	/* change stdin to blocking */
+	if (fcntl(fileno(stdin), F_SETFL, fcntl(0, F_GETFL, 0) & ~FNDELAY))
+	{
+		Com_Printf("%s: change stdin to blocking %s\n",
+			__func__, strerror(errno));
+	}
+
 
 #ifndef DEDICATED_ONLY
 	CL_Shutdown();
@@ -100,7 +113,11 @@ Sys_Quit(void)
 	}
 
 	Qcommon_Shutdown();
-	fcntl(0, F_SETFL, fcntl(0, F_GETFL, 0) & ~FNDELAY);
+	if (fcntl(fileno(stdin), F_SETFL, fcntl(0, F_GETFL, 0) & ~FNDELAY))
+	{
+		Com_Printf("%s: change stdin to blocking %s\n",
+			__func__, strerror(errno));
+	}
 
 	printf("------------------------------------\n");
 
@@ -192,7 +209,7 @@ Sys_ConsoleInput(void)
 }
 
 void
-Sys_ConsoleOutput(char *string)
+Sys_ConsoleOutput(const char *string)
 {
 	if ((string[0] == 0x01) || (string[0] == 0x02))
 	{
@@ -313,12 +330,12 @@ Sys_FindFirst(const char *path, unsigned musthave, unsigned canhave)
 		Sys_Error("Sys_BeginFind without close");
 	}
 
-	strcpy(findbase, path);
+	Q_strlcpy(findbase, path, sizeof(findbase));
 
 	if ((p = strrchr(findbase, '/')) != NULL)
 	{
 		*p = 0;
-		strcpy(findpattern, p + 1);
+		Q_strlcpy(findpattern, p + 1, sizeof(findpattern));
 	}
 	else
 	{
@@ -339,9 +356,10 @@ Sys_FindFirst(const char *path, unsigned musthave, unsigned canhave)
 	{
 		if (!*findpattern || glob_match(findpattern, d->d_name))
 		{
-			if ((strcmp(d->d_name, ".") != 0) || (strcmp(d->d_name, "..") != 0))
+			if ((strcmp(d->d_name, ".") != 0) && (strcmp(d->d_name, "..") != 0))
 			{
-				snprintf(findpath, sizeof(findpath), "%s/%s", findbase, d->d_name);
+				Com_sprintf(findpath, sizeof(findpath), "%s/%s", findbase,
+					d->d_name);
 				return findpath;
 			}
 		}
@@ -364,9 +382,9 @@ Sys_FindNext(unsigned musthave, unsigned canhave)
 	{
 		if (!*findpattern || glob_match(findpattern, d->d_name))
 		{
-			if ((strcmp(d->d_name, ".") != 0) || (strcmp(d->d_name, "..") != 0))
+			if ((strcmp(d->d_name, ".") != 0) && (strcmp(d->d_name, "..") != 0))
 			{
-				snprintf(findpath, sizeof(findpath), "%s/%s", findbase, d->d_name);
+				Com_sprintf(findpath, sizeof(findpath), "%s/%s", findbase, d->d_name);
 				return findpath;
 			}
 		}
@@ -402,11 +420,11 @@ Sys_UnloadGame(void)
 void *
 Sys_GetGameAPI(void *parms)
 {
-	void *(*GetGameAPI)(void *);
+	typedef void *(*fnAPI)(void *);
+	fnAPI GetGameAPI;
 
 	char name[MAX_OSPATH];
-	char *path;
-	char *str_p;
+	const char *path, *str_p;
 #ifdef __APPLE__
 	const char *gamename = "game.dylib";
 #else
@@ -415,7 +433,8 @@ Sys_GetGameAPI(void *parms)
 
 	if (game_library)
 	{
-		Com_Error(ERR_FATAL, "Sys_GetGameAPI without Sys_UnloadingGame");
+		Com_Error(ERR_FATAL, "%s without Sys_UnloadingGame", __func__);
+		return NULL;
 	}
 
 	Com_Printf("Loading library: %s\n", gamename);
@@ -479,7 +498,7 @@ Sys_GetGameAPI(void *parms)
 		}
 	}
 
-	GetGameAPI = (void *)dlsym(game_library, "GetGameAPI");
+	GetGameAPI = (fnAPI)dlsym(game_library, "GetGameAPI");
 
 	if (!GetGameAPI)
 	{
@@ -537,32 +556,63 @@ Sys_IsFile(const char *path)
 }
 
 char *
-Sys_GetHomeDir(void)
+Sys_GetHomeDir()
 {
-	static char gdir[MAX_OSPATH];
-	char *home;
+	static char dir[MAX_OSPATH];
 
-	home = getenv("HOME");
-
-	if (!home)
+	if (!dir[0])
 	{
-		return NULL;
-	}
+		const char* home = getenv("HOME");
+
+		if (!home) {
+			// uh-oh
+			return NULL;
+		}
 
 #ifndef __HAIKU__
-	snprintf(gdir, sizeof(gdir), "%s/%s/", home, cfgdir);
-#else
-	snprintf(gdir, sizeof(gdir), "%s/config/settings/%s", home, cfgdir);
-#endif
-	Sys_Mkdir(gdir);
+		if (user_cfgdir) {
+			// custom cfgdir was set by the user: ~/{cfgdir}
+			Com_sprintf(dir, MAX_OSPATH, "%s/%s/", home, cfgdir);
+			Sys_Mkdir(dir);
+			return dir;
+		}
 
-	return gdir;
+		// hidden dir: ~/.{CFGDIRNAME_SHORT}
+		Com_sprintf(dir, MAX_OSPATH, "%s/.%s/", home, CFGDIRNAME_SHORT);
+
+#ifdef USE_XDG
+		if (Sys_IsDir(dir)) {
+			Com_Printf("%s: Found old home dir, ignoring $XDG_DATA_HOME/%s\n", __func__, cfgdir);
+			return dir;
+		}
+
+		// XDG dir: XDG_DATA_HOME/{cfgdir}
+		const char* datahome = getenv("XDG_DATA_HOME");
+		if (datahome) {
+			Com_sprintf(dir, MAX_OSPATH, "%s/%s/", datahome, cfgdir);
+		} else {
+			Com_sprintf(dir, MAX_OSPATH, "%s/.local/share/%s/", home, cfgdir);
+		}
+#endif
+
+#else // HAIKU
+		Com_sprintf(dir, MAX_OSPATH, "%s/config/settings/%s/", home, cfgdir);
+#endif
+
+	}
+
+	Sys_Mkdir(dir);
+	return dir;
 }
 
 void
 Sys_Remove(const char *path)
 {
-	remove(path);
+	if (remove(path) == -1 && errno != ENOENT)
+	{
+		Com_Printf("%s: remove %s: %s\n",
+			__func__, path, strerror(errno));
+	}
 }
 
 int
@@ -574,17 +624,19 @@ Sys_Rename(const char *from, const char *to)
 void
 Sys_RemoveDir(const char *path)
 {
-	char filepath[MAX_OSPATH];
-	struct dirent *file;
-	DIR *directory;
-
 	if (Sys_IsDir(path))
 	{
+		DIR *directory;
+
 		directory = opendir(path);
 		if (directory)
 		{
+			const struct dirent *file;
+
 			while ((file = readdir(directory)) != NULL)
 			{
+				char filepath[MAX_OSPATH];
+
 				snprintf(filepath, MAX_OSPATH, "%s/%s", path, file->d_name);
 				Sys_Remove(filepath);
 			}
@@ -617,21 +669,21 @@ Sys_Realpath(const char *in, char *out, size_t size)
 void *
 Sys_GetProcAddress(void *handle, const char *sym)
 {
-    if (handle == NULL)
-    {
+	if (handle == NULL)
+	{
 #ifdef RTLD_DEFAULT
-        return dlsym(RTLD_DEFAULT, sym);
+		return dlsym(RTLD_DEFAULT, sym);
 #else
-        /* POSIX suggests that this is a portable equivalent */
-        static void *global_namespace = NULL;
+		/* POSIX suggests that this is a portable equivalent */
+		static void *global_namespace = NULL;
 
-        if (global_namespace == NULL)
-            global_namespace = dlopen(NULL, RTLD_GLOBAL|RTLD_LAZY);
+		if (global_namespace == NULL)
+			global_namespace = dlopen(NULL, RTLD_GLOBAL|RTLD_LAZY);
 
-        return dlsym(global_namespace, sym);
+		return dlsym(global_namespace, sym);
 #endif
-    }
-    return dlsym(handle, sym);
+	}
+	return dlsym(handle, sym);
 }
 
 void
@@ -699,7 +751,7 @@ Sys_GetWorkDir(char *buffer, size_t len)
 }
 
 qboolean
-Sys_SetWorkDir(char *path)
+Sys_SetWorkDir(const char *path)
 {
 	if (chdir(path) == 0)
 	{

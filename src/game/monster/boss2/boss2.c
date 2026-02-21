@@ -30,7 +30,6 @@
 
 #define BOSS2_ROCKET_SPEED	750
 
-qboolean infront(edict_t *self, edict_t *other);
 void BossExplode(edict_t *self);
 void boss2_run(edict_t *self);
 void boss2_stand(edict_t *self);
@@ -676,7 +675,7 @@ boss2_reattack_mg(edict_t *self)
 
 void
 boss2_pain(edict_t *self, edict_t *other /* unused */,
-	   	float kick /* unused */, int damage)
+		float kick /* unused */, int damage)
 {
 	if (!self)
 	{
@@ -723,10 +722,7 @@ boss2_dead(edict_t *self)
 
 	VectorSet(self->mins, -56, -56, 0);
 	VectorSet(self->maxs, 56, 56, 80);
-	self->movetype = MOVETYPE_TOSS;
-	self->svflags |= SVF_DEADMONSTER;
-	self->nextthink = 0;
-	gi.linkentity(self);
+	monster_dynamic_dead(self);
 }
 
 void
@@ -890,7 +886,7 @@ SP_monster_boss2(edict_t *self)
 	VectorSet(self->mins, -56, -56, 0);
 	VectorSet(self->maxs, 56, 56, 80);
 
-	self->health = 2000;
+	self->health = 2000 * st.health_multiplier;
 	self->gib_health = -200;
 	self->mass = 1000;
 

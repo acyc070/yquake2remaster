@@ -28,8 +28,6 @@
 #include "../../header/local.h"
 #include "boss32.h"
 
-qboolean visible(edict_t *self, edict_t *other);
-
 void MakronRailgun(edict_t *self);
 void MakronSaveloc(edict_t *self);
 void MakronHyperblaster(edict_t *self);
@@ -706,11 +704,11 @@ MakronHyperblaster(edict_t *self)
 
 	if (self->s.frame <= FRAME_attak413)
 	{
-		dir[1] = self->s.angles[1] - 10 * (self->s.frame - FRAME_attak413);
+		dir[1] = self->s.angles[YAW] - 10 * (self->s.frame - FRAME_attak413);
 	}
 	else
 	{
-		dir[1] = self->s.angles[1] + 10 * (self->s.frame - FRAME_attak421);
+		dir[1] = self->s.angles[YAW] + 10 * (self->s.frame - FRAME_attak421);
 	}
 
 	dir[2] = 0;
@@ -786,11 +784,6 @@ makron_pain(edict_t *self, edict_t *other /* unused */,
 			}
 		}
 	}
-}
-
-void
-makron_sight(edict_t *self, edict_t *other /* unused */)
-{
 }
 
 void
@@ -873,7 +866,7 @@ makron_torso_origin(edict_t *self, edict_t *torso)
 
 	tr = gi.trace(self->s.origin, torso->mins, torso->maxs, v, self, MASK_SOLID);
 
-	VectorCopy (tr.endpos, torso->s.origin);
+	VectorCopy(tr.endpos, torso->s.origin);
 }
 
 void
@@ -889,13 +882,11 @@ makron_torso_die(edict_t *self, edict_t *inflictor /* unused */, edict_t *attack
 
 	gi.sound(self, CHAN_VOICE, gi.soundindex("misc/udeath.wav"), 1, ATTN_NORM, 0);
 
-	ThrowGib(self, "models/objects/gibs/sm_meat/tris.md2",
-			damage, GIB_ORGANIC);
+	ThrowGib(self, NULL, damage, GIB_ORGANIC);
 
 	for (n = 0; n < 4; n++)
 	{
-		ThrowGib(self, "models/objects/gibs/sm_metal/tris.md2",
-				damage, GIB_METALLIC);
+		ThrowGib(self, NULL, damage, GIB_METALLIC);
 	}
 
 	G_FreeEdict(self);
@@ -953,10 +944,7 @@ makron_dead(edict_t *self)
 
 	VectorSet(self->mins, -48, -48, 0);
 	VectorSet(self->maxs, 48, 48, 24);
-	self->movetype = MOVETYPE_TOSS;
-	self->svflags |= SVF_DEADMONSTER;
-	self->nextthink = 0;
-	gi.linkentity(self);
+	monster_dynamic_dead(self);
 }
 
 void
@@ -979,18 +967,15 @@ makron_die(edict_t *self, edict_t *inflictor /* unused */, edict_t *attacker /* 
 
 		for (n = 0; n < 1 /*4*/; n++)
 		{
-			ThrowGib(self, "models/objects/gibs/sm_meat/tris.md2",
-					damage, GIB_ORGANIC);
+			ThrowGib(self, NULL, damage, GIB_ORGANIC);
 		}
 
 		for (n = 0; n < 4; n++)
 		{
-			ThrowGib(self, "models/objects/gibs/sm_metal/tris.md2",
-					damage, GIB_METALLIC);
+			ThrowGib(self, NULL, damage, GIB_METALLIC);
 		}
 
-		ThrowHead(self, "models/objects/gibs/gear/tris.md2",
-				damage, GIB_METALLIC);
+		ThrowHead(self, NULL, damage, GIB_METALLIC);
 		self->deadflag = DEAD_DEAD;
 		return;
 	}
@@ -1009,7 +994,7 @@ makron_die(edict_t *self, edict_t *inflictor /* unused */, edict_t *attacker /* 
 
 	/* lower bbox since the torso is gone */
 	self->maxs[2] = 64;
-	gi.linkentity (self);
+	gi.linkentity(self);
 
 	self->monsterinfo.currentmove = &makron_move_death2;
 }
@@ -1172,7 +1157,7 @@ SP_monster_makron(edict_t *self)
 	VectorSet(self->mins, -30, -30, 0);
 	VectorSet(self->maxs, 30, 30, 90);
 
-	self->health = 3000;
+	self->health = 3000 * st.health_multiplier;
 	self->gib_health = -2000;
 	self->mass = 500;
 
@@ -1184,7 +1169,7 @@ SP_monster_makron(edict_t *self)
 	self->monsterinfo.dodge = NULL;
 	self->monsterinfo.attack = makron_attack;
 	self->monsterinfo.melee = NULL;
-	self->monsterinfo.sight = makron_sight;
+	self->monsterinfo.sight = monster_dynamic_sight;
 	self->monsterinfo.checkattack = Makron_CheckAttack;
 
 	gi.linkentity(self);

@@ -57,7 +57,7 @@ GL4_SetDefaultState(void)
 
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-	if (gl_msaa_samples->value)
+	if (r_msaa_samples->value)
 	{
 		glEnable(GL_MULTISAMPLE);
 	}
@@ -121,7 +121,7 @@ GL4_ScreenShot(void)
 
 	if (!buffer)
 	{
-		R_Printf(PRINT_ALL, "GL4_ScreenShot: Couldn't malloc %d bytes\n", w*h*3);
+		Com_Printf("GL4_ScreenShot: Couldn't malloc %d bytes\n", w*h*3);
 		return;
 	}
 

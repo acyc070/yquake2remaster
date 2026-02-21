@@ -517,12 +517,13 @@ R_DrawSpanlet66Stipple(const int *r_turb_turb)
 ** Throws out the back side
 */
 static int
-R_ClipPolyFace(int nump, clipplane_t *pclipplane)
+R_ClipPolyFace(int nump, const clipplane_t *pclipplane)
 {
-	int		i, outcount;
-	float	frac, clipdist, *pclipnormal;
-	float	*in, *instep, *outstep, *vert2;
-	float	dists[MAXWORKINGVERTS+3] = {0};
+	float dists[MAXWORKINGVERTS+3] = {0};
+	const float *vert2, *pclipnormal;
+	float *in, *instep, *outstep;
+	float frac, clipdist;
+	int i, outcount;
 
 	clipdist = pclipplane->dist;
 	pclipnormal = pclipplane->normal;
@@ -547,12 +548,11 @@ R_ClipPolyFace(int nump, clipplane_t *pclipplane)
 		dists[i] = DotProduct (instep, pclipnormal) - clipdist;
 	}
 
-	// handle wraparound case
+	/* handle wraparound case */
 	dists[nump] = dists[0];
-	memcpy (instep, in, sizeof (vec5_t));
+	memmove(instep, in, sizeof (vec5_t));
 
-
-	// clip the winding
+	/* clip the winding */
 	instep = in;
 	outcount = 0;
 
@@ -768,10 +768,10 @@ R_PolygonDrawSpans(espan_t *pspan, int iswater, float d_ziorigin, float d_zistep
 static void
 R_PolygonScanLeftEdge (espan_t *s_polygon_spans)
 {
-	int		i, lmaxindex;
-	emitpoint_t	*pvert, *pnext;
-	espan_t		*pspan;
-	float		du, dv, vtop, u_step;
+	const emitpoint_t *pvert, *pnext;
+	float du, dv, vtop, u_step;
+	int i, lmaxindex;
+	espan_t *pspan;
 
 	pspan = s_polygon_spans;
 	i = s_minindex;
@@ -837,10 +837,11 @@ R_PolygonScanLeftEdge (espan_t *s_polygon_spans)
 static void
 R_PolygonScanRightEdge(espan_t *s_polygon_spans)
 {
-	int		i;
-	emitpoint_t	*pvert, *pnext;
-	espan_t		*pspan;
-	float		du, dv, vtop, u_step, uvert, unext, vvert;
+	float du, dv, vtop, u_step, uvert, unext, vvert;
+	const emitpoint_t *pnext;
+	emitpoint_t *pvert;
+	espan_t *pspan;
+	int i;
 
 	pspan = s_polygon_spans;
 	i = s_minindex;
@@ -919,13 +920,13 @@ R_PolygonScanRightEdge(espan_t *s_polygon_spans)
 */
 // isturbulent was qboolean. changed to int to allow passing more flags
 void
-R_ClipAndDrawPoly ( float alpha, int isturbulent, qboolean textured )
+R_ClipAndDrawPoly(float alpha, int isturbulent, qboolean textured)
 {
 	vec_t		*pv;
 	int		i, nump;
 	vec3_t		transformed, local;
 
-	if ( !textured )
+	if (!textured)
 	{
 		r_polydesc.drawspanlet = R_DrawSpanletConstant33;
 	}
@@ -992,6 +993,7 @@ R_ClipAndDrawPoly ( float alpha, int isturbulent, qboolean textured )
 		if (nump > MAXWORKINGVERTS)
 		{
 			Com_Error(ERR_DROP, "%s: too many points: %d", __func__, nump);
+			return;
 		}
 	}
 
@@ -1037,11 +1039,11 @@ R_ClipAndDrawPoly ( float alpha, int isturbulent, qboolean textured )
 static void
 R_BuildPolygonFromSurface(const entity_t *currententity, const model_t *currentmodel, msurface_t *fa)
 {
-	int		i, lnumverts;
-	medge_t		*pedges, *r_pedge;
-	float		*vec;
-	vec5_t     *pverts;
-	float       tmins[2] = { 0, 0 };
+	medge_t *pedges, *r_pedge;
+	float tmins[2] = { 0, 0 };
+	int i, lnumverts;
+	const float *vec;
+	vec5_t *pverts;
 
 	r_polydesc.nump = 0;
 
@@ -1081,7 +1083,7 @@ R_BuildPolygonFromSurface(const entity_t *currententity, const model_t *currentm
 		VectorSubtract( vec3_origin, r_polydesc.vpn, r_polydesc.vpn );
 	}
 
-	if ( fa->texinfo->flags & (SURF_WARP|SURF_FLOWING) )
+	if ( fa->texinfo->flags & (SURF_WARP | SURF_SCROLL) )
 	{
 		r_polydesc.pixels       = fa->texinfo->image->pixels[0];
 		r_polydesc.pixel_width  = fa->texinfo->image->width;
@@ -1107,9 +1109,14 @@ R_BuildPolygonFromSurface(const entity_t *currententity, const model_t *currentm
 	r_polydesc.t_offset = fa->texinfo->vecs[1][3] - tmins[1];
 
 	// scrolling texture addition
-	if (fa->texinfo->flags & SURF_FLOWING)
+	if (fa->texinfo->flags & SURF_SCROLL)
 	{
-		r_polydesc.s_offset += -128 * ( (r_newrefdef.time*0.25) - (int)(r_newrefdef.time*0.25) );
+		float sscroll, tscroll;
+
+		R_FlowingScroll(&r_newrefdef, fa->texinfo->flags, &sscroll, &tscroll);
+
+		r_polydesc.s_offset += 2 * sscroll;
+		r_polydesc.t_offset += 2 * tscroll;
 	}
 
 	r_polydesc.nump = lnumverts;
@@ -1236,9 +1243,9 @@ R_DrawAlphaSurfaces(const entity_t *currententity)
 
 		// pass down all the texinfo flags, not just SURF_WARP.
 		if (s->texinfo->flags & SURF_TRANS66)
-			R_ClipAndDrawPoly( 0.60f, (s->texinfo->flags & (SURF_WARP | SURF_FLOWING)), true );
+			R_ClipAndDrawPoly( 0.60f, (s->texinfo->flags & (SURF_WARP | SURF_SCROLL)), true );
 		else
-			R_ClipAndDrawPoly( 0.30f, (s->texinfo->flags & (SURF_WARP | SURF_FLOWING)), true );
+			R_ClipAndDrawPoly( 0.30f, (s->texinfo->flags & (SURF_WARP | SURF_SCROLL)), true );
 
 		s = s->nextalphasurface;
 	}

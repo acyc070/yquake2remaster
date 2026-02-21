@@ -34,19 +34,17 @@
 #define PLAT2_TRIGGER_BOTTOM 16
 #define PLAT2_BOX_LIFT 32
 
-#define STATE_TOP 0
-#define STATE_BOTTOM 1
-#define STATE_UP 2
-#define STATE_DOWN 3
-
 #define DOOR_START_OPEN 1
 #define DOOR_REVERSE 2
 #define DOOR_CRUSHER 4
 #define DOOR_NOMONSTER 8
+#define DOOR_ANIMATED 16
 #define DOOR_TOGGLE 32
+#define DOOR_ANIMATED_FAST 64
 #define DOOR_X_AXIS 64
 #define DOOR_Y_AXIS 128
 #define DOOR_INACTIVE 8192
+#define DOOR_SAFE_OPEN 0x20000
 
 #define AccelerationDistance(target, rate) (target * ((target / rate) + 1) / 2)
 
@@ -57,6 +55,8 @@
 #define TRAIN_START_ON 1
 #define TRAIN_TOGGLE 2
 #define TRAIN_BLOCK_STOPS 4
+#define TRAIN_FIX_OFFSET 16
+#define TRAIN_USE_ORIGIN 32
 
 #define SECRET_ALWAYS_SHOOT 1
 #define SECRET_1ST_LEFT 2
@@ -358,7 +358,7 @@ AngleMove_Calc(edict_t *ent, void (*func)(edict_t *))
  * change the speed for the next frame
  */
 
-void
+static void
 plat_CalcAcceleratedMove(moveinfo_t *moveinfo)
 {
 	float accel_dist;
@@ -396,7 +396,7 @@ plat_CalcAcceleratedMove(moveinfo_t *moveinfo)
 	moveinfo->decel_distance = decel_dist;
 }
 
-void
+static void
 plat_Accelerate(moveinfo_t *moveinfo)
 {
 	if (!moveinfo)
@@ -435,11 +435,21 @@ plat_Accelerate(moveinfo_t *moveinfo)
 			float p2_distance;
 			float distance;
 
+			if (!moveinfo->move_speed)
+			{
+				return;
+			}
+
 			p1_distance = moveinfo->remaining_distance -
 						  moveinfo->decel_distance;
 			p2_distance = moveinfo->move_speed *
 						  (1.0 - (p1_distance / moveinfo->move_speed));
 			distance = p1_distance + p2_distance;
+			if (!distance)
+			{
+				return;
+			}
+
 			moveinfo->current_speed = moveinfo->move_speed;
 			moveinfo->next_speed = moveinfo->move_speed - moveinfo->decel *
 								   (p2_distance / distance);
@@ -721,7 +731,7 @@ wait_and_change(edict_t* ent, void (*afterwaitfunc)(edict_t *))
 	float waittime = coop_elevator_delay->value;
 	if (coop->value && waittime > 0.0f)
 	{
-		if(ent->nextthink == 0)
+		if (ent->nextthink == 0)
 		{
 			ent->moveinfo.endfunc = afterwaitfunc;
 			ent->think = wait_and_change_think;
@@ -766,7 +776,7 @@ Touch_Plat_Center(edict_t *ent, edict_t *other, cplane_t *plane /* unsed */,
 	}
 }
 
-edict_t *
+static edict_t *
 plat_spawn_inside_trigger(edict_t *ent)
 {
 	edict_t *trigger;
@@ -1302,7 +1312,7 @@ plat2_blocked(edict_t *self, edict_t *other)
 
 void
 Use_Plat2(edict_t *ent, edict_t *other /* unused */,
-	   	edict_t *activator)
+		edict_t *activator)
 {
 	edict_t *trigger;
 	int i;
@@ -1342,7 +1352,7 @@ Use_Plat2(edict_t *ent, edict_t *other /* unused */,
 
 void
 plat2_activate(edict_t *ent, edict_t *other /* unused */,
-	   	edict_t *activator /* unused */)
+		edict_t *activator /* unused */)
 {
 	edict_t *trigger;
 
@@ -1591,7 +1601,7 @@ rotating_blocked(edict_t *self, edict_t *other)
 
 void
 rotating_touch(edict_t *self, edict_t *other, cplane_t *plane /* unused */,
-	   	csurface_t *surf /* unused */)
+		csurface_t *surf /* unused */)
 {
 	if (!self || !other)
 	{
@@ -1607,7 +1617,7 @@ rotating_touch(edict_t *self, edict_t *other, cplane_t *plane /* unused */,
 
 void
 rotating_use(edict_t *self, edict_t *other /* unused */,
-	   	edict_t *activator /* unused */)
+		edict_t *activator /* unused */)
 {
 	if (!self)
 	{
@@ -1713,7 +1723,7 @@ SP_func_rotating(edict_t *ent)
 		ent->use(ent, NULL, NULL);
 	}
 
-	if (ent->spawnflags & 64)
+	if (ent->spawnflags & DOOR_ANIMATED_FAST)
 	{
 		ent->s.effects |= EF_ANIM_ALL;
 	}
@@ -1782,8 +1792,16 @@ button_done(edict_t *self)
 	}
 
 	self->moveinfo.state = STATE_BOTTOM;
-	self->s.effects &= ~EF_ANIM23;
-	self->s.effects |= EF_ANIM01;
+
+	if (!self->bmodel_anim.enabled)
+	{
+		self->s.effects &= ~EF_ANIM23;
+		self->s.effects |= EF_ANIM01;
+	}
+	else
+	{
+		self->bmodel_anim.alternate = false;
+	}
 }
 
 void
@@ -1815,8 +1833,16 @@ button_wait(edict_t *self)
 	}
 
 	self->moveinfo.state = STATE_TOP;
-	self->s.effects &= ~EF_ANIM01;
-	self->s.effects |= EF_ANIM23;
+
+	if (!self->bmodel_anim.enabled)
+	{
+		self->s.effects &= ~EF_ANIM01;
+		self->s.effects |= EF_ANIM23;
+	}
+	else
+	{
+		self->bmodel_anim.alternate = true;
+	}
 
 	G_UseTargets(self, self->activator);
 	self->s.frame = 1;
@@ -1868,7 +1894,7 @@ button_use(edict_t *self, edict_t *other /* unused */, edict_t *activator)
 
 void
 button_touch(edict_t *self, edict_t *other, cplane_t *plane /* unused */,
-	   	csurface_t *surf /* unused */)
+		csurface_t *surf /* unused */)
 {
 	if (!self || !other)
 	{
@@ -1960,7 +1986,11 @@ SP_func_button(edict_t *ent)
 	VectorMA(ent->pos1, dist, ent->movedir, ent->pos2);
 
 	ent->use = button_use;
-	ent->s.effects |= EF_ANIM01;
+
+	if (!ent->bmodel_anim.enabled)
+	{
+		ent->s.effects |= EF_ANIM01;
+	}
 
 	if (ent->health)
 	{
@@ -2308,7 +2338,7 @@ door_use(edict_t *self, edict_t *other /* unused */, edict_t *activator)
 	edict_t *ent;
 	vec3_t center;
 
-	if (!self || !activator)
+	if (!self)
 	{
 		return;
 	}
@@ -2359,7 +2389,7 @@ door_use(edict_t *self, edict_t *other /* unused */, edict_t *activator)
 
 void
 Touch_DoorTrigger(edict_t *self, edict_t *other, cplane_t *plane /* unused */,
-	   	csurface_t *surf /* unused */)
+		csurface_t *surf /* unused */)
 {
 	if (!self || !other)
 	{
@@ -2585,6 +2615,8 @@ void
 door_touch(edict_t *self, edict_t *other, cplane_t *plane /* unused */,
 		csurface_t *surf /* unused */)
 {
+	int sound_index;
+
 	if (!self || !other)
 	{
 		return;
@@ -2602,8 +2634,10 @@ door_touch(edict_t *self, edict_t *other, cplane_t *plane /* unused */,
 
 	self->touch_debounce_time = level.time + 5.0;
 
-	gi.centerprintf(other, "%s", self->message);
-	gi.sound(other, CHAN_AUTO, gi.soundindex("misc/talk1.wav"), 1, ATTN_NORM, 0);
+	sound_index = gi.soundindex("misc/talk1.wav");
+	gi.centerprintf(other, "%s", gi.LocalizationMessage(
+		self->message, &sound_index));
+	gi.sound(other, CHAN_AUTO, sound_index, 1, ATTN_NORM, 0);
 }
 
 void
@@ -2707,12 +2741,12 @@ SP_func_door(edict_t *ent)
 	VectorCopy(ent->pos2, ent->moveinfo.end_origin);
 	VectorCopy(ent->s.angles, ent->moveinfo.end_angles);
 
-	if (ent->spawnflags & 16)
+	if (ent->spawnflags & DOOR_ANIMATED)
 	{
 		ent->s.effects |= EF_ANIM_ALL;
 	}
 
-	if (ent->spawnflags & 64)
+	if (ent->spawnflags & DOOR_ANIMATED_FAST)
 	{
 		ent->s.effects |= EF_ANIM_ALLFAST;
 	}
@@ -2740,7 +2774,7 @@ SP_func_door(edict_t *ent)
 
 void
 Door_Activate(edict_t *self, edict_t *other /* unused */,
-	   	edict_t *activator /* unused */)
+		edict_t *activator /* unused */)
 {
 	if (!self)
 	{
@@ -2914,7 +2948,7 @@ SP_func_door_rotating(edict_t *ent)
 	VectorCopy(ent->s.origin, ent->moveinfo.end_origin);
 	VectorCopy(ent->pos2, ent->moveinfo.end_angles);
 
-	if (ent->spawnflags & 16)
+	if (ent->spawnflags & DOOR_ANIMATED)
 	{
 		ent->s.effects |= EF_ANIM_ALL;
 	}
@@ -3247,7 +3281,23 @@ again:
 		}
 
 		first = false;
-		VectorSubtract(ent->s.origin, self->mins, self->s.origin);
+
+		if (self->spawnflags & TRAIN_USE_ORIGIN)
+		{
+			VectorCopy(ent->s.origin, self->s.origin);
+		}
+		else
+		{
+			VectorSubtract(ent->s.origin, self->mins, self->s.origin);
+
+			if (self->spawnflags & TRAIN_FIX_OFFSET)
+			{
+				vec3_t diff = {1.f, 1.f, 1.f};
+
+				VectorSubtract(self->s.origin, diff, self->s.origin);
+			}
+		}
+
 		VectorCopy(self->s.origin, self->s.old_origin);
 		self->s.event = EV_OTHER_TELEPORT;
 		gi.linkentity(self);
@@ -3295,13 +3345,30 @@ again:
 		self->s.sound = self->moveinfo.sound_middle;
 	}
 
-	VectorSubtract(ent->s.origin, self->mins, dest);
+	if (self->spawnflags & TRAIN_USE_ORIGIN)
+	{
+		VectorCopy(ent->s.origin, dest);
+	}
+	else
+	{
+		VectorSubtract(ent->s.origin, self->mins, dest);
+
+		if (self->spawnflags & TRAIN_FIX_OFFSET)
+		{
+			vec3_t diff = {1.f, 1.f, 1.f};
+
+			VectorSubtract(dest, diff, dest);
+		}
+	}
+
 	self->moveinfo.state = STATE_TOP;
 	VectorCopy(self->s.origin, self->moveinfo.start_origin);
 	VectorCopy(dest, self->moveinfo.end_origin);
 	Move_Calc(self, dest, train_wait);
 	self->spawnflags |= TRAIN_START_ON;
 
+/*
+Rogue code, broke platforms in q64/outpost
 	if (self->team)
 	{
 		edict_t *e;
@@ -3324,6 +3391,7 @@ again:
 			Move_Calc(e, dst, train_piece_wait);
 		}
 	}
+*/
 }
 
 void
@@ -3339,7 +3407,22 @@ train_resume(edict_t *self)
 
 	ent = self->target_ent;
 
-	VectorSubtract(ent->s.origin, self->mins, dest);
+	if (self->spawnflags & TRAIN_USE_ORIGIN)
+	{
+		VectorCopy(ent->s.origin, dest);
+	}
+	else
+	{
+		VectorSubtract(ent->s.origin, self->mins, dest);
+
+		if (self->spawnflags & TRAIN_FIX_OFFSET)
+		{
+			vec3_t diff = {1.f, 1.f, 1.f};
+
+			VectorSubtract(dest, diff, dest);
+		}
+	}
+
 	self->moveinfo.state = STATE_TOP;
 	VectorCopy(self->s.origin, self->moveinfo.start_origin);
 	VectorCopy(dest, self->moveinfo.end_origin);
@@ -3359,7 +3442,7 @@ func_train_find(edict_t *self)
 
 	if (!self->target)
 	{
-		gi.dprintf("train_find: no target\n");
+		gi.dprintf("%s: no target provided\n", __func__);
 		return;
 	}
 
@@ -3367,13 +3450,28 @@ func_train_find(edict_t *self)
 
 	if (!ent)
 	{
-		gi.dprintf("train_find: target %s not found\n", self->target);
+		gi.dprintf("%s: target '%s' not found\n", __func__, self->target);
 		return;
 	}
 
 	self->target = ent->target;
 
-	VectorSubtract(ent->s.origin, self->mins, self->s.origin);
+	if (self->spawnflags & TRAIN_USE_ORIGIN)
+	{
+		VectorCopy(ent->s.origin, self->s.origin);
+	}
+	else
+	{
+		VectorSubtract(ent->s.origin, self->mins, self->s.origin);
+
+		if (self->spawnflags & TRAIN_FIX_OFFSET)
+		{
+			vec3_t diff = {1.f, 1.f, 1.f};
+
+			VectorSubtract(self->s.origin, diff, self->s.origin);
+		}
+	}
+
 	gi.linkentity(self);
 
 	/* if not triggered, start immediately */
@@ -3392,7 +3490,7 @@ func_train_find(edict_t *self)
 
 void
 train_use(edict_t *self, edict_t *other /* unused */,
-	   	edict_t *activator)
+		edict_t *activator)
 {
 	if (!self || !activator)
 	{
@@ -3479,7 +3577,8 @@ SP_func_train(edict_t *self)
 	}
 	else
 	{
-		gi.dprintf("func_train without a target at %s\n", vtos(self->absmin));
+		gi.dprintf("%s without a target at %s\n", self->classname,
+			vtos(self->absmin));
 	}
 }
 
@@ -3490,16 +3589,25 @@ SP_func_train(edict_t *self)
  */
 void
 trigger_elevator_use(edict_t *self, edict_t *other,
-	   	edict_t *activator /* unused */)
+		edict_t *activator /* unused */)
 {
 	edict_t *target;
+	edict_t *train;
 
 	if (!self || !other)
 	{
 		return;
 	}
 
-	if (self->movetarget->nextthink)
+	train = self->movetarget;
+
+	if (!train || !train->inuse ||
+		!train->classname || strcmp(train->classname, "func_train") != 0)
+	{
+		return;
+	}
+
+	if (train->nextthink)
 	{
 		return;
 	}
@@ -3519,8 +3627,8 @@ trigger_elevator_use(edict_t *self, edict_t *other,
 		return;
 	}
 
-	self->movetarget->target_ent = target;
-	train_resume(self->movetarget);
+	train->target_ent = target;
+	train_resume(train);
 }
 
 void
@@ -3643,8 +3751,8 @@ SP_func_timer(edict_t *self)
 	if (self->random >= self->wait)
 	{
 		self->random = self->wait - FRAMETIME;
-		gi.dprintf("func_timer at %s has random >= wait\n",
-				vtos(self->s.origin));
+		gi.dprintf("%s at %s has random >= wait\n",
+				self->classname, vtos(self->s.origin));
 	}
 
 	if (self->spawnflags & 1)
@@ -3670,7 +3778,7 @@ SP_func_timer(edict_t *self)
  */
 void
 func_conveyor_use(edict_t *self, edict_t *other /* unused */,
-	   	edict_t *activator /* unused */)
+		edict_t *activator /* unused */)
 {
 	if (!self)
 	{
@@ -3737,7 +3845,7 @@ SP_func_conveyor(edict_t *self)
  */
 void
 door_secret_use(edict_t *self, edict_t *other /* unused */,
-	   	edict_t *activator /*unused */)
+		edict_t *activator /*unused */)
 {
 	if (!self)
 	{
@@ -4081,7 +4189,7 @@ rotating_light_killed(edict_t *self, edict_t *inflictor /* unused */,
 
 void
 rotating_light_use(edict_t *self, edict_t *other /* unused */,
-	   	edict_t *activator /* unused */)
+		edict_t *activator /* unused */)
 {
 	if (!self)
 	{

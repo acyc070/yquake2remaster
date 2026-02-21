@@ -26,29 +26,39 @@
 
 #include "header/local.h"
 
-image_t gltextures[MAX_GLTEXTURES];
+image_t gltextures[MAX_TEXTURES];
 int numgltextures;
 static int image_max = 0;
-int base_textureid; /* gltextures[i] = base_textureid+i */
 extern qboolean scrap_dirty;
-extern byte scrap_texels[MAX_SCRAPS][BLOCK_WIDTH * BLOCK_HEIGHT];
+extern byte scrap_texels[MAX_SCRAPS][SCRAP_WIDTH * SCRAP_HEIGHT];
 
 static byte intensitytable[256];
-static unsigned char gammatable[256];
+byte gammatable[256];
 
-cvar_t *intensity;
+static cvar_t *intensity;
 
 unsigned d_8to24table[256];
+
+extern cvar_t *gl1_minlight;
+extern unsigned char minlight[256];
 
 qboolean R_Upload8(byte *data, int width, int height,
 		qboolean mipmap, qboolean is_sky);
 qboolean R_Upload32(unsigned *data, int width, int height, qboolean mipmap);
 
-int gl_solid_format = GL_RGB;
-int gl_alpha_format = GL_RGBA;
+#define Q2_GL_SOLID_FORMAT GL_RGB
+#define Q2_GL_ALPHA_FORMAT GL_RGBA
 
-int gl_tex_solid_format = GL_RGB;
+#ifdef YQ2_GL1_GLES
+#define DEFAULT_SOLID_FORMAT GL_RGBA
+#else
+#define DEFAULT_SOLID_FORMAT GL_RGB
+#endif
+
+int gl_tex_solid_format = DEFAULT_SOLID_FORMAT;
 int gl_tex_alpha_format = GL_RGBA;
+
+#undef DEFAULT_SOLID_FORMAT
 
 int gl_filter_min = GL_LINEAR_MIPMAP_NEAREST;
 int gl_filter_max = GL_LINEAR;
@@ -68,13 +78,27 @@ glmode_t modes[] = {
 	{"GL_LINEAR_MIPMAP_LINEAR", GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR}
 };
 
-#define NUM_GL_MODES (sizeof(modes) / sizeof(glmode_t))
+#define NUM_GL_MODES ARRLEN(modes)
 
 typedef struct
 {
 	char *name;
 	int mode;
 } gltmode_t;
+
+#ifdef YQ2_GL1_GLES
+
+gltmode_t gl_alpha_modes[] = {
+	{"default", GL_RGBA},
+	{"GL_RGBA", GL_RGBA},
+};
+
+gltmode_t gl_solid_modes[] = {
+	{"default", GL_RGBA},
+	{"GL_RGBA", GL_RGBA},
+};
+
+#else
 
 gltmode_t gl_alpha_modes[] = {
 	{"default", GL_RGBA},
@@ -85,8 +109,6 @@ gltmode_t gl_alpha_modes[] = {
 	{"GL_RGBA2", GL_RGBA2},
 };
 
-#define NUM_GL_ALPHA_MODES (sizeof(gl_alpha_modes) / sizeof(gltmode_t))
-
 gltmode_t gl_solid_modes[] = {
 	{"default", GL_RGB},
 	{"GL_RGB", GL_RGB},
@@ -96,7 +118,10 @@ gltmode_t gl_solid_modes[] = {
 	{"GL_R3_G3_B2", GL_R3_G3_B2},
 };
 
-#define NUM_GL_SOLID_MODES (sizeof(gl_solid_modes) / sizeof(gltmode_t))
+#endif
+
+#define NUM_GL_ALPHA_MODES ARRLEN(gl_alpha_modes)
+#define NUM_GL_SOLID_MODES ARRLEN(gl_solid_modes)
 
 typedef struct
 {
@@ -121,17 +146,17 @@ typedef struct
 		} \
 	}
 
-int upload_width, upload_height;
-qboolean uploaded_paletted;
+static int upload_width, upload_height;
+static qboolean uploaded_paletted;
 
 void
-R_SetTexturePalette(unsigned palette[256])
+R_SetTexturePalette(const unsigned palette[256])
 {
-	int i;
-	unsigned char temptable[768];
-
 	if (gl_config.palettedtexture)
 	{
+		unsigned char temptable[768];
+		int i;
+
 		for (i = 0; i < 256; i++)
 		{
 			temptable[i * 3 + 0] = (palette[i] >> 0) & 0xff;
@@ -145,18 +170,33 @@ R_SetTexturePalette(unsigned palette[256])
 }
 
 void
+R_SelectTexture(GLenum texture)
+{
+	if (!gl_config.multitexture || gl_state.currenttarget == texture)
+	{
+		return;
+	}
+
+	gl_state.currenttmu = texture - GL_TEXTURE0;
+	gl_state.currenttarget = texture;
+
+	qglActiveTexture(texture);
+	qglClientActiveTexture(texture);
+}
+
+void
 R_TexEnv(GLenum mode)
 {
 	static int lastmodes[2] = {-1, -1};
 
 	if (mode != lastmodes[gl_state.currenttmu])
 	{
-		glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, mode); // FIXME: shouldn't this be glTexEnvi() ?
+		glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, mode);
 		lastmodes[gl_state.currenttmu] = mode;
 	}
 }
 
-void
+qboolean
 R_Bind(int texnum)
 {
 	extern image_t *draw_chars;
@@ -168,15 +208,70 @@ R_Bind(int texnum)
 
 	if (gl_state.currenttextures[gl_state.currenttmu] == texnum)
 	{
-		return;
+		return false;
 	}
 
 	gl_state.currenttextures[gl_state.currenttmu] = texnum;
 	glBindTexture(GL_TEXTURE_2D, texnum);
+	return true;
 }
 
 void
-R_TextureMode(char *string)
+R_MBind(GLenum target, int texnum)
+{
+	const int tmu = target - GL_TEXTURE0;
+
+	if (target != gl_state.currenttarget)
+	{
+		R_SelectTexture(target);
+	}
+
+	if (gl_state.currenttextures[tmu] == texnum)
+	{
+		return;
+	}
+
+	R_Bind(texnum);
+}
+
+void
+R_EnableMultitexture(qboolean enable)
+{
+	static qboolean active;
+
+	if (!gl_config.multitexture || enable == active)
+	{
+		return;	// current state is the right one
+	}
+
+	active = enable;
+	R_SelectTexture(GL_TEXTURE1);
+
+	if (active && !r_fullbright->value)
+	{
+		glEnable(GL_TEXTURE_2D);
+
+		if (r_lightmap->value)
+		{
+			R_TexEnv(GL_REPLACE);
+		}
+		else
+		{
+			R_TexEnv(GL_MODULATE);
+		}
+	}
+	else	// disable multitexturing
+	{
+		glDisable(GL_TEXTURE_2D);
+		R_TexEnv(GL_REPLACE);
+	}
+
+	R_SelectTexture(GL_TEXTURE0);
+	R_TexEnv(GL_REPLACE);
+}
+
+void
+R_TextureMode(const char *string)
 {
 	int i;
 	image_t *glt;
@@ -191,7 +286,7 @@ R_TextureMode(char *string)
 
 	if (i == NUM_GL_MODES)
 	{
-		R_Printf(PRINT_ALL, "bad filter name\n");
+		Com_Printf("bad filter name\n");
 		return;
 	}
 
@@ -201,7 +296,7 @@ R_TextureMode(char *string)
 	/* clamp selected anisotropy */
 	if (gl_config.anisotropic)
 	{
-		if (gl_anisotropic->value > gl_config.max_anisotropy)
+		if (r_anisotropic->value > gl_config.max_anisotropy)
 		{
 			ri.Cvar_SetValue("r_anisotropic", gl_config.max_anisotropy);
 		}
@@ -230,17 +325,21 @@ R_TextureMode(char *string)
 			nolerp = true;
 		}
 
-		R_Bind(glt->texnum);
+		if ( !R_Bind(glt->texnum) )
+		{
+			continue;	// don't bother changing anything if texture was already set
+		}
+
 		if ((glt->type != it_pic) && (glt->type != it_sky)) /* mipmapped texture */
 		{
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_filter_min);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_max);
 
 			/* Set anisotropic filter if supported and enabled */
-			if (gl_config.anisotropic && gl_anisotropic->value)
+			if (gl_config.anisotropic && r_anisotropic->value)
 			{
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT,
-						Q_max(gl_anisotropic->value, 1.f));
+						Q_max(r_anisotropic->value, 1.f));
 			}
 		}
 		else /* texture has no mipmaps */
@@ -263,7 +362,7 @@ R_TextureMode(char *string)
 }
 
 void
-R_TextureAlphaMode(char *string)
+R_TextureAlphaMode(const char *string)
 {
 	int i;
 
@@ -277,7 +376,7 @@ R_TextureAlphaMode(char *string)
 
 	if (i == NUM_GL_ALPHA_MODES)
 	{
-		R_Printf(PRINT_ALL, "bad alpha texture mode name\n");
+		Com_Printf("bad alpha texture mode name\n");
 		return;
 	}
 
@@ -285,7 +384,7 @@ R_TextureAlphaMode(char *string)
 }
 
 void
-R_TextureSolidMode(char *string)
+R_TextureSolidMode(const char *string)
 {
 	int i;
 
@@ -299,7 +398,7 @@ R_TextureSolidMode(char *string)
 
 	if (i == NUM_GL_SOLID_MODES)
 	{
-		R_Printf(PRINT_ALL, "bad solid texture mode name\n");
+		Com_Printf("bad solid texture mode name\n");
 		return;
 	}
 
@@ -317,7 +416,7 @@ R_ImageList_f(void)
 		"PAL"
 	};
 
-	R_Printf(PRINT_ALL, "------------------\n");
+	Com_Printf("------------------\n");
 	texels = 0;
 	used = 0;
 
@@ -341,39 +440,39 @@ R_ImageList_f(void)
 		switch (image->type)
 		{
 			case it_skin:
-				R_Printf(PRINT_ALL, "M");
+				Com_Printf("M");
 				break;
 			case it_sprite:
-				R_Printf(PRINT_ALL, "S");
+				Com_Printf("S");
 				break;
 			case it_wall:
-				R_Printf(PRINT_ALL, "W");
+				Com_Printf("W");
 				break;
 			case it_pic:
-				R_Printf(PRINT_ALL, "P");
+				Com_Printf("P");
 				break;
 			default:
-				R_Printf(PRINT_ALL, " ");
+				Com_Printf(" ");
 				break;
 		}
 
-		R_Printf(PRINT_ALL, " %3i %3i %s: %s (%dx%d) %s\n",
+		Com_Printf(" %3i %3i %s: %s (%dx%d) %s\n",
 				image->upload_width, image->upload_height,
 				palstrings[image->paletted], image->name,
 				image->width, image->height, in_use);
 	}
 
-	R_Printf(PRINT_ALL,
-			"Total texel count (not counting mipmaps): %i\n",
+	Com_Printf("Total texel count (not counting mipmaps): %i\n",
 			texels);
 	freeup = R_ImageHasFreeSpace();
-	R_Printf(PRINT_ALL, "Used %d of %d images%s.\n", used, image_max, freeup ? ", has free space" : "");
+	Com_Printf("Used %d of %d / %d images%s.\n",
+		used, image_max, MAX_TEXTURES, freeup ? ", has free space" : "");
 }
 
 /*
  * Fill background pixels so mipmapping doesn't have haloes
  */
-void
+static void
 R_FloodFillSkin(byte *skin, int skinwidth, int skinheight)
 {
 	byte fillcolor = *skin; /* assume this is the pixel to fill */
@@ -382,7 +481,7 @@ R_FloodFillSkin(byte *skin, int skinwidth, int skinheight)
 	int filledcolor = 0;
 	int i;
 
-	// NOTE: there was a if(filledcolor == -1) which didn't make sense b/c filledcolor used to be initialized to -1
+	// NOTE: there was a if (filledcolor == -1) which didn't make sense b/c filledcolor used to be initialized to -1
 	/* attempt to find opaque black */
 	for (i = 0; i < 256; ++i)
 	{
@@ -439,7 +538,7 @@ R_FloodFillSkin(byte *skin, int skinwidth, int skinheight)
  * texture to increase the
  * lighting range
  */
-void
+static void
 R_LightScaleTexture(unsigned *in, int inwidth,
 		int inheight, qboolean only_gamma)
 {
@@ -480,7 +579,7 @@ R_LightScaleTexture(unsigned *in, int inwidth,
 /*
  * Operates in place, quartering the size of the texture
  */
-void
+static void
 R_MipMap(byte *in, int width, int height)
 {
 	int i, j;
@@ -505,7 +604,7 @@ R_MipMap(byte *in, int width, int height)
 /*
  * Returns has_alpha
  */
-void
+static void
 R_BuildPalettedTexture(unsigned char *paletted_texture, unsigned char *scaled,
 		int scaled_width, int scaled_height)
 {
@@ -527,12 +626,7 @@ R_BuildPalettedTexture(unsigned char *paletted_texture, unsigned char *scaled,
 	}
 }
 
-// Windows headers don't define this constant.
-#ifndef GL_GENERATE_MIPMAP
-#define GL_GENERATE_MIPMAP 0x8191
-#endif
-
-qboolean
+static qboolean
 R_Upload32Native(unsigned *data, int width, int height, qboolean mipmap)
 {
 	// This is for GL 2.x so no palettes, no scaling, no messing around with the data here. :)
@@ -543,7 +637,7 @@ R_Upload32Native(unsigned *data, int width, int height, qboolean mipmap)
 
 	c = width * height;
 	scan = ((byte *)data) + 3;
-	samples = gl_solid_format;
+	samples = Q2_GL_SOLID_FORMAT;
 	comp = gl_tex_solid_format;
 	upload_width = width;
 	upload_height = height;
@@ -554,7 +648,7 @@ R_Upload32Native(unsigned *data, int width, int height, qboolean mipmap)
 	{
 		if (*scan != 255)
 		{
-			samples = gl_alpha_format;
+			samples = Q2_GL_ALPHA_FORMAT;
 			comp = gl_tex_alpha_format;
 			break;
 		}
@@ -564,11 +658,11 @@ R_Upload32Native(unsigned *data, int width, int height, qboolean mipmap)
 			height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
 			data);
 	glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, false);
-	return samples == gl_alpha_format;
+	return samples == Q2_GL_ALPHA_FORMAT;
 }
 
 
-qboolean
+static qboolean
 R_Upload32Soft(unsigned *data, int width, int height, qboolean mipmap)
 {
 	int samples;
@@ -581,18 +675,14 @@ R_Upload32Soft(unsigned *data, int width, int height, qboolean mipmap)
 
 	uploaded_paletted = false;
 
-	for (scaled_width = 1; scaled_width < width; scaled_width <<= 1)
-	{
-	}
+	scaled_width = NextPow2(width);
 
 	if (gl1_round_down->value && (scaled_width > width) && mipmap)
 	{
 		scaled_width >>= 1;
 	}
 
-	for (scaled_height = 1; scaled_height < height; scaled_height <<= 1)
-	{
-	}
+	scaled_height = NextPow2(height);
 
 	if (gl1_round_down->value && (scaled_height > height) && mipmap)
 	{
@@ -633,20 +723,21 @@ R_Upload32Soft(unsigned *data, int width, int height, qboolean mipmap)
 	if (scaled_width * scaled_height > sizeof(scaled) / 4)
 	{
 		// this can't really happen (because they're clamped to 256 above), but whatever
-		Com_Error(ERR_DROP, "R_Upload32: too big");
+		Com_Error(ERR_DROP, "%s: too big", __func__);
+		return false;
 	}
 
 	/* scan the texture for any non-255 alpha */
 	c = width * height;
 	scan = ((byte *)data) + 3;
-	samples = gl_solid_format;
+	samples = Q2_GL_SOLID_FORMAT;
 	comp = gl_tex_solid_format;
 
 	for (i = 0; i < c; i++, scan += 4)
 	{
 		if (*scan != 255)
 		{
-			samples = gl_alpha_format;
+			samples = Q2_GL_ALPHA_FORMAT;
 			comp = gl_tex_alpha_format;
 			break;
 		}
@@ -656,8 +747,8 @@ R_Upload32Soft(unsigned *data, int width, int height, qboolean mipmap)
 	{
 		if (!mipmap)
 		{
-			if (qglColorTableEXT && gl1_palettedtexture->value &&
-				(samples == gl_solid_format))
+			if (qglColorTableEXT && r_palettedtextures->value &&
+				(samples == Q2_GL_SOLID_FORMAT))
 			{
 				uploaded_paletted = true;
 				R_BuildPalettedTexture(paletted_texture, (unsigned char *)data,
@@ -686,8 +777,8 @@ R_Upload32Soft(unsigned *data, int width, int height, qboolean mipmap)
 
 	R_LightScaleTexture(scaled, scaled_width, scaled_height, !mipmap);
 
-	if (qglColorTableEXT && gl1_palettedtexture->value &&
-		(samples == gl_solid_format))
+	if (qglColorTableEXT && r_palettedtextures->value &&
+		(samples == Q2_GL_SOLID_FORMAT))
 	{
 		uploaded_paletted = true;
 		R_BuildPalettedTexture(paletted_texture, (unsigned char *)scaled,
@@ -727,8 +818,8 @@ R_Upload32Soft(unsigned *data, int width, int height, qboolean mipmap)
 
 			miplevel++;
 
-			if (qglColorTableEXT && gl1_palettedtexture->value &&
-				(samples == gl_solid_format))
+			if (qglColorTableEXT && r_palettedtextures->value &&
+				(samples == Q2_GL_SOLID_FORMAT))
 			{
 				uploaded_paletted = true;
 				R_BuildPalettedTexture(paletted_texture, (unsigned char *)scaled,
@@ -747,13 +838,19 @@ R_Upload32Soft(unsigned *data, int width, int height, qboolean mipmap)
 
 done:
 
-	return samples == gl_alpha_format;
+	return samples == Q2_GL_ALPHA_FORMAT;
 }
 
 qboolean
 R_Upload32(unsigned *data, int width, int height, qboolean mipmap)
 {
 	qboolean res;
+
+	/* optimize 8bit images only when we forced such logic */
+	if (r_scale8bittextures->value)
+	{
+		SmoothColorImage(data, width * height, width);
+	}
 
 	if (gl_config.npottextures)
 	{
@@ -775,10 +872,10 @@ R_Upload32(unsigned *data, int width, int height, qboolean mipmap)
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_max);
 	}
 
-	if (mipmap && gl_config.anisotropic && gl_anisotropic->value)
+	if (mipmap && gl_config.anisotropic && r_anisotropic->value)
 	{
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT,
-				Q_max(gl_anisotropic->value, 1.f));
+				Q_max(r_anisotropic->value, 1.f));
 	}
 	return res;
 }
@@ -806,6 +903,14 @@ R_Upload8(byte *data, int width, int height, qboolean mipmap, qboolean is_sky)
 	else
 	{
 		unsigned *trans = malloc(s * sizeof(unsigned));
+
+		YQ2_COM_CHECK_OOM(trans, "malloc()",
+			s * sizeof(unsigned))
+		if (!trans)
+		{
+			/* unaware about YQ2_ATTR_NORETURN_FUNCPTR? */
+			return false;
+		}
 
 		for (int i = 0; i < s; i++)
 		{
@@ -858,7 +963,6 @@ R_LoadPic(const char *name, byte *pic, int width, int realwidth,
 		int height, int realheight, size_t data_size, imagetype_t type, int bits)
 {
 	image_t *image;
-	int i;
 
 	qboolean nolerp = false;
 	if (r_2D_unfiltered->value && type == it_pic)
@@ -874,38 +978,44 @@ R_LoadPic(const char *name, byte *pic, int width, int realwidth,
 		nolerp = strstr(r_nolerp_list->string, name) != NULL;
 	}
 
-	/* find a free image_t */
-	for (i = 0, image = gltextures; i < numgltextures; i++, image++)
 	{
-		if (!image->texnum)
+		int i;
+
+		/* find a free image_t */
+		for (i = 0, image = gltextures; i < numgltextures; i++, image++)
 		{
-			break;
+			if (!image->texnum)
+			{
+				break;
+			}
+
+			if (!strcmp(image->name, name))
+			{
+				/* we already have such image */
+				image->registration_sequence = registration_sequence;
+				return image;
+			}
 		}
 
-		if (!strcmp(image->name, name))
+		if (i == numgltextures)
 		{
-			/* we already have such image */
-			image->registration_sequence = registration_sequence;
-			return image;
+			if (numgltextures == MAX_TEXTURES)
+			{
+				Com_Error(ERR_DROP, "%s: load %s is failed MAX_TEXTURES",
+					__func__, name);
+				return NULL;
+			}
+
+			numgltextures++;
 		}
+
+		image = &gltextures[i];
 	}
-
-	if (i == numgltextures)
-	{
-		if (numgltextures == MAX_GLTEXTURES)
-		{
-			Com_Error(ERR_DROP, "%s: load %s is failed MAX_GLTEXTURES",
-				__func__, name);
-		}
-
-		numgltextures++;
-	}
-
-	image = &gltextures[i];
 
 	if (strlen(name) >= sizeof(image->name))
 	{
 		Com_Error(ERR_DROP, "%s: \"%s\" is too long", __func__, name);
+		return NULL;
 	}
 
 	strcpy(image->name, name);
@@ -925,7 +1035,7 @@ R_LoadPic(const char *name, byte *pic, int width, int realwidth,
 		(image->width < 64) && (image->height < 64))
 	{
 		int x, y;
-		int i, j, k;
+		int i, k;
 		int texnum;
 
 		texnum = Scrap_AllocBlock(image->width, image->height, &x, &y);
@@ -942,19 +1052,21 @@ R_LoadPic(const char *name, byte *pic, int width, int realwidth,
 
 		for (i = 0; i < image->height; i++)
 		{
+			int j;
+
 			for (j = 0; j < image->width; j++, k++)
 			{
-				scrap_texels[texnum][(y + i) * BLOCK_WIDTH + x + j] = pic[k];
+				scrap_texels[texnum][(y + i) * SCRAP_WIDTH + x + j] = pic[k];
 			}
 		}
 
 		image->texnum = TEXNUM_SCRAPS + texnum;
 		image->scrap = true;
 		image->has_alpha = true;
-		image->sl = (x + 0.01) / (float)BLOCK_WIDTH;
-		image->sh = (x + image->width - 0.01) / (float)BLOCK_WIDTH;
-		image->tl = (y + 0.01) / (float)BLOCK_WIDTH;
-		image->th = (y + image->height - 0.01) / (float)BLOCK_WIDTH;
+		image->sl = (float)x / SCRAP_WIDTH;
+		image->sh = (float)(x + image->width) / SCRAP_WIDTH;
+		image->tl = (float)y / SCRAP_HEIGHT;
+		image->th = (float)(y + image->height) / SCRAP_HEIGHT;
 	}
 	else
 	{
@@ -1016,7 +1128,7 @@ R_LoadPic(const char *name, byte *pic, int width, int realwidth,
 			}
 			else
 			{
-				R_Printf(PRINT_DEVELOPER,
+				Com_DPrintf(
 						"Warning, image '%s' has hi-res replacement smaller than the original! (%d x %d) < (%d x %d)\n",
 						name, image->width, image->height, realwidth, realheight);
 			}
@@ -1041,42 +1153,41 @@ R_LoadPic(const char *name, byte *pic, int width, int realwidth,
  * Finds or loads the given image or null
  */
 image_t *
-R_FindImage(const char *name, imagetype_t type)
+R_FindImage(const char *originname, imagetype_t type)
 {
-	image_t *image;
-	int i, len;
-	char *ptr;
-	char namewe[256];
+	char namewe[256], name[256] = {0};
 	const char* ext;
+	image_t *image;
+	size_t len;
+	int i;
 
-	if (!name)
+	if (!originname)
 	{
 		return NULL;
 	}
 
+	Q_strlcpy(name, originname, sizeof(name));
+
+	/* fix backslashes */
+	Q_replacebackslash(name);
+
 	ext = COM_FileExtension(name);
-	if(!ext[0])
+	if (!ext[0])
 	{
 		/* file has no extension */
 		return NULL;
 	}
 
-	len = strlen(name);
-
 	/* Remove the extension */
-	memset(namewe, 0, 256);
-	memcpy(namewe, name, len - (strlen(ext) + 1));
-
-	if (len < 5)
+	len = (ext - name) - 1;
+	if ((len < 1) || (len > sizeof(namewe) - 1))
 	{
+		Com_DPrintf("%s: Bad filename %s\n", __func__, name);
 		return NULL;
 	}
 
-	/* fix backslashes */
-	while ((ptr = strchr(name, '\\')))
-	{
-		*ptr = '/';
-	}
+	memcpy(namewe, name, len);
+	namewe[len] = 0;
 
 	/* look for it */
 	for (i = 0, image = gltextures; i < numgltextures; i++, image++)
@@ -1092,18 +1203,18 @@ R_FindImage(const char *name, imagetype_t type)
 	// load the pic from disk
 	//
 	image = (image_t *)R_LoadImage(name, namewe, ext, type,
-		r_retexturing->value, (loadimage_t)R_LoadPic);
+		(loadimage_t)R_LoadPic);
 
 	if (!image && r_validation->value)
 	{
-		R_Printf(PRINT_ALL, "%s: can't load %s\n", __func__, name);
+		Com_Printf("%s: can't load %s\n", __func__, name);
 	}
 
 	return image;
 }
 
 struct image_s *
-RI_RegisterSkin(char *name)
+RI_RegisterSkin(const char *name)
 {
 	return R_FindImage(name, it_skin);
 }
@@ -1170,13 +1281,21 @@ R_ImageHasFreeSpace(void)
 	}
 
 	// should same size of free slots as currently used
-	return (numgltextures + used) < MAX_GLTEXTURES;
+	return (numgltextures + used) < MAX_TEXTURES;
 }
 
 void
 R_InitImages(void)
 {
-	int i, j;
+	int i;
+	float m;
+
+#ifdef GL1_GAMMATABLE
+	float	g = vid_gamma->value;
+#else
+	float	g = 1;
+#endif
+	g = Q_max(g, 0.1f);
 
 	registration_sequence = 1;
 	image_max = 0;
@@ -1189,23 +1308,62 @@ R_InitImages(void)
 		ri.Cvar_Set("gl1_intensity", "1");
 	}
 
-	gl_state.inverse_intensity = 1 / intensity->value;
+	gl_state.sw_gamma = g;
+	gl_state.inverse_intensity = g / intensity->value;
 
-	for (i = 0; i < 256; i++)
+	if (g == 1)
 	{
-		gammatable[i] = i;
+		for (i = 0; i < 256; i++)
+		{
+			gammatable[i] = i;
+		}
+	}
+	else
+	{
+		g = 1.0f / g;
+
+		for (i = 0; i < 256; i++)
+		{
+			float inf;
+
+			inf = pow ( (float)(i + 0.5f) / 255.5f , g ) * 255.0f + 0.5f;
+			inf = Q_clamp(inf, 0, 255);
+
+			gammatable[i] = inf;
+		}
 	}
 
 	for (i = 0; i < 256; i++)
 	{
-		j = i * intensity->value;
+		int j;
 
-		if (j > 255)
-		{
-			j = 255;
-		}
+		j = i * intensity->value;
+		j = Q_min(j, 255);
 
 		intensitytable[i] = j;
+	}
+
+	// I know, minimum light level's calculation is much simpler than gamma.
+	// But will still need a vid_restart to apply its values to currently loaded
+	// lightmaps. Also, memory is cheaper than CPU.
+	m = Q_clamp(gl1_minlight->value, 0, 255);
+	gl_state.minlight_set = (m != 0);
+
+	if (!gl_state.minlight_set)	// minlight == 0
+	{
+		for (i = 0; i < 256; i++)
+		{
+			minlight[i] = i;
+		}
+	}
+	else
+	{
+		for (i = 0; i < 256; i++)
+		{
+			float inf = (255.0f - m) * (float)i / 255.0f + m;
+			inf = Q_clamp(inf, 0, 255);
+			minlight[i] = inf;
+		}
 	}
 }
 

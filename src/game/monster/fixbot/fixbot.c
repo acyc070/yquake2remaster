@@ -19,9 +19,6 @@
 #define FIXBOT_GOAL_TIMEOUT			15
 #define FIXBOT_WELD_GOAL_TIMEOUT	15
 
-qboolean visible(edict_t *self, edict_t *other);
-qboolean infront(edict_t *self, edict_t *other);
-
 static int sound_pain1;
 static int sound_die;
 static int sound_weld1;
@@ -56,7 +53,6 @@ extern mmove_t fixbot_move_landing;
 extern mmove_t fixbot_move_turn;
 
 extern void roam_goal(edict_t *self);
-void ED_CallSpawn(edict_t *ent);
 
 float
 crand(void)
@@ -64,7 +60,7 @@ crand(void)
 	return (rand() & 32767) * (2.0 / 32767) - 1;
 }
 
-edict_t *
+static edict_t *
 fixbot_FindDeadMonster(edict_t *self)
 {
 	edict_t *ent = NULL;
@@ -583,7 +579,7 @@ blastoff(edict_t *self, vec3_t start, vec3_t aimdir, int damage,
 			}
 			else
 			{
-				if (strncmp(tr.surface->name, "sky", 3) != 0)
+				if (tr.surface && strncmp(tr.surface->name, "sky", 3) != 0)
 				{
 					gi.WriteByte(svc_temp_entity);
 					gi.WriteByte(te_impact);
@@ -1174,7 +1170,7 @@ fixbot_fire_laser(edict_t *self)
 	}
 
 	gi.sound(self, CHAN_AUTO, gi.soundindex("misc/lasfly.wav"),
-		   	1, ATTN_STATIC, 0);
+			1, ATTN_STATIC, 0);
 
 	VectorCopy(self->s.origin, start);
 	VectorCopy(self->enemy->s.origin, end);
@@ -1576,7 +1572,7 @@ fixbot_attack(edict_t *self)
 
 void
 fixbot_pain(edict_t *self, edict_t *other /* unused */,
-	   	float kick /* unused */, int damage /* unused */)
+		float kick /* unused */, int damage /* unused */)
 {
 	if (!self)
 	{
@@ -1615,10 +1611,7 @@ fixbot_dead(edict_t *self)
 
 	VectorSet(self->mins, -16, -16, -24);
 	VectorSet(self->maxs, 16, 16, -8);
-	self->movetype = MOVETYPE_TOSS;
-	self->svflags |= SVF_DEADMONSTER;
-	self->nextthink = 0;
-	gi.linkentity(self);
+	monster_dynamic_dead(self);
 }
 
 void
@@ -1666,7 +1659,7 @@ SP_monster_fixbot(edict_t *self)
 	self->movetype = MOVETYPE_STEP;
 	self->solid = SOLID_BBOX;
 
-	self->health = 150;
+	self->health = 150 * st.health_multiplier;
 	self->mass = 150;
 	self->viewheight = 16;
 

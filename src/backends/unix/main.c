@@ -37,6 +37,7 @@
 #include "../../common/header/common.h"
 
 void registerHandler(void);
+void setCustomCfgDir(const char* dir);
 
 int
 main(int argc, char **argv)
@@ -99,7 +100,7 @@ main(int argc, char **argv)
 			// We need an argument.
 			if (i != (argc - 1))
 			{
-				Q_strlcpy(cfgdir, argv[i + 1], sizeof(cfgdir));
+				setCustomCfgDir(argv[i + 1]);
 			}
 			else
 			{
@@ -138,7 +139,11 @@ main(int argc, char **argv)
 	setenv("LC_ALL", "C", 1);
 
 	/// Do not delay reads on stdin
-	fcntl(fileno(stdin), F_SETFL, fcntl(fileno(stdin), F_GETFL, NULL) | FNDELAY);
+	if (fcntl(fileno(stdin), F_SETFL, fcntl(fileno(stdin), F_GETFL, NULL) | FNDELAY))
+	{
+		Com_Printf("%s: change stdin to nodeleay %s\n",
+			__func__, strerror(errno));
+	}
 
 	// Initialize the game.
 	// Never returns.

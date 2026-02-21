@@ -1,3 +1,320 @@
+Quake II 8.61RR14:
+- Fixes from yquake2,
+- Use model stand min/max to player view height in pmove,
+- Use swim player animation underwater,
+- Extend HLMDL support (still broken),
+- Extend dynamic frames usage in monsters,
+- Q2Test: extend support,
+- Anachronox: check fog field in `whitendon`,
+- ReRelease: implement game code for `dynamic_light`,
+- ReRelease: implement game code for `bmodel_anim`.
+- ReRelease: partial fix of autorotate sky,
+- ReRelease: more weapons.
+
+Quake II 8.61RR13:
+- Fixes from yquake2,
+- game: Lifting the entity limit (by BjossiAlfreds),
+- game: Enhanced dynamic monster behaviors using model frame groups,
+- renders: Initial fog support,
+- renders: Share fan/strip logic,
+- ReRelease: fully implement `trigger_fog`,
+- Heretic 2: use nor all surface flags to detect map type,
+- Kingpin: use nor all surface flags to detect map type,
+- DoD: implement dynamic animations for monsters.
+
+Quake II 8.51 to 8.60:
+- Vastly improved level loading times in single-player. Set
+  sv_optimize_mp_loadtime to 7 to enable in multiplayer. (by
+  BjossiAlfreds)
+- Sort the resolution list in the video menu.
+- Update the entity files with more map fixes for hangar1, jail2, jail4,
+  mine1 and mine2. (by BjossiAlfreds)
+- Fix loop sound of BSP models always playing at origin. See cvar
+  s_bsp_soundpos for more info and options. (by BjossiAlfreds)
+- Fix the `soundlist` command. (by 0lvin)
+- Make frustrums znear value configureable through the `gl_znear` cvar.
+  Setting it to values less than the default `4` may fix problems with
+  weapon models getting clipped by the player view, at risk of heavy
+  glitches. (by protocultor)
+- Failed SFX allocations are no longer a fatal error. (by BjossiAlfreds)
+- Clean temporary entities on renderer restart. Fixes possible crashes
+  when restarting or changing the renderer. (by BjossiAlfreds)
+- Implement gamma correction for the OpenGL 1.4 renderer build against
+  SDL 3. (by protocultor)
+- Implement minimum light level for the OpenGL 1.4 renderer. Can be used
+  to illuminate dark scenes. (by protocultor)
+- Vastly improved gyro support. (by ceski)
+- Improve labeling of gamepad buttons when build against SDL 3. (by
+  protocultor)
+- Fix glitches in the Software renderer when build against SDL 3. (by
+  0lvin)
+- Improved feeling and customization of analog sticks on gamepad. (by
+  ceski)
+- Fixed GL1 multitexturing in surfaces using multiple light styles. (by
+  protocultor)
+- Fix plasma beam rendering incorrectly with left / center handed
+  weapon. (by BjossiAlfreds)
+- Fix monsters acting confused while following combat points. (by
+  BjossiAlfreds)
+
+Quake II 8.52RR13:
+- soft: build with SDL3 has glitch in menu,
+- Heretic 2: combine all tiles in book sprite,
+- game: implement fog logic without client code
+- workflows: update cmake and SDL3
+- workflows: enable CodeQL and PREfast validation
+- maps: rework heretic 2 maps detect logic
+- jabot: each client use own last_update time in navigation recreation
+- macos: fix workflow build (by David Carlier)
+- paks: support Doom wad
+- game: add usage extended MZ effects
+- refresh: extend ttf fontcodes to 0x2000
+- game: translate hud
+- client: improve  gamepads support (by Jaime Moreira)
+- renders: Temp ent refactoring and temp ent model state cleared (by Bjossi Alfreds)
+- client: Analog stick improvements (by ceski)
+- maps: improve Hexen 2 support
+
+Quake II 8.52RR12:
+- soft: support custom ttf fonts,
+- soft: broken fonts in menu,
+- client: use shared model cache in client code instead reimplement
+  in each render,
+- game: broken camera on start zbase1(Zaero),
+- game: remove grapple by default,
+- ReRelease: crash on exit from psx/base2,
+- ReRelease: support textures/*/*.mat load (footstep),
+- ReRelease: fix physics with incorrect floor height in psx/base0.bsp,
+- ReRelease: basicsjam1_detrohogga: Make pmove_state_t.origin 29.3
+  (PS_M_ORIGIN) > 4k coord values support,
+- ReRelease: initial implementation of `misc_flare`,
+- Anachronox/Daikatana: add mp3 support,
+- Add coverity fixes.
+
+Quake II 8.50 to 8.51:
+- Fix savegame and mod incompatibilities when Yamagi Quake II is
+  complied in C23 mode. With this fix applied savegames written by
+  unfixed binaries will crash the client. It is advised to complete
+  the current run before upgrading. The official Windows binaries
+  were not affected by this problem. Other platforms mostly if
+  they build the binaries with GCC 15 which enables C23 mode by
+  default.
+- Fix memory leaks in the mod selection menu. (by David Carlier)
+- General code cleanup around `bool` handling. (by 0lvin)
+
+Quake 2 8.51RR12:
+- TTF support in all renders except soft,
+- intergrate jabot code,
+- add animation groups code callback,
+- fix mod_novis logic,
+- cache model on client side,
+- disable grapple by default,
+- vault models support.
+
+Quake II 8.41 to 8.50:
+- Consistent bindings between multiple gamepad types. (by protocultor)
+- Improved menu navigation with gamepads. (by protocultor)
+- The SDL 3 code now supports the stable SDL 3 API. Several bugs with
+  SDL 3 were fixed. (by 0lvin, BjossiAlfreds, erysdren and protocultor)
+- Water warp effect for the OpenGL 1.4 renderer. (by protocultor)
+- Add a sound backend selector to the menu. (by protocultor)
+- Fix several problems with HTTP downloads. (by SiemensSchuckert)
+- Better navigation in input fields in the menu. Support left and right
+  navigation, add support for the ctrl-l,c,x,v shortcuts. (by
+  BjossiAlfreds)
+- Performance optimizations for the OpenGL 1.4 renderer, especially on
+  embedded and mobile GPUs. Includes an alternative GL ES 1.0 renderer.
+  (by protocultor)
+- Several fixes to `gl1_stereo`. (by protocultor)
+- Fix the SDL2 sound backend not working with modern backends.
+- Make the Windows key bindable. (by Andrew Malchuk)
+- Support true randomness when shuffling audio tracks. (by
+  apartfromtime)
+- Fix leaking temporary spawnflags into entities spawned mid-level. (by
+  BjossiAlfreds)
+- Support the unofficial GL4 renderer lib in the video menu (by atsb)
+- Clipboard support for the console and better navigation in the console
+  line editor. (By BjossiAlfreds)
+- Support player models inside pak files in the menu. (by 0lvin)
+- Support 24 bit PCX files. (by 0lvin)
+- Check if an entity file matches the current map before loading it.
+  This fixes problems with loading entity files from Quake II against
+  Quake II Remaster maps and the other way round. (by 0lvin)
+
+Quake 2 8.42RR12:
+- Fix intro .cin video crash
+- Update CMakefile with vulkan and gl4 targets
+- maps: remove spirit of player models on start points
+- maps: fix yellow wall in daikatana e2m2a
+- maps: make visibility entity optional
+- game: fix pickup chainfist
+- game: fix allocation code for translation and dynamic entities
+- game: sync target_sky, sync target_camera, target_autosave with ReRelease code
+- game: Add npc_timeminder from Anachronox
+- game: add ai_model_scale, misc_player_mannequin from ReRelease code
+- Add MacOS DMG and use windows x64 SDL3 build
+- Anachronox: support initial ATD sprites
+- Anachronox: update MDA load code
+- SiN: dynamic allocation of sub models list in .def
+
+Quake 2 8.42RR11:
+- ReRelease: add support `flashlight` item
+- ReRelease: add support `trigger_flashlight`
+- ReRelease: add support `start_item` cvar/map property
+- ReRelease: add material support for custom footstep sound
+- ReRelease: add support `health_multiplier`
+- ReRelease: add support `g_itemsbobeffect` (bob effect for items)
+- ReRelease: add models scale support
+- ReRelease: ignore nodraw surfaces
+- ReRelease: add `g_language` localization cvar
+- ReRelease: update docs about localization
+- ReRelease: fix `key_yellow_key` item definition
+- ReRelease: sort spawn function before search
+- Other games maps: alternative text for unexisted iamges in menu
+- Other games maps: convert map suface flags to material type
+- Other games maps: update entities definition file
+- Other games maps: support mesh hide mask for player model preview
+- Other games maps: `choose_cdtrack` triger support
+- Anachronox: ignore tag name in model for now
+- DoD: add custom status bar
+- Daikatana: fix surface flags convert
+- yquake2: improve backends support @john-tornblom
+- yquake2: clipboard fix @BjossiAlfreds
+- yquake2: update cmd parser @devnexen
+- yquake2: update soft render with unaccelerated render support @john-tornblom
+- yquake2: fix compile without gl targets @john-tornblom
+- renders: sync gl4 with gl3 codes
+- game: use player model id based on max models limit
+- filesystem: fix pointers arithmetic
+
+Quake 2 8.42RR10:
+- client: updated console logic,
+- game: Update default entities descriptor file,
+- game: Add hack for next level change in q64/outpost
+- game: Restore flame effect, currently used only as torch fire in
+  Heretic 2 fire as example.
+
+Quake 2 8.42RR9:
+- vk: fixed vulkan call groups,
+- game: Add ReRelease translated messages (English only)
+- game: Add Heretic 2 translated message (checked with English only)
+- game: Anachronox support load entitities decription file,
+- game: Daikatana support load entitities decription file,
+- game: SiN show entities with defined models,
+- renders: Partial support of MDA models (Anachronox),
+- renders: improved colors of particles,
+- renders: Fix pcx load code,
+- renders: Fix maps with 32k+ faces.
+
+Quake 2 8.42RR8:
+- vk: draw alias models as single call,
+- Support mdr(EliteForce) models support.
+
+Quake 2 8.41RR8:
+- Fix platforms in q64/outpost,
+- Add MDR model format support,
+- Sync with classic yquake 2 repository,
+- Full support pcx version 5 format,
+- Rework image load code.
+
+Quake II 8.40 to 8.41:
+- Fix an endless loop in the OpenGL 1.4 renderer crashing the game and
+  blocking further progress under some circumstances. (by protocultor)
+- Don't force a platform dependend, hard coded SDL audio driver, let SDL
+  choose the driver instead. This may fix the SDL audio backend on some
+  platforms. The driver can still be overridden by setting `s_sdldriver`
+  to something else than `auto`. Under Windows `s_sdldriver` defaults
+  `directsound` because `auto` may choose an incompatible driver.
+
+Quake II 8.30 to 8.40:
+- Implement `g_quick_weap`. If set to 1, both weapprev and weapnext
+  commands will count how many times they have been called, making
+  possible to skip weapons by quickly tapping one of these keys. (by
+  protocultor)
+- Fix `gl1_overbrightbits`, allowed values are now 0, 1, 2 and 4. (by
+  protocultor)
+- Sort player skins case insensitive. (by apartfromtime)
+- Implement `cl_showspeed` to show the current player speed (by Feels
+  Duck Man)
+- Add texture filtering options to the video menu (by apartfromtime)
+- Implement `cl_laseralpha` to control how transparent laser beams are.
+  (by BjossiAlfreds)
+- Experimental support for SDL 3. Requires SDL 3.1.2.
+- Reimplement multitexturing for the OpenGL 1.4 renderer. Controlled by
+  `gl1_multitexture`, enabled by default. (by protocultor)
+- Optimize dynamic lights and texture allocation in the OpenGL 1.4
+  renderer. (by protocultor)
+- Implement gyro tightening for gamepads and joysticks. (by protocultor)
+- Support long player skin names. (by 0lvin)
+- Add a very simple download filter. Files ending in .dll, .dylib and
+  .so are always filtered to prevent code injection.
+- Don't load OpenAL and cURL libraries if thy are configured with a full
+  or relative path.
+- Work around naggy help icons. (by BjossiAlfreds)
+- Group draw call in GL1. This yields huge performance gains on slow
+  GPUs. (by protocultor)
+
+Quake 2 8.31RR8:
+- GL1 multitexture support (by Jaime Moreira),
+- GL1 big lightmap support (by Jaime Moreira),
+- Cache QBSP in collision map,
+- Update SDL 3 support (by Yamagi),
+- Port train code from ReRelease code,
+- Fix multimesh models in gl4 render,
+- Fix quake 1 monsters save,
+- Improve SiN model support.
+
+Quake 2 8.31RR7:
+- Rework map load logic,
+- Support SiN map load,
+- Support track music names,
+- Support N64 render flags,
+- SDL3 build support (by Yamagi),
+- Fixes for sort render (by dkoreshkov),
+- Added cvar cl_laseralpha (by BjossiAlfreds),
+- VectorLength reduces complexity (by devnexen),
+- Sync with latest yquake 2 code.
+
+Quake 2 8.31RR6:
+- renders: fix BSPX lightmaps (by BraXi)
+- Rename functions r_dlightframecount parameter to lightframecount (by BraXi)
+- models_md5 few memory related fixes (by David Carlier)
+- use custom protocol with extended limits (by Denis Pauk)
+- improve mdl support, and add Kingpin .mdx models support (by Denis Pauk)
+- support Anachronox DAT archive format (by Denis Pauk)
+- Added a speedometer that displays the player's speed in QU/s. (by Feels Duck Manby)
+- berserker: slam attack, running club attack (by Guilherme Nemeth)
+- models: add gl command compress code from qwalk (by Sajt)
+- Texture filtering options for OpenGL and Software video modes (by apartfromtime)
+
+Quake 2 8.31RR5:
+- md3 models support,
+- initial md2 Anachronox models support,
+- add quake 1 monsters support: army, demon, dog, enforcer, fish, hknight,
+  knight, ogre, shalrath, tarbaby, wizard, zombie,
+- fix for Shambler weapon,
+- mdl model load fix for grouped frames,
+- fix optional embeded mpeg decoder,
+- initial cleanup game functions export list.
+
+Quake 2 8.31RR4:
+- remove modle skin count limit,
+- use short instead byte in frame verts
+- mdl improve support of embeded texture,
+- support more then 16k gl commends in models,
+- support md5 models,
+- fix player models select if players are packed to pak file.
+
+Quake 2 8.31RR3:
+- third person support,
+- update remasterd maps support in gl3/gl4 based renders,
+- uopdate cinama render code for soft render,
+- autobuild windows binaries on tag creation.
+
+Quake 2 8.31RR2:
+- Merge hud/players code with ctf code,
+- Support Shambler, Guardian monsters.
+
 Quake II 8.20 to 8.30:
 - Use the same image loading code in all renderers. (by 0lvin)
 - Use the same model loading code in all renderers. (by 0lvin)
@@ -28,6 +345,12 @@ Quake II 8.20 to 8.30:
   up. (by protocultor)
 - Support of RGBA png/jpg image with r_retexturing as cinematic. (by
   0lvin)
+
+Quake 2 8.21RR1:
+- Suport mdl/fm/dkm models,
+- Support ogv video by ffmpeg,
+- Start merge ctf, xatrix, rogue to baseq2 code
+- Support remastered maps in gl1/vk
 
 Quake II 8.10 to 8.20:
 - This release marks Quake IIs 25th anniversary. Happy Birthday!
@@ -273,7 +596,7 @@ Quake II 7.10 to 7.20:
 - Rename several cvars to be consistent across different renderers.
   The configuration file will be converted at the first start, when an
   old cvar name is used a message is printed.
-- Make the client unicode compatible. Yamagi Quake II can now be 
+- Make the client unicode compatible. Yamagi Quake II can now be
   installed into paths with unicode characters in it. On Windows the
   user name of the current account may contain unicode characters.
   As a side effect the game can run on ReFS volumes. While '+set

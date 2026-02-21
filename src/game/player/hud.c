@@ -48,10 +48,10 @@ MoveClientToIntermission(edict_t *ent)
 		ent->client->showscores = true;
 	}
 
+	/*
+	 * set ps.pmove.origin is not required as server uses ent.origin instead
+	 */
 	VectorCopy(level.intermission_origin, ent->s.origin);
-	ent->client->ps.pmove.origin[0] = level.intermission_origin[0] * 8;
-	ent->client->ps.pmove.origin[1] = level.intermission_origin[1] * 8;
-	ent->client->ps.pmove.origin[2] = level.intermission_origin[2] * 8;
 	VectorCopy(level.intermission_angle, ent->client->ps.viewangles);
 	ent->client->ps.pmove.pm_type = PM_FREEZE;
 	ent->client->ps.gunindex = 0;
@@ -61,6 +61,7 @@ MoveClientToIntermission(edict_t *ent)
 	/* clean up powerup info */
 	ent->client->quad_framenum = 0;
 	ent->client->invincible_framenum = 0;
+	ent->client->invisible_framenum = 0;
 	ent->client->breather_framenum = 0;
 	ent->client->enviro_framenum = 0;
 	ent->client->grenade_blew_up = false;
@@ -73,7 +74,6 @@ MoveClientToIntermission(edict_t *ent)
 	ent->client->double_framenum = 0;
 
 	ent->client->ps.rdflags &= ~RDF_IRGOGGLES;
-
 
 	ent->viewheight = 0;
 	ent->s.modelindex = 0;
@@ -244,7 +244,7 @@ DeathmatchScoreboardMessage(edict_t *ent, edict_t *killer)
 {
 	char entry[1024];
 	char string[1400];
-	int stringlength;
+	size_t stringlength;
 	int i;
 	int sorted[MAX_CLIENTS];
 	int sortedscores[MAX_CLIENTS];
@@ -311,7 +311,8 @@ DeathmatchScoreboardMessage(edict_t *ent, edict_t *killer)
 	for (i = 0; i < total; i++)
 	{
 		char *tag;
-		int x, y, j;
+		int x, y;
+		size_t j;
 		gclient_t *cl;
 		edict_t *cl_ent;
 
@@ -380,25 +381,13 @@ DeathmatchScoreboardMessage(edict_t *ent, edict_t *killer)
 }
 
 /*
- * Draw instead of help message.
- * Note that it isn't that hard to
- * overflow the 1400 byte message limit!
- */
-void
-DeathmatchScoreboard(edict_t *ent)
-{
-	DeathmatchScoreboardMessage(ent, ent->enemy);
-	gi.unicast(ent, true);
-}
-
-/*
  * Draw help computer.
  */
 void
 HelpComputerMessage(edict_t *ent)
 {
 	char string[1024];
-	char *sk;
+	const char *sk;
 
 	if (!ent)
 	{
@@ -407,19 +396,19 @@ HelpComputerMessage(edict_t *ent)
 
 	if (skill->value == SKILL_EASY)
 	{
-		sk = "easy";
+		sk = gi.LocalizationUIMessage("$m_easy", "easy");
 	}
 	else if (skill->value == SKILL_MEDIUM)
 	{
-		sk = "medium";
+		sk = gi.LocalizationUIMessage("$m_medium", "medium");
 	}
 	else if (skill->value == SKILL_HARD)
 	{
-		sk = "hard";
+		sk = gi.LocalizationUIMessage("$m_hard", "hard");
 	}
 	else
 	{
-		sk = "hard+";
+		sk = gi.LocalizationUIMessage("$m_nightmare", "hard+");
 	}
 
 	/* send the layout */
@@ -429,12 +418,15 @@ HelpComputerMessage(edict_t *ent)
 			"xv 0 yv 24 cstring2 \"%s\" " /* level name */
 			"xv 0 yv 54 cstring2 \"%s\" " /* help 1 */
 			"xv 0 yv 110 cstring2 \"%s\" " /* help 2 */
-			"xv 50 yv 164 string2 \" kills     goals    secrets\" "
+			"xv 50 yv 164 string2 \" %-9s %-8s %-9s\" "
 			"xv 50 yv 172 string2 \"%3i/%3i     %i/%i       %i/%i\" ",
 			sk,
 			level.level_name,
-			game.helpmessage1,
-			game.helpmessage2,
+			gi.LocalizationMessage(game.helpmessage1, NULL),
+			gi.LocalizationMessage(game.helpmessage2, NULL),
+			gi.LocalizationUIMessage("$g_pc_kills", "kills"),
+			gi.LocalizationUIMessage("$g_pc_goals", "goals"),
+			gi.LocalizationUIMessage("$g_pc_secrets", "secrets"),
 			level.killed_monsters, level.total_monsters,
 			level.found_goals, level.total_goals,
 			level.found_secrets, level.total_secrets);
@@ -560,7 +552,7 @@ G_SetStats(edict_t *ent)
 	{
 		ent->client->ps.stats[STAT_TIMER_ICON] = gi.imageindex("p_quadfire");
 		ent->client->ps.stats[STAT_TIMER] = (ent->client->quadfire_framenum
-			   	- level.framenum) / 10;
+				- level.framenum) / 10;
 	}
 	else if (ent->client->invincible_framenum > level.framenum)
 	{
@@ -568,6 +560,13 @@ G_SetStats(edict_t *ent)
 				"p_invulnerability");
 		ent->client->ps.stats[STAT_TIMER] =
 			(ent->client->invincible_framenum - level.framenum) / 10;
+	}
+	else if (ent->client->invisible_framenum > level.framenum)
+	{
+		ent->client->ps.stats[STAT_TIMER_ICON] = gi.imageindex(
+				"p_cloaker");
+		ent->client->ps.stats[STAT_TIMER] =
+			(ent->client->invisible_framenum - level.framenum) / 10;
 	}
 	else if (ent->client->enviro_framenum > level.framenum)
 	{

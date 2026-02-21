@@ -22,7 +22,7 @@
 
 #include "header/local.h"
 
-image_t		vktextures[MAX_VKTEXTURES];
+image_t		vktextures[MAX_TEXTURES];
 int		numvktextures = 0;
 static int		img_loaded = 0;
 static int		image_max = 0;
@@ -41,7 +41,7 @@ unsigned	d_8to24table[256];
 qvksampler_t vk_current_sampler = S_MIPMAP_LINEAR;
 qvksampler_t vk_current_lmap_sampler = S_MIPMAP_LINEAR;
 
-// internal helper
+/* internal helper */
 static VkImageAspectFlags getDepthStencilAspect(VkFormat depthFormat)
 {
 	switch (depthFormat)
@@ -55,7 +55,7 @@ static VkImageAspectFlags getDepthStencilAspect(VkFormat depthFormat)
 	}
 }
 
-// internal helper
+/* internal helper */
 static void transitionImageLayout(const VkCommandBuffer *cmdBuffer, const VkQueue *queue, const qvktexture_t *texture, const VkImageLayout oldLayout, const VkImageLayout newLayout)
 {
 	VkPipelineStageFlags srcStage = 0;
@@ -164,7 +164,7 @@ static void transitionImageLayout(const VkCommandBuffer *cmdBuffer, const VkQueu
 	vkCmdPipelineBarrier(*cmdBuffer, srcStage, dstStage, 0, 0, NULL, 0, NULL, 1, &imgBarrier);
 }
 
-// internal helper
+/* internal helper */
 static void generateMipmaps(const VkCommandBuffer *cmdBuffer, const qvktexture_t *texture, uint32_t width, uint32_t height)
 {
 	int32_t mipWidth = width;
@@ -235,8 +235,9 @@ static void generateMipmaps(const VkCommandBuffer *cmdBuffer, const qvktexture_t
 	vkCmdPipelineBarrier(*cmdBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &imgBarrier);
 }
 
-// internal helper
-static void createTextureImage(qvktexture_t *dstTex, const unsigned char *data, uint32_t width, uint32_t height)
+/* internal helper */
+static void
+createTextureImage(qvktexture_t *dstTex, const unsigned char *data, uint32_t width, uint32_t height)
 {
 	int unifiedTransferAndGfx = vk_device.transferQueue == vk_device.gfxQueue ? 1 : 0;
 	// assuming 32bit images
@@ -247,14 +248,19 @@ static void createTextureImage(qvktexture_t *dstTex, const unsigned char *data, 
 	uint32_t staging_offset;
 	void *imgData = QVk_GetStagingBuffer(imageSize, 4, &command_buffer, &staging_buffer, &staging_offset);
 	if (!imgData)
+	{
 		Sys_Error("%s: Staging buffers is smaller than image: %d.\n", __func__, imageSize);
+		return;
+	}
 
 	memcpy(imgData, data, (size_t)imageSize);
 
 	VkImageUsageFlags imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 	// set extra image usage flag if we're dealing with mipmapped image - will need it for copying data between mip levels
 	if (dstTex->mipLevels > 1)
+	{
 		imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+	}
 
 	VK_VERIFY(QVk_CreateImage(width, height, dstTex->format, VK_IMAGE_TILING_OPTIMAL, imageUsage, dstTex));
 
@@ -272,7 +278,8 @@ static void createTextureImage(qvktexture_t *dstTex, const unsigned char *data, 
 		.imageExtent = { width, height, 1 }
 	};
 
-	vkCmdCopyBufferToImage(command_buffer, staging_buffer, dstTex->resource.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+	vkCmdCopyBufferToImage(command_buffer, staging_buffer, dstTex->resource.image,
+		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
 	if (dstTex->mipLevels > 1)
 	{
@@ -283,16 +290,21 @@ static void createTextureImage(qvktexture_t *dstTex, const unsigned char *data, 
 	{
 		// for non-unified transfer and graphics, this step begins queue ownership transfer to graphics queue (for exclusive sharing only)
 		if (unifiedTransferAndGfx || dstTex->sharingMode == VK_SHARING_MODE_EXCLUSIVE)
-			transitionImageLayout(&command_buffer, &vk_device.transferQueue, dstTex, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		{
+			transitionImageLayout(&command_buffer, &vk_device.transferQueue,
+				dstTex, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		}
 
 		if (!unifiedTransferAndGfx)
 		{
-			transitionImageLayout(&command_buffer, &vk_device.gfxQueue, dstTex, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			transitionImageLayout(&command_buffer, &vk_device.gfxQueue,
+				dstTex, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 		}
 	}
 }
 
-VkResult QVk_CreateImageView(const VkImage *image, VkImageAspectFlags aspectFlags, VkImageView *imageView, VkFormat format, uint32_t mipLevels)
+VkResult
+QVk_CreateImageView(const VkImage *image, VkImageAspectFlags aspectFlags, VkImageView *imageView, VkFormat format, uint32_t mipLevels)
 {
 	VkImageViewCreateInfo ivCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
@@ -356,7 +368,8 @@ VkResult QVk_CreateImage(uint32_t width, uint32_t height, VkFormat format, VkIma
 		/*mem_skip*/ mem_skip);
 }
 
-void QVk_CreateDepthBuffer(VkSampleCountFlagBits sampleCount, qvktexture_t *depthBuffer)
+void
+QVk_CreateDepthBuffer(VkSampleCountFlagBits sampleCount, qvktexture_t *depthBuffer)
 {
 	depthBuffer->format = QVk_FindDepthFormat();
 	depthBuffer->sampleCount = sampleCount;
@@ -365,7 +378,8 @@ void QVk_CreateDepthBuffer(VkSampleCountFlagBits sampleCount, qvktexture_t *dept
 	VK_VERIFY(QVk_CreateImageView(&depthBuffer->resource.image, getDepthStencilAspect(depthBuffer->format), &depthBuffer->imageView, depthBuffer->format, depthBuffer->mipLevels));
 }
 
-static void ChangeColorBufferLayout(VkImage image, VkImageLayout fromLayout, VkImageLayout toLayout)
+static void
+ChangeColorBufferLayout(VkImage image, VkImageLayout fromLayout, VkImageLayout toLayout)
 {
 	VkCommandBuffer commandBuffer = QVk_CreateCommandBuffer(&vk_transferCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 	QVk_BeginCommand(&commandBuffer);
@@ -397,7 +411,8 @@ static void ChangeColorBufferLayout(VkImage image, VkImageLayout fromLayout, VkI
 	vkFreeCommandBuffers(vk_device.logical, vk_transferCommandPool, 1, &commandBuffer);
 }
 
-void QVk_CreateColorBuffer(VkSampleCountFlagBits sampleCount, qvktexture_t *colorBuffer, int extraFlags)
+void
+QVk_CreateColorBuffer(VkSampleCountFlagBits sampleCount, qvktexture_t *colorBuffer, int extraFlags)
 {
 	colorBuffer->format = vk_swapchain.format;
 	colorBuffer->sampleCount = sampleCount;
@@ -415,7 +430,8 @@ void QVk_CreateColorBuffer(VkSampleCountFlagBits sampleCount, qvktexture_t *colo
 	ChangeColorBufferLayout(colorBuffer->resource.image, VK_IMAGE_LAYOUT_UNDEFINED, newLayout);
 }
 
-void QVk_CreateTexture(qvktexture_t *texture, const unsigned char *data, uint32_t width, uint32_t height, qvksampler_t samplerType, qboolean clampToEdge)
+void
+QVk_CreateTexture(qvktexture_t *texture, const unsigned char *data, uint32_t width, uint32_t height, qvksampler_t samplerType, qboolean clampToEdge)
 {
 	createTextureImage(texture, data, width, height);
 	VK_VERIFY(QVk_CreateImageView(&texture->resource.image, VK_IMAGE_ASPECT_COLOR_BIT, &texture->imageView, texture->format, texture->mipLevels));
@@ -484,7 +500,8 @@ void QVk_UpdateTextureData(qvktexture_t *texture, const unsigned char *data, uin
 	}
 }
 
-void QVk_ReleaseTexture(qvktexture_t *texture)
+void
+QVk_ReleaseTexture(qvktexture_t *texture)
 {
 	QVk_SubmitStagingBuffers();
 	if (vk_device.logical != VK_NULL_HANDLE)
@@ -507,7 +524,8 @@ void QVk_ReleaseTexture(qvktexture_t *texture)
 	texture->descriptorSet = VK_NULL_HANDLE;
 }
 
-void QVk_ReadPixels(uint8_t *dstBuffer, const VkOffset2D *offset, const VkExtent2D *extent)
+void
+QVk_ReadPixels(uint8_t *dstBuffer, const VkOffset2D *offset, const VkExtent2D *extent)
 {
 	BufferResource_t buff;
 	uint8_t *pMappedData;
@@ -582,13 +600,14 @@ void QVk_ReadPixels(uint8_t *dstBuffer, const VkOffset2D *offset, const VkExtent
 Vk_ImageList_f
 ===============
 */
-void	Vk_ImageList_f (void)
+void
+Vk_ImageList_f(void)
 {
 	int		i, used, texels;
 	image_t	*image;
 	qboolean	freeup;
 
-	R_Printf(PRINT_ALL, "------------------\n");
+	Com_Printf("------------------\n");
 	texels = 0;
 	used = 0;
 
@@ -609,29 +628,30 @@ void	Vk_ImageList_f (void)
 		switch (image->type)
 		{
 		case it_skin:
-			R_Printf(PRINT_ALL, "M");
+			Com_Printf("M");
 			break;
 		case it_sprite:
-			R_Printf(PRINT_ALL, "S");
+			Com_Printf("S");
 			break;
 		case it_wall:
-			R_Printf(PRINT_ALL, "W");
+			Com_Printf("W");
 			break;
 		case it_pic:
-			R_Printf(PRINT_ALL, "P");
+			Com_Printf("P");
 			break;
 		default:
-			R_Printf(PRINT_ALL, " ");
+			Com_Printf(" ");
 			break;
 		}
 
-		R_Printf(PRINT_ALL, " %4i %4i RGB: %s (%dx%d) %s\n",
+		Com_Printf(" %4i %4i RGB: %s (%dx%d) %s\n",
 			image->upload_width, image->upload_height, image->name,
 			image->width, image->height, in_use);
 	}
-	R_Printf(PRINT_ALL, "Total texel count (not counting mipmaps): %i in %d images\n", texels, img_loaded);
+	Com_Printf("Total texel count (not counting mipmaps): %i in %d images\n", texels, img_loaded);
 	freeup = Vk_ImageHasFreeSpace();
-	R_Printf(PRINT_ALL, "Used %d of %d images%s.\n", used, image_max, freeup ? ", has free space" : "");
+	Com_Printf("Used %d of %d / %d images%s.\n",
+		used, image_max, MAX_TEXTURES, freeup ? ", has free space" : "");
 }
 
 typedef struct
@@ -654,11 +674,12 @@ static vkmode_t modes[] = {
  Vk_TextureMode
  ===============
  */
-void Vk_TextureMode( char *string )
+void
+Vk_TextureMode(const char *string)
 {
 	int		i,j;
 	image_t	*image;
-	static char prev_mode[32] = { "VK_MIPMAP_LINEAR" };
+	static char prev_mode[32] = "VK_MIPMAP_LINEAR";
 	const char* nolerplist = r_nolerp_list->string;
 	const char* lerplist = r_lerp_list->string;
 	qboolean unfiltered2D = r_2D_unfiltered->value != 0;
@@ -666,18 +687,19 @@ void Vk_TextureMode( char *string )
 	for (i = 0; i < NUM_VK_MODES; i++)
 	{
 		if (!Q_stricmp(modes[i].name, string))
+		{
 			break;
+		}
 	}
 
 	if (i == NUM_VK_MODES)
 	{
-		R_Printf(PRINT_ALL, "bad filter name (valid values: VK_NEAREST, VK_LINEAR, VK_MIPMAP_NEAREST, VK_MIPMAP_LINEAR)\n");
+		Com_Printf("bad filter name (valid values: VK_NEAREST, VK_LINEAR, VK_MIPMAP_NEAREST, VK_MIPMAP_LINEAR)\n");
 		ri.Cvar_Set("vk_texturemode", prev_mode);
 		return;
 	}
 
-	memcpy(prev_mode, string, strlen(string));
-	prev_mode[strlen(string)] = '\0';
+	Q_strlcpy(prev_mode, string, sizeof(prev_mode));
 
 	vk_current_sampler = i;
 
@@ -689,7 +711,9 @@ void Vk_TextureMode( char *string )
 		qboolean nolerp = false;
 
 		if (image->vk_texture.resource.image == VK_NULL_HANDLE)
+		{
 			continue;
+		}
 
 		/* r_2D_unfiltered and r_nolerp_list allow rendering stuff unfiltered even if gl_filter_* is filtered */
 		if (unfiltered2D && image->type == it_pic)
@@ -703,11 +727,15 @@ void Vk_TextureMode( char *string )
 		}
 
 		if(!nolerp)
+		{
 			QVk_UpdateTextureSampler(&image->vk_texture, i, image->vk_texture.clampToEdge);
+		}
 	}
 
 	if (vk_rawTexture.resource.image != VK_NULL_HANDLE)
+	{
 		QVk_UpdateTextureSampler(&vk_rawTexture, i, vk_rawTexture.clampToEdge);
+	}
 }
 
 /*
@@ -715,34 +743,39 @@ void Vk_TextureMode( char *string )
  Vk_LmapTextureMode
  ===============
  */
-void Vk_LmapTextureMode( char *string )
+void
+Vk_LmapTextureMode(const char *string)
 {
 	int		i,j;
-	static char prev_mode[32] = { "VK_MIPMAP_LINEAR" };
+	static char prev_mode[32] = "VK_MIPMAP_LINEAR";
 
 	for (i = 0; i < NUM_VK_MODES; i++)
 	{
 		if (!Q_stricmp(modes[i].name, string))
+		{
 			break;
+		}
 	}
 
 	if (i == NUM_VK_MODES)
 	{
-		R_Printf(PRINT_ALL, "bad filter name (valid values: VK_NEAREST, VK_LINEAR, VK_MIPMAP_NEAREST, VK_MIPMAP_LINEAR)\n");
+		Com_Printf("bad filter name (valid values: VK_NEAREST, VK_LINEAR, VK_MIPMAP_NEAREST, VK_MIPMAP_LINEAR)\n");
 		ri.Cvar_Set("vk_lmaptexturemode", prev_mode);
 		return;
 	}
 
-	memcpy(prev_mode, string, strlen(string));
-	prev_mode[strlen(string)] = '\0';
+	Q_strlcpy(prev_mode, string, sizeof(prev_mode));
 
 	vk_current_lmap_sampler = i;
 
 	vkDeviceWaitIdle(vk_device.logical);
-	for (j = 0; j < MAX_LIGHTMAPS*2; j++)
+	for (j = 0; j < MAX_LIGHTMAPS * 2; j++)
 	{
 		if (vk_state.lightmap_textures[j].resource.image != VK_NULL_HANDLE)
-			QVk_UpdateTextureSampler(&vk_state.lightmap_textures[j], i, vk_state.lightmap_textures[j].clampToEdge);
+		{
+			QVk_UpdateTextureSampler(&vk_state.lightmap_textures[j], i,
+				vk_state.lightmap_textures[j].clampToEdge);
+		}
 	}
 }
 
@@ -913,7 +946,10 @@ Vk_Upload32Native(byte *data, int width, int height, imagetype_t type,
 	{
 		*texBuffer = malloc(scaled_width * scaled_height * 4);
 		if (!*texBuffer)
+		{
 			Com_Error(ERR_DROP, "%s: too big", __func__);
+			return 0;
+		}
 
 		ResizeSTB(data, width, height,
 				  *texBuffer, scaled_width, scaled_height);
@@ -961,11 +997,14 @@ Vk_Upload8(const byte *data, int width, int height, imagetype_t type,
 
 	trans = malloc(s * sizeof(*trans));
 	if (!trans)
+	{
 		Com_Error(ERR_DROP, "%s: too large", __func__);
+		return 0;
+	}
 
 	for (i = 0; i < s; i++)
 	{
-		int	p;
+		int p;
 
 		p = data[i];
 		trans[i] = d_8to24table[p];
@@ -1015,14 +1054,14 @@ Vk_Upload8(const byte *data, int width, int height, imagetype_t type,
 	// optimize 8bit images only when we forced such logic
 	if (r_scale8bittextures->value)
 	{
-		SmoothColorImage(trans, s, s >> 7);
+		SmoothColorImage(trans, s, width);
 	}
 
 	miplevel = Vk_Upload32Native((byte *)trans, width, height, type, texBuffer,
 		upload_width, upload_height);
 
 	// Only free if *texBuffer isn't the image data we sent
-	if (!texBuffer || *texBuffer != (byte *)trans)
+	if (*texBuffer != (byte *)trans)
 	{
 		free(trans);
 	}
@@ -1081,15 +1120,23 @@ Vk_LoadPic(const char *name, byte *pic, int width, int realwidth,
 
 		if (i == numvktextures)
 		{
-			if (numvktextures == MAX_VKTEXTURES)
-				Com_Error(ERR_DROP, "%s: MAX_VKTEXTURES", __func__);
+			if (numvktextures == MAX_TEXTURES)
+			{
+				Com_Error(ERR_DROP, "%s: MAX_TEXTURES", __func__);
+				return NULL;
+			}
+
 			numvktextures++;
 		}
 		image = &vktextures[i];
 	}
 
 	if (strlen(name) >= sizeof(image->name))
+	{
 		Com_Error(ERR_DROP, "%s: \"%s\" is too long", __func__, name);
+		return NULL;
+	}
+
 	strcpy(image->name, name);
 	image->registration_sequence = registration_sequence;
 	// zero-clear Vulkan texture handle
@@ -1110,7 +1157,7 @@ Vk_LoadPic(const char *name, byte *pic, int width, int realwidth,
 	img_loaded ++;
 	if (r_validation->value > 0)
 	{
-		R_Printf(PRINT_ALL, "%s: Load %s[%d]\n", __func__, image->name, img_loaded);
+		Com_Printf("%s: Load %s[%d]\n", __func__, image->name, img_loaded);
 	}
 
 	if (type == it_skin && bits == 8)
@@ -1186,41 +1233,40 @@ Finds or loads the given image or NULL
 ===============
 */
 image_t	*
-Vk_FindImage(const char *name, imagetype_t type)
+Vk_FindImage(const char *originname, imagetype_t type)
 {
-	image_t	*image;
-	int	i, len;
-	char *ptr;
-	char namewe[256];
+	char namewe[256], name[256] = {0};
 	const char* ext;
+	image_t *image;
+	int i, len;
 
-	if (!name)
+	if (!originname)
 	{
 		return NULL;
 	}
 
+	Q_strlcpy(name, originname, sizeof(name));
+
+	/* fix backslashes */
+	Q_replacebackslash(name);
+
 	ext = COM_FileExtension(name);
-	if(!ext[0])
+	if (!ext[0])
 	{
 		/* file has no extension */
 		return NULL;
 	}
 
-	len = strlen(name);
-	if (len < 5)
+	/* Remove the extension */
+	len = (ext - name) - 1;
+	if ((len < 1) || (len > sizeof(namewe) - 1))
 	{
+		Com_DPrintf("%s: Bad filename %s\n", __func__, name);
 		return NULL;
 	}
 
-	/* Remove the extension */
-	memset(namewe, 0, sizeof(namewe));
-	memcpy(namewe, name, len - (strlen(ext) + 1));
-
-	/* fix backslashes */
-	while ((ptr = strchr(name, '\\')))
-	{
-		*ptr = '/';
-	}
+	memcpy(namewe, name, len);
+	namewe[len] = 0;
 
 	/* look for it */
 	for (i=0, image=vktextures ; i<numvktextures ; i++,image++)
@@ -1236,11 +1282,11 @@ Vk_FindImage(const char *name, imagetype_t type)
 	 * load the pic from disk
 	 */
 	image = (image_t *)R_LoadImage(name, namewe, ext, type,
-		r_retexturing->value, (loadimage_t)Vk_LoadPic);
+		(loadimage_t)Vk_LoadPic);
 
 	if (!image && r_validation->value > 0)
 	{
-		R_Printf(PRINT_ALL, "%s: can't load %s\n", __func__, name);
+		Com_Printf("%s: can't load %s\n", __func__, name);
 	}
 
 	return image;
@@ -1281,7 +1327,7 @@ Vk_ImageHasFreeSpace(void)
 	}
 
 	/* should same size of free slots as currently used */
-	return (img_loaded + used) < MAX_VKTEXTURES;
+	return (img_loaded + used) < MAX_TEXTURES;
 }
 
 /*
@@ -1325,7 +1371,7 @@ void Vk_FreeUnusedImages (void)
 
 		if (r_validation->value > 0)
 		{
-			R_Printf(PRINT_ALL, "%s: Unload %s[%d]\n", __func__, image->name, img_loaded);
+			Com_Printf("%s: Unload %s[%d]\n", __func__, image->name, img_loaded);
 		}
 
 		/* free it */
@@ -1335,7 +1381,8 @@ void Vk_FreeUnusedImages (void)
 		img_loaded --;
 		if (img_loaded < 0)
 		{
-			ri.Sys_Error (ERR_DROP, "%s: Broken unload", __func__);
+			Com_Error(ERR_DROP, "%s: Broken unload", __func__);
+			return;
 		}
 	}
 
@@ -1352,7 +1399,6 @@ void	Vk_InitImages (void)
 {
 	int	i;
 	float	overbright;
-	byte	*colormap;
 
 	numvktextures = 0;
 	img_loaded = 0;
@@ -1377,8 +1423,7 @@ void	Vk_InitImages (void)
 		intensitytable[i] = j;
 	}
 
-	GetPCXPalette (&colormap, d_8to24table);
-	free(colormap);
+	ri.VID_GetPalette(NULL, d_8to24table);
 
 	overbright = vk_overbrightbits->value;
 
@@ -1419,7 +1464,7 @@ void	Vk_ShutdownImages (void)
 
 		if (r_validation->value > 0)
 		{
-			R_Printf(PRINT_ALL, "%s: Unload %s[%d]\n", __func__, image->name, img_loaded);
+			Com_Printf("%s: Unload %s[%d]\n", __func__, image->name, img_loaded);
 		}
 
 		QVk_ReleaseTexture(&image->vk_texture);
@@ -1428,13 +1473,16 @@ void	Vk_ShutdownImages (void)
 		img_loaded --;
 		if (img_loaded < 0)
 		{
-			ri.Sys_Error (ERR_DROP, "%s: Broken unload", __func__);
+			Com_Error(ERR_DROP, "%s: Broken unload", __func__);
+			return;
 		}
 	}
 
 	QVk_ReleaseTexture(&vk_rawTexture);
 
-	for(i = 0; i < MAX_LIGHTMAPS*2; i++)
+	for(i = 0; i < MAX_LIGHTMAPS * 2; i++)
+	{
 		QVk_ReleaseTexture(&vk_state.lightmap_textures[i]);
+	}
 }
 

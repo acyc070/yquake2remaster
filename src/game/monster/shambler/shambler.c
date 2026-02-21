@@ -112,36 +112,6 @@ shambler_maybe_idle(edict_t* self)
 //
 // stand
 //
-
-static mframe_t shambler_frames_stand[] =
-{
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL}
-};
-
-mmove_t shambler_move_stand =
-{
-	FRAME_stand01,
-	FRAME_stand17,
-	shambler_frames_stand,
-	NULL
-};
-
 void
 shambler_stand(edict_t* self)
 {
@@ -150,7 +120,9 @@ shambler_stand(edict_t* self)
 		return;
 	}
 
-	self->monsterinfo.currentmove = &shambler_move_stand;
+	self->monsterinfo.firstframe = FRAME_stand01;
+	self->monsterinfo.numframes = FRAME_stand17 - FRAME_stand01 + 1;
+	monster_dynamic_stand(self);
 }
 
 //
@@ -237,7 +209,7 @@ shambler_run(edict_t* self)
 
 	if (self->monsterinfo.aiflags & AI_STAND_GROUND)
 	{
-		self->monsterinfo.currentmove = &shambler_move_stand;
+		shambler_stand(self);
 		return;
 	}
 
@@ -320,7 +292,7 @@ shambler_pain(edict_t *self, edict_t *other /* unused */,
  * attacks
  */
 
-void
+static void
 ShamblerSaveLoc(edict_t* self)
 {
 	/* save for aiming the shot */
@@ -332,33 +304,60 @@ ShamblerSaveLoc(edict_t* self)
 	shambler_lightning_update(self);
 }
 
-void
+static void
 ShamblerCastLightning(edict_t* self)
 {
-	vec3_t start;
-	vec3_t forward, right, target;
-	vec3_t offset = {0, 0, 60.f};
+	vec3_t			start, dir, end;
+	trace_t			tr;
 
 	if (!self->enemy)
 	{
 		return;
 	}
 
-	AngleVectors(self->s.angles, forward, right, NULL);
-	G_ProjectSource(self->s.origin, offset, forward, right, start);
-	VectorCopy(self->enemy->s.origin, target);
-	target[2] += self->enemy->viewheight;
-	for (int i = 0; i < 3; i++)
+	if (!infront(self, self->enemy))
 	{
-		target[i] += (randk() % 10) - 5.f;
+		return;
 	}
 
-	/* calc direction to where we targeted */
-	VectorSubtract(target, start, forward);
-	VectorNormalize(forward);
+	if (self->s.frame == FRAME_magic07)
+	{
+		gi.sound(self, CHAN_WEAPON, sound_boom, 1, ATTN_NORM, 0);
+	}
 
-	/* TODO should be tesla effect */
-	monster_fire_railgun(self, start, forward, 2, 1000, MZ2_WIDOW_RAIL);
+	/* decino: Shambler has an extra lightning frame on Nightmare mode */
+	if ((self->s.frame == FRAME_magic10) && (skill->value < SKILL_HARDPLUS))
+	{
+		return;
+	}
+
+	VectorCopy(self->s.origin, start);
+	VectorCopy(self->enemy->s.origin, end);
+
+	start[2] += 40;
+	end[2] += 16;
+
+	VectorSubtract(end, start, dir);
+	VectorNormalize(dir);
+	VectorMA(start, 600, dir, end);
+
+	tr = gi.trace(start, NULL, NULL, end, self,
+		(MASK_SHOT | CONTENTS_SLIME | CONTENTS_LAVA | CONTENTS_WATER));
+
+	if (!tr.ent)
+	{
+		return;
+	}
+
+	T_Damage(tr.ent, self, self, dir, tr.endpos, tr.plane.normal, 10, 1, 0, 0);
+
+	gi.WriteByte(svc_temp_entity);
+	gi.WriteByte(TE_LIGHTNING);
+	gi.WriteShort(tr.ent - g_edicts);
+	gi.WriteShort(self - g_edicts);
+	gi.WritePosition(end);
+	gi.WritePosition(start);
+	gi.multicast(start, MULTICAST_PVS);
 }
 
 static mframe_t shambler_frames_magic[] = {
@@ -411,11 +410,11 @@ shambler_melee2(edict_t* self)
 	gi.sound(self, CHAN_WEAPON, sound_melee2, 1, ATTN_NORM, 0);
 }
 
-void sham_swingl9(edict_t* self);
-void sham_swingr9(edict_t* self);
+static void sham_swingl9_step(edict_t* self);
+static void sham_swingr9_step(edict_t* self);
 
-void
-sham_smash10(edict_t* self)
+static void
+sham_smash10_step(edict_t* self)
 {
 	if (!self->enemy)
 		return;
@@ -433,7 +432,7 @@ sham_smash10(edict_t* self)
 	}
 };
 
-void
+static void
 ShamClaw(edict_t* self)
 {
 	if (!self->enemy)
@@ -462,7 +461,7 @@ static mframe_t shambler_frames_smash[] = {
 	{ai_charge, 0},
 	{ai_charge, 0},
 	{ai_charge, 0},
-	{ai_charge, 0, sham_smash10},
+	{ai_charge, 0, sham_smash10_step},
 	{ai_charge, 5},
 	{ai_charge, 4},
 };
@@ -484,7 +483,7 @@ static mframe_t shambler_frames_swingl[] = {
 	{ai_charge, 9},
 	{ai_charge, 5, ShamClaw},
 	{ai_charge, 4},
-	{ai_charge, 8, sham_swingl9},
+	{ai_charge, 8, sham_swingl9_step},
 };
 
 mmove_t shambler_attack_swingl =
@@ -504,7 +503,7 @@ static mframe_t shambler_frames_swingr[] = {
 	{ai_charge, 6},
 	{ai_charge, 6, ShamClaw},
 	{ai_charge, 3},
-	{ai_charge, 8, sham_swingr9},
+	{ai_charge, 8, sham_swingr9_step},
 };
 
 mmove_t shambler_attack_swingr =
@@ -515,8 +514,8 @@ mmove_t shambler_attack_swingr =
 	shambler_run
 };
 
-void
-sham_swingl9(edict_t* self)
+static void
+sham_swingl9_step(edict_t* self)
 {
 	if (!self)
 	{
@@ -538,8 +537,8 @@ sham_swingl9(edict_t* self)
 	}
 }
 
-void
-sham_swingr9(edict_t* self)
+static void
+sham_swingr9_step(edict_t* self)
 {
 	if (!self)
 	{
@@ -594,13 +593,10 @@ shambler_dead(edict_t* self)
 
 	VectorSet(self->mins, -16, -16, -24);
 	VectorSet(self->maxs, 16, 16, -8);
-	self->movetype = MOVETYPE_TOSS;
-	self->svflags |= SVF_DEADMONSTER;
-	self->nextthink = 0;
-	gi.linkentity(self);
+	monster_dynamic_dead(self);
 }
 
-void
+static void
 shambler_shrink(edict_t* self)
 {
 	self->maxs[2] = 0;
@@ -640,13 +636,11 @@ shambler_die(edict_t *self, edict_t *inflictor /* unused */, edict_t *attacker /
 		gi.sound(self, CHAN_VOICE, gi.soundindex("misc/udeath.wav"), 1, ATTN_NORM, 0);
 
 		/* FIXME: better gibs for shambler, shambler head */
-		ThrowGib(self, "models/objects/gibs/sm_meat/tris.md2",
-				damage, GIB_ORGANIC);
+		ThrowGib(self, NULL, damage, GIB_ORGANIC);
 		ThrowGib(self, "models/objects/gibs/chest/tris.md2",
 				damage, GIB_ORGANIC);
 
-		ThrowHead(self, "models/objects/gibs/head2/tris.md2",
-				damage, GIB_ORGANIC);
+		ThrowHead(self, NULL, damage, GIB_ORGANIC);
 
 		self->deadflag = true;
 		return;
@@ -665,6 +659,9 @@ shambler_die(edict_t *self, edict_t *inflictor /* unused */, edict_t *attacker /
 	self->monsterinfo.currentmove = &shambler_move_death;
 }
 
+/*
+ * QUAKED monster_shambler (1 .5 0) (-32, -32, -24) (32, 32, 64) Ambush Trigger_Spawn Sight
+ */
 void
 SP_monster_shambler(edict_t* self)
 {
@@ -680,8 +677,8 @@ SP_monster_shambler(edict_t* self)
 	}
 
 	self->s.modelindex = gi.modelindex("models/monsters/shambler/tris.md2");
-	VectorSet (self->mins, -32, -32, -24);
-	VectorSet (self->maxs, 32, 32, 64);
+	VectorSet(self->mins, -32, -32, -24);
+	VectorSet(self->maxs, 32, 32, 64);
 	self->movetype = MOVETYPE_STEP;
 	self->solid = SOLID_BBOX;
 
@@ -696,7 +693,7 @@ SP_monster_shambler(edict_t* self)
 	sound_smack = gi.soundindex("shambler/smack.wav");
 	sound_boom = gi.soundindex("shambler/sboom.wav");
 
-	self->health = 600;
+	self->health = 600 * st.health_multiplier;
 	self->gib_health = -60;
 
 	self->mass = 500;
@@ -720,7 +717,7 @@ SP_monster_shambler(edict_t* self)
 		self->monsterinfo.aiflags |= AI_IGNORE_SHOTS;
 	}
 
-	self->monsterinfo.currentmove = &shambler_move_stand;
+	shambler_stand(self);
 	self->monsterinfo.scale = MODEL_SCALE;
 
 	walkmonster_start(self);

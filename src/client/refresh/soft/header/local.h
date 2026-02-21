@@ -82,7 +82,6 @@ typedef int	light3_t[3];
 /* 64 light grades available */
 #define LIGHTMASK		0xFF00
 
-extern viddef_t	vid;
 extern pixel_t	*vid_buffer;	// invisible buffer
 extern pixel_t	*vid_colormap;	// 256 * VID_GRADES size
 extern pixel_t	*vid_alphamap;	// 256 * 256 translucency map
@@ -160,8 +159,6 @@ extern oldrefdef_t	r_refdef;
 #define XCENTERING	(1.0 / 2.0)
 #define YCENTERING	(1.0 / 2.0)
 
-#define BACKFACE_EPSILON	0.01
-
 #define NEAR_CLIP	0.01
 
 #define ALIAS_Z_CLIP_PLANE	4
@@ -208,6 +205,8 @@ typedef struct
 	pixel_t	*pskin;
 	int	skinwidth;
 	int	skinheight;
+	float	scalewidth;
+	float	scaleheight;
 } affinetridesc_t;
 
 typedef struct
@@ -315,7 +314,6 @@ extern qboolean	r_dowarp;
 extern affinetridesc_t	r_affinetridesc;
 
 void D_WarpScreen(void);
-void R_PolysetUpdateTables(void);
 void RE_SetSky(const char *name, float rotate, int autorotate, const vec3_t axis);
 
 //=======================================================================//
@@ -371,6 +369,7 @@ extern vec3_t	vright, base_vright;
 extern surf_t	*surfaces, *surface_p, *surf_max;
 // allow some very large lightmaps
 extern light_t	*blocklights, *blocklight_max;
+extern byte	*bblocklights, *bblocklight_max;
 
 // surfaces are generated in back to front order by the bsp, so if a surf
 // pointer is greater than another one, it should be drawn in front
@@ -390,6 +389,7 @@ extern void TransformVector(const vec3_t in, vec3_t out);
 //===========================================================================
 
 extern cvar_t	*sw_clearcolor;
+extern cvar_t	*sw_dspeeds;
 extern cvar_t	*sw_drawflat;
 extern cvar_t	*sw_draworder;
 extern cvar_t	*sw_mipcap;
@@ -398,24 +398,7 @@ extern cvar_t	*sw_stipplealpha;
 extern cvar_t	*sw_surfcacheoverride;
 extern cvar_t	*sw_waterwarp;
 extern cvar_t	*sw_gunzposition;
-extern cvar_t	*r_validation;
-extern cvar_t	*r_retexturing;
-extern cvar_t	*r_scale8bittextures;
-extern cvar_t	*r_palettedtexture;
-
-extern cvar_t	*r_fullbright;
-extern cvar_t	*r_lefthand;
-extern cvar_t	*r_gunfov;
-extern cvar_t	*r_farsee;
-extern cvar_t	*r_lightmap;
-extern cvar_t	*r_colorlight;
-extern cvar_t	*r_drawworld;
-extern cvar_t	*r_lerpmodels;
-extern cvar_t	*r_lightlevel;
-extern cvar_t	*r_modulate;
-extern cvar_t	*r_fixsurfsky;
-extern cvar_t	*r_cull;
-
+extern cvar_t	*sw_colorlight;
 
 extern clipplane_t	view_clipplanes[4];
 extern int		*pfrustum_indexes[4];
@@ -447,7 +430,7 @@ extern msurface_t	*r_alpha_surfaces;
 void R_DrawAlphaSurfaces(const entity_t *currententity);
 
 void R_DrawSprite(entity_t *currententity, const model_t *currentmodel);
-
+void R_ClipAndDrawPoly(float alpha, int isturbulent, qboolean textured);
 void R_RenderFace(entity_t *currententity, const model_t *currentmodel, msurface_t *fa, int clipflags, qboolean insubmodel);
 void R_RenderBmodelFace(entity_t *currententity, bedge_t *pedges, msurface_t *psurf, int r_currentbkey);
 void R_TransformFrustum(void);
@@ -455,9 +438,9 @@ void R_TransformFrustum(void);
 void R_DrawSubmodelPolygons(entity_t *currententity, const model_t *currentmodel, int clipflags, mnode_t *topnode);
 void R_DrawSolidClippedSubmodelPolygons(entity_t *currententity, const model_t *currentmodel, mnode_t *topnode);
 
-void R_AliasDrawModel(entity_t *currententity, const model_t *currentmodel);
+void R_DrawAliasModel(entity_t *currententity, const model_t *currentmodel);
 void R_BeginEdgeFrame(void);
-void R_ScanEdges(entity_t *currententity, surf_t *surface);
+void R_ScanEdges(entity_t *currententity, const surf_t *surface);
 void RI_PushDlights(const model_t *model);
 void R_RotateBmodel(const entity_t *currententity);
 
@@ -479,12 +462,13 @@ extern edge_t	**newedges;
 extern edge_t	**removeedges;
 
 typedef struct {
-	int		u, v, count;
-	pixel_t		*ptex;
-	int		sfrac, tfrac;
-	light3_t	light;
-	zvalue_t	zi;
+	int u, v, count;
+	pixel_t *ptex;
+	int sfrac, tfrac;
+	light3_t light;
+	zvalue_t zi;
 } spanpackage_t;
+
 extern spanpackage_t	*triangle_spans, *triangles_max;
 
 void R_PolysetDrawSpans8_33(const entity_t *currententity, spanpackage_t *pspanpackage);
@@ -528,12 +512,11 @@ extern image_t		*r_notexture_mip;
 extern model_t		*r_worldmodel;
 extern vec3_t		lightspot;
 
+void R_AliasProjectAndClipTestFinalVert(finalvert_t *fv);
 void R_PrintAliasStats (void);
 void R_PrintTimes (void);
 void R_PrintDSpeeds (void);
 void R_SetupFrame (void);
-
-extern  refdef_t		r_newrefdef;
 
 extern  surfcache_t	*sc_base;
 
@@ -552,7 +535,8 @@ void	RE_EndRegistration (void);
 struct image_s	*RE_Draw_FindPic (const char *name);
 
 void	RE_Draw_GetPicSize (int *w, int *h, const char *name);
-void	RE_Draw_PicScaled (int x, int y, const char *name, float scale);
+void	RE_Draw_PicScaled (int x, int y, const char *name, float scale, const char *alttext);
+void	RE_Draw_StringScaled(int x, int y, float scale, qboolean alt, const char *message);
 void	RE_Draw_StretchPic (int x, int y, int w, int h, const char *name);
 void	RE_Draw_StretchRaw (int x, int y, int w, int h, int cols, int rows, const byte *data, int bits);
 void	RE_Draw_CharScaled (int x, int y, int c, float scale);
@@ -564,13 +548,14 @@ extern byte d_8to24table[256 * 4];
 void	R_InitImages(void);
 void	R_ShutdownImages(void);
 image_t	*R_FindImage(const char *name, imagetype_t type);
-image_t	*R_LoadPic(char *name, byte *pic, int width, int realwidth, int height, int realheight,
+image_t	*R_LoadPic(const char *name, const byte *pic, int width, int realwidth, int height, int realheight,
 	size_t data_size, imagetype_t type, int bits);
 byte	*Get_BestImageSize(const image_t *image, int *req_width, int *req_height);
 void	R_FreeUnusedImages(void);
-qboolean R_ImageHasFreeSpace(void);
+qboolean	R_ImageHasFreeSpace(void);
 pixel_t	R_ApplyLight(pixel_t pix, const light3_t light);
 void	R_Convert32To8bit(const unsigned char* pic_in, pixel_t* pic_out, size_t size, qboolean transparent);
+int	R_ConvertRGBColor(unsigned color);
 
 void R_InitSkyBox(model_t *loadmodel);
 void R_IMFlatShadedQuad( const vec3_t a, const vec3_t b, const vec3_t c, const vec3_t d, int color, float alpha );

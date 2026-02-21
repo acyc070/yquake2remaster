@@ -65,7 +65,7 @@ GL3_SetDefaultState(void)
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 #ifndef YQ2_GL3_GLES // see above
-	if (gl_msaa_samples->value)
+	if (r_msaa_samples->value)
 	{
 		glEnable(GL_MULTISAMPLE);
 		// glHint(GL_MULTISAMPLE_FILTER_HINT_NV, GL_NICEST); TODO what is this for?
@@ -138,7 +138,7 @@ GL3_ScreenShot(void)
 
 	if (!buffer)
 	{
-		R_Printf(PRINT_ALL, "GL3_ScreenShot: Couldn't malloc %d bytes\n", w*h*3);
+		Com_Printf("GL3_ScreenShot: Couldn't malloc %d bytes\n", w*h*3);
 		return;
 	}
 

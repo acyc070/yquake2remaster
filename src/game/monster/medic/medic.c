@@ -32,18 +32,6 @@
 #define MEDIC_MAX_HEAL_DISTANCE 400
 #define MEDIC_TRY_TIME 10.0
 
-qboolean visible(edict_t *self, edict_t *other);
-void M_SetEffects(edict_t *ent);
-qboolean FindTarget(edict_t *self);
-void HuntTarget(edict_t *self);
-void FoundTarget(edict_t *self);
-char *ED_NewString(const char *string);
-void spawngrow_think(edict_t *self);
-void SpawnGrow_Spawn(vec3_t startpos, int size);
-void ED_CallSpawn(edict_t *ent);
-void M_FliesOff(edict_t *self);
-void M_FliesOn(edict_t *self);
-
 static int sound_idle1;
 static int sound_pain1;
 static int sound_pain2;
@@ -242,7 +230,7 @@ medic_footstep(edict_t *self)
 }
 
 
-edict_t *
+static edict_t *
 medic_FindDeadMonster(edict_t *self)
 {
 	float radius;
@@ -815,10 +803,7 @@ medic_dead(edict_t *self)
 
 	VectorSet(self->mins, -16, -16, -24);
 	VectorSet(self->maxs, 16, 16, -8);
-	self->movetype = MOVETYPE_TOSS;
-	self->svflags |= SVF_DEADMONSTER;
-	self->nextthink = 0;
-	gi.linkentity(self);
+	monster_dynamic_dead(self);
 }
 
 static mframe_t medic_frames_death[] = {
@@ -893,12 +878,10 @@ medic_die(edict_t *self, edict_t *inflictor /* unused */,
 
 		for (n = 0; n < 4; n++)
 		{
-			ThrowGib(self, "models/objects/gibs/sm_meat/tris.md2",
-					damage, GIB_ORGANIC);
+			ThrowGib(self, NULL, damage, GIB_ORGANIC);
 		}
 
-		ThrowHead(self, "models/objects/gibs/head2/tris.md2",
-				damage, GIB_ORGANIC);
+		ThrowHead(self, NULL, damage, GIB_ORGANIC);
 		self->deadflag = DEAD_DEAD;
 		return;
 	}
@@ -1314,6 +1297,11 @@ medic_cable_attack(edict_t *self)
 						1, ATTN_NORM, 0);
 			}
 		}
+	}
+
+	if (!self->enemy)
+	{
+		return;
 	}
 
 	/* adjust start for beam origin being in middle of a segment */
@@ -1921,7 +1909,7 @@ MedicCommanderCache(void)
 
 		VectorCopy(vec3_origin, newEnt->s.origin);
 		VectorCopy(vec3_origin, newEnt->s.angles);
-		newEnt->classname = ED_NewString(reinforcements[i]);
+		newEnt->classname = ED_NewString(reinforcements[i], true);
 
 		newEnt->monsterinfo.aiflags |= AI_DO_NOT_COUNT;
 
@@ -2050,7 +2038,7 @@ SP_monster_medic(edict_t *self)
 
 	if (strcmp(self->classname, "monster_medic_commander") == 0)
 	{
-		self->health = 600;
+		self->health = 600 * st.health_multiplier;
 		self->gib_health = -130;
 		self->mass = 600;
 		self->yaw_speed = 40;
@@ -2058,7 +2046,7 @@ SP_monster_medic(edict_t *self)
 	}
 	else
 	{
-		self->health = 300;
+		self->health = 300 * st.health_multiplier;
 		self->gib_health = -130;
 		self->mass = 400;
 	}

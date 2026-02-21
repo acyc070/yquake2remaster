@@ -29,7 +29,6 @@
 
 #include "../../header/local.h"
 
-#define STEPSIZE 18
 #define DI_NODIR -1
 
 int c_yes, c_no;
@@ -100,12 +99,12 @@ realcheck:
 	if (ent->gravityVector[2] < 0)
 	{
 		start[2] = mins[2];
-		stop[2] = start[2] - STEPSIZE - STEPSIZE;
+		stop[2] = start[2] - (2 * STEPSIZE);
 	}
 	else
 	{
 		start[2] = maxs[2];
-		stop[2] = start[2] + STEPSIZE + STEPSIZE;
+		stop[2] = start[2] + (2 * STEPSIZE);
 	}
 
 	trace = gi.trace(start, vec3_origin, vec3_origin,
@@ -162,7 +161,7 @@ realcheck:
 	return true;
 }
 
-qboolean
+static qboolean
 IsBadAhead(edict_t *self, edict_t *bad, vec3_t move)
 {
 	vec3_t dir;
@@ -207,7 +206,7 @@ IsBadAhead(edict_t *self, edict_t *bad, vec3_t move)
  * returned, and pr_global_struct->trace_normal
  * is set to the normal of the blocking wall
  */
-qboolean
+static qboolean
 SV_movestep(edict_t *ent, vec3_t move, qboolean relink)
 {
 	float dz;
@@ -633,7 +632,7 @@ M_ChangeYaw(edict_t *ent)
  * Turns to the movement direction, and
  * walks the current distance if facing it.
  */
-qboolean
+static qboolean
 SV_StepDirection(edict_t *ent, float yaw, float dist)
 {
 	vec3_t move, oldorigin;
@@ -674,7 +673,7 @@ SV_StepDirection(edict_t *ent, float yaw, float dist)
 		{
 			if ((delta > 45) && (delta < 315))
 			{
-		 		/* not turned far enough, so don't take the step */
+				/* not turned far enough, so don't take the step */
 				VectorCopy(oldorigin, ent->s.origin);
 			}
 		}
@@ -700,7 +699,7 @@ SV_FixCheckBottom(edict_t *ent)
 	ent->flags |= FL_PARTIALGROUND;
 }
 
-void
+static void
 SV_NewChaseDir(edict_t *actor, edict_t *enemy, float dist)
 {
 	float deltax, deltay;
@@ -836,7 +835,7 @@ SV_NewChaseDir(edict_t *actor, edict_t *enemy, float dist)
 	}
 }
 
-qboolean
+static qboolean
 SV_CloseEnough(edict_t *ent, edict_t *goal, float dist)
 {
 	int i;

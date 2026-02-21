@@ -35,7 +35,8 @@
  * !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
  */
 
-#define GAME_API_VERSION 3
+#define GAME_API_R97_VERSION 3
+#define GAME_API_VERSION 4
 
 /* edict->svflags */
 #define SVF_NOCLIENT 0x00000001             /* don't send entity to clients, even if it has effects */
@@ -55,6 +56,18 @@ typedef enum
 	SOLID_BSP       /* bsp clip, touch on edge */
 } solid_t;
 
+typedef enum
+{
+	GESTURE_NONE = -1,
+	GESTURE_FLIP_OFF,
+	GESTURE_SALUTE,
+	GESTURE_TAUNT,
+	GESTURE_WAVE,
+	GESTURE_POINT,
+	GESTURE_POINT_NO_PING,
+	GESTURE_MAX
+} gesture_type_t;
+
 /* =============================================================== */
 
 /* link_t is only used for entity area links now */
@@ -62,7 +75,6 @@ typedef struct link_s
 {
 	struct link_s *prev, *next;
 } link_t;
-
 
 typedef struct edict_s edict_t;
 typedef struct gclient_s gclient_t;
@@ -100,6 +112,8 @@ struct edict_s
 	int clipmask;
 	edict_t *owner;
 
+	/* Additional state from ReRelease */
+	entity_rrstate_t rrs;
 	/* the game dll can add anything it wants
 	   after this point in the structure */
 };
@@ -138,8 +152,8 @@ typedef struct
 	void (*setmodel)(edict_t *ent, const char *name);
 
 	/* collision detection */
-	trace_t (*trace)(vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end,
-			edict_t *passent, int contentmask);
+	trace_t (*trace)(const vec3_t start, const vec3_t mins, const vec3_t maxs,
+			const vec3_t end, const edict_t *passent, int contentmask);
 	int (*pointcontents)(vec3_t point);
 	qboolean (*inPVS)(vec3_t p1, vec3_t p2);
 	qboolean (*inPHS)(vec3_t p1, vec3_t p2);
@@ -164,8 +178,8 @@ typedef struct
 	void (*WriteLong)(int c);
 	void (*WriteFloat)(float f);
 	void (*WriteString)(const char *s);
-	void (*WritePosition)(vec3_t pos);      /* some fractional bits */
-	void (*WriteDir)(vec3_t pos);           /* single byte encoded, very coarse */
+	void (*WritePosition)(const vec3_t pos);      /* some fractional bits */
+	void (*WriteDir)(const vec3_t pos);           /* single byte encoded, very coarse */
 	void (*WriteAngle)(float f);
 
 	/* managed memory allocation */
@@ -188,6 +202,25 @@ typedef struct
 	void (*AddCommandString)(const char *text);
 
 	void (*DebugGraph)(float value, int color);
+
+	/* Extended to classic Quake2 API.
+	   files will be memory mapped read only
+	   the returned buffer may be part of a larger pak file,
+	   or a discrete file from anywhere in the quake search path
+	   a -1 return means the file does not exist
+	   NULL can be passed for buf to just determine existance */
+	int (*LoadFile)(const char *name, void **buf);
+	void (*FreeFile)(void *buf);
+	const char * (*Gamedir)(void);
+	void (*CreatePath)(const char *path);
+	const char * (*GetConfigString)(int num);
+	const dmdxframegroup_t * (*GetModelInfo)(int index, int *num, float *mins, float *maxs);
+	void (*GetModelFrameInfo)(int index, int num, float *mins, float *maxs);
+	void (*PmoveEx)(pmove_t *pmove, int *origin);
+	void * (*TagRealloc)(void *ptr, int size, int tag);
+
+	const char* (*LocalizationMessage)(const char *message, int *sound_index);
+	const char* (*LocalizationUIMessage)(const char *message, const char *default_message);
 } game_import_t;
 
 /* functions exported by the game subsystem */

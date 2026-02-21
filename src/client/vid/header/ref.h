@@ -30,8 +30,9 @@
 #include "../../../common/header/common.h"
 #include "vid.h"
 
+#define	DLIGHT_CUTOFF	64
 #define	MAX_DLIGHTS		32
-#define	MAX_ENTITIES	128
+#define	MAX_ENTITIES	512
 #define	MAX_PARTICLES	4096
 #define	MAX_LIGHTSTYLES	256
 
@@ -68,9 +69,12 @@ typedef struct entity_s {
 	/* misc */
 	float	backlerp; /* 0.0 = current, 1.0 = old */
 	int		skinnum; /* also used as RF_BEAM's palette index */
+	vec3_t	scale; /* model scale before render */
+	unsigned	rr_mesh; /* disabled meshes */
 
 	int		lightstyle; /* for flashing entities */
 	float	alpha; /* ignore if RF_TRANSLUCENT isn't set */
+	unsigned	color; /* used for sprite with FLARE */
 
 	struct image_s	*skin; /* NULL for inline skin */
 	int		flags;
@@ -84,7 +88,7 @@ typedef struct {
 
 typedef struct {
 	vec3_t	origin;
-	int		color;
+	unsigned	color;
 	float	alpha;
 } particle_t;
 
@@ -114,6 +118,9 @@ typedef struct {
 
 	int			num_particles;
 	particle_t	*particles;
+
+	/* fog */
+	svc_fog_data_t	fog;
 } refdef_t;
 
 // Renderer restart type.
@@ -125,7 +132,7 @@ typedef enum {
 } ref_restart_t;
 
 // FIXME: bump API_VERSION?
-#define	API_VERSION		6
+#define	API_VERSION		7
 #define EXPORT
 #define IMPORT
 
@@ -136,6 +143,11 @@ typedef struct
 {
 	// if api_version is different, the dll cannot be used
 	int		api_version;
+
+	// if framework_version is different, the dll cannot be used
+	// necessary because differend SDL major version cannot be
+	// mixed.
+	int		framework_version;
 
 	// called when the library is loaded
 	qboolean (EXPORT *Init) (void);
@@ -190,9 +202,10 @@ typedef struct
 	struct image_s * (EXPORT *DrawFindPic)(const char *name);
 
 	void	(EXPORT *DrawGetPicSize) (int *w, int *h, const char *name);	// will return 0 0 if not found
-	void 	(EXPORT *DrawPicScaled) (int x, int y, const char *pic, float factor);
+	void 	(EXPORT *DrawPicScaled) (int x, int y, const char *pic, float factor, const char *alttext);
 	void	(EXPORT *DrawStretchPic) (int x, int y, int w, int h, const char *name);
 	void	(EXPORT *DrawCharScaled)(int x, int y, int num, float scale);
+	void	(EXPORT *DrawStringScaled)(int x, int y, float scale, qboolean alt, const char *message);
 	void	(EXPORT *DrawTileClear) (int x, int y, int w, int h, const char *name);
 	void	(EXPORT *DrawFill) (int x, int y, int w, int h, int c);
 	void	(EXPORT *DrawFadeScreen) (void);
@@ -237,7 +250,7 @@ typedef struct
 
 	// gamedir will be the current directory that generated
 	// files should be stored to, ie: "f:\quake\id1"
-	char	*(IMPORT *FS_Gamedir) (void);
+	const char	*(IMPORT *FS_Gamedir) (void);
 
 	cvar_t	*(IMPORT *Cvar_Get) (const char *name, const char *value, int flags);
 	cvar_t	*(IMPORT *Cvar_Set) (const char *name, const char *value);
@@ -248,11 +261,20 @@ typedef struct
 	// called with image data of width*height pixel which comp bytes per pixel (must be 3 or 4 for RGB or RGBA)
 	// expects the pixels data to be row-wise, starting at top left
 	void		(IMPORT *Vid_WriteScreenshot)( int width, int height, int comp, const void* data );
+	/* load image from file */
+	void		(IMPORT *VID_ImageDecode)( const char *filename, byte **pic, byte **palette,
+				int *width, int *height, int *bitsPerPixel);
+	void		(IMPORT *VID_GetPalette)(byte **colormap, unsigned *d_8to24table);
+	void		(IMPORT *VID_GetPalette24to8)(const byte *d_8to24table, byte** d_16to8table);
 
 	qboolean	(IMPORT *GLimp_InitGraphics)(int fullscreen, int *pwidth, int *pheight);
 	qboolean	(IMPORT *GLimp_GetDesktopMode)(int *pwidth, int *pheight);
 
 	void		(IMPORT *Vid_RequestRestart)(ref_restart_t rs);
+
+	/* Rerelease: Get file from cache/converted */
+	int (IMPORT *Mod_LoadFile)(const char *path, void **buffer);
+	void (IMPORT *Mod_FreeFile)(const char *path);
 } refimport_t;
 
 // this is the only function actually exported at the linker level
@@ -277,14 +299,14 @@ void Draw_GetPicSize(int *w, int *h, const char *name);
 
 void Draw_StretchPic(int x, int y, int w, int h, const char *name);
 void Draw_PicScaled(int x, int y, const char *pic, float factor);
+void Draw_PicScaledAltText(int x, int y, const char *pic, float factor, const char *alttext);
 
 void Draw_CharScaled(int x, int y, int num, float scale);
+void Draw_StringScaled(int x, int y, float scale, qboolean alt, const char *message);
 void Draw_TileClear(int x, int y, int w, int h, const char *name);
 void Draw_Fill(int x, int y, int w, int h, int c);
 void Draw_FadeScreen(void);
 void Draw_StretchRaw(int x, int y, int w, int h, int cols, int rows, const byte *data, int bits);
-//int R_Init(void *hinstance, void *hWnd);
-//void R_Shutdown(void);
 void R_SetPalette(const unsigned char *palette);
 void R_BeginFrame(float camera_separation);
 qboolean R_EndWorldRenderpass(void);

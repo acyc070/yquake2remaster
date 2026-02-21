@@ -32,53 +32,36 @@ vec3_t lightspot;
 static void
 R_RenderDlight(dlight_t *light)
 {
-	int i, j;
-	float a;
-	float rad;
+	const float rad = light->intensity * 0.35;
+	int i, j, clr[3];
+	float vtx[3];
 
-	rad = light->intensity * 0.35;
-
-	GLfloat vtx[3*18];
-	GLfloat clr[4*18];
-
-	unsigned int index_vtx = 3;
-	unsigned int index_clr = 0;
-
-	glEnableClientState( GL_VERTEX_ARRAY );
-	glEnableClientState( GL_COLOR_ARRAY );
-
-	clr[index_clr++] = light->color [ 0 ] * 0.2;
-	clr[index_clr++] = light->color [ 1 ] * 0.2;
-	clr[index_clr++] = light->color [ 2 ] * 0.2;
-	clr[index_clr++] = 1;
+	R_SetBufferIndices(GL_TRIANGLE_FAN, 18);
 
 	for ( i = 0; i < 3; i++ )
 	{
 		vtx [ i ] = light->origin [ i ] - vpn [ i ] * rad;
+		clr [ i ] = light->color [ i ] * 51;	// 255 * 0.2 = 51
 	}
+
+	GLBUFFER_VERTEX( vtx[0], vtx[1], vtx[2] )
+	GLBUFFER_COLOR( clr[0], clr[1], clr[2], 255 )
 
 	for ( i = 16; i >= 0; i-- )
 	{
-		clr[index_clr++] = 0;
-		clr[index_clr++] = 0;
-		clr[index_clr++] = 0;
-		clr[index_clr++] = 1;
+		float a;
 
 		a = i / 16.0 * M_PI * 2;
 
 		for ( j = 0; j < 3; j++ )
 		{
-			vtx[index_vtx++] = light->origin [ j ] + vright [ j ] * cos( a ) * rad
+			vtx[ j ] = light->origin [ j ] + vright [ j ] * cos( a ) * rad
 				+ vup [ j ] * sin( a ) * rad;
 		}
+
+		GLBUFFER_VERTEX( vtx[0], vtx[1], vtx[2] )
+		GLBUFFER_COLOR( 0, 0, 0, 255 )
 	}
-
-	glVertexPointer( 3, GL_FLOAT, 0, vtx );
-	glColorPointer( 4, GL_FLOAT, 0, clr );
-	glDrawArrays( GL_TRIANGLE_FAN, 0, 18 );
-
-	glDisableClientState( GL_VERTEX_ARRAY );
-	glDisableClientState( GL_COLOR_ARRAY );
 }
 
 void
@@ -91,11 +74,12 @@ R_RenderDlights(void)
 	{
 		return;
 	}
+	R_UpdateGLBuffer(buf_flash, 0, 0, 0, 1);
 
 	/* because the count hasn't advanced yet for this frame */
 	r_dlightframecount = r_framecount + 1;
 
-	glDepthMask(0);
+	glDepthMask(GL_FALSE);
 	glDisable(GL_TEXTURE_2D);
 	glShadeModel(GL_SMOOTH);
 	glEnable(GL_BLEND);
@@ -107,12 +91,13 @@ R_RenderDlights(void)
 	{
 		R_RenderDlight(l);
 	}
+	R_ApplyGLBuffer();
 
 	glColor4f(1, 1, 1, 1);
 	glDisable(GL_BLEND);
 	glEnable(GL_TEXTURE_2D);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glDepthMask(1);
+	glDepthMask(GL_TRUE);
 }
 
 void

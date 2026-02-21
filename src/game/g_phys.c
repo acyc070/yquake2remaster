@@ -32,7 +32,7 @@
 #define FRICTION 6
 #define WATERFRICTION 1
 
-void SV_Physics_NewToss(edict_t *ent);
+static void SV_Physics_NewToss(edict_t *ent);
 
 typedef struct
 {
@@ -62,7 +62,7 @@ static edict_t *obstacle;
  *
  */
 
-edict_t *
+static edict_t *
 SV_TestEntityPosition(edict_t *ent)
 {
 	trace_t trace;
@@ -96,7 +96,7 @@ SV_TestEntityPosition(edict_t *ent)
 	return NULL;
 }
 
-void
+static void
 SV_CheckVelocity(edict_t *ent)
 {
 	if (!ent)
@@ -115,7 +115,7 @@ SV_CheckVelocity(edict_t *ent)
  * Runs thinking code for
  * this frame if necessary
  */
-qboolean
+static qboolean
 SV_RunThink(edict_t *ent)
 {
 	float thinktime;
@@ -142,6 +142,7 @@ SV_RunThink(edict_t *ent)
 	if (!ent->think)
 	{
 		gi.error("NULL ent->think");
+		return false;
 	}
 
 	ent->think(ent);
@@ -153,7 +154,7 @@ SV_RunThink(edict_t *ent)
  * Two entities have touched, so
  * run their touch functions
  */
-void
+static void
 SV_Impact(edict_t *e1, trace_t *trace)
 {
 	edict_t *e2;
@@ -182,7 +183,7 @@ SV_Impact(edict_t *e1, trace_t *trace)
  *  1 = floor
  *  2 = step / wall
  */
-int
+static int
 ClipVelocity(vec3_t in, vec3_t normal, vec3_t out, float overbounce)
 {
 	float backoff;
@@ -227,7 +228,7 @@ ClipVelocity(vec3_t in, vec3_t normal, vec3_t out, float overbounce)
  * 2 = wall / step
  * 4 = dead stop
  */
-int
+static int
 SV_FlyMove(edict_t *ent, float time, int mask)
 {
 	edict_t *hit;
@@ -411,7 +412,7 @@ SV_AddGravity(edict_t *ent)
  * This leads to a lot of false block tests in SV_Push
  * if another bmodel is in the vicinity.
  */
-void
+static void
 RealBoundingBox(edict_t *ent, vec3_t mins, vec3_t maxs)
 {
 	vec3_t forward, left, up, f1, l1, u1;
@@ -525,7 +526,7 @@ RealBoundingBox(edict_t *ent, vec3_t mins, vec3_t maxs)
 /*
  * Does not change the entities velocity at all
  */
-trace_t
+static trace_t
 SV_PushEntity(edict_t *ent, vec3_t push)
 {
 	trace_t trace;
@@ -608,7 +609,7 @@ retry:
  * Objects need to be moved back on a failed push,
  * otherwise riders would continue to slide.
  */
-qboolean
+static qboolean
 SV_Push(edict_t *pusher, vec3_t move, vec3_t amove)
 {
 	int i, e;
@@ -820,7 +821,7 @@ SV_Push(edict_t *pusher, vec3_t move, vec3_t amove)
  * Bmodel objects don't interact with each
  * other, but push all box objects
  */
-void
+static void
 SV_Physics_Pusher(edict_t *ent)
 {
 	vec3_t move, amove;
@@ -862,6 +863,7 @@ SV_Physics_Pusher(edict_t *ent)
 	if (pushed_p > &pushed[MAX_EDICTS - 1])
 	{
 		gi.error("pushed_p > &pushed[MAX_EDICTS - 1], memory corrupted");
+		return;
 	}
 
 	if (part)
@@ -903,7 +905,7 @@ SV_Physics_Pusher(edict_t *ent)
 /*
  * Non moving objects can only think
  */
-void
+static void
 SV_Physics_None(edict_t *ent)
 {
 	if (!ent)
@@ -918,7 +920,7 @@ SV_Physics_None(edict_t *ent)
 /*
  * A moving object that doesn't obey physics
  */
-void
+static void
 SV_Physics_Noclip(edict_t *ent)
 {
 	if (!ent)
@@ -946,7 +948,7 @@ SV_Physics_Noclip(edict_t *ent)
  * Toss, bounce, and fly movement.
  * When onground, do nothing.
  */
-void
+static void
 SV_Physics_Toss(edict_t *ent)
 {
 	trace_t trace;
@@ -1112,7 +1114,7 @@ SV_Physics_Toss(edict_t *ent)
  * still on the ground, but  will fall if the floor
  * is pulled out from under them.
  */
-void
+static void
 SV_AddRotationalFriction(edict_t *ent)
 {
 	int n;
@@ -1149,7 +1151,7 @@ SV_AddRotationalFriction(edict_t *ent)
 	}
 }
 
-void
+static void
 SV_Physics_Step(edict_t *ent)
 {
 	qboolean wasonground;
@@ -1335,6 +1337,95 @@ SV_Physics_Step(edict_t *ent)
 }
 
 /* ================================================================== */
+static void
+G_RunBmodelAnimation(edict_t *ent)
+{
+	int speed, style, start, end;
+	bmodel_anim_t *anim;
+	qboolean nowrap;
+
+	anim = &ent->bmodel_anim;
+
+	if (anim->currently_alternate != anim->alternate)
+	{
+		anim->currently_alternate = anim->alternate;
+		anim->next_tick = 0;
+	}
+
+	if (level.time < anim->next_tick)
+	{
+		return;
+	}
+
+	if (anim->alternate)
+	{
+		speed = anim->alt_speed;
+		style = anim->alt_style;
+		start = anim->alt_start;
+		end = anim->alt_end;
+		nowrap = anim->alt_nowrap;
+	}
+	else
+	{
+		speed = anim->speed;
+		style = anim->style;
+		start = anim->start;
+		end = anim->end;
+		nowrap = anim->nowrap;
+	}
+
+	anim->next_tick = level.time + (float)speed / 1000.0;
+
+	switch (style)
+	{
+		case BMODEL_ANIM_FORWARDS:
+			if (end >= start)
+			{
+				ent->s.frame++;
+			}
+			else
+			{
+				ent->s.frame--;
+			}
+			break;
+		case BMODEL_ANIM_BACKWARDS:
+			if (end >= start)
+			{
+				ent->s.frame--;
+			}
+			else
+			{
+				ent->s.frame++;
+			}
+			break;
+		case BMODEL_ANIM_RANDOM:
+			ent->s.frame = start + randk() % (end + 1 - start);
+			break;
+	}
+
+	if (nowrap)
+	{
+		if (end >= start)
+		{
+			ent->s.frame = Q_clamp(ent->s.frame, start, end);
+		}
+		else
+		{
+			ent->s.frame = Q_clamp(ent->s.frame, end, start);
+		}
+	}
+	else
+	{
+		if (ent->s.frame < start)
+		{
+			ent->s.frame = end;
+		}
+		else if (ent->s.frame > end)
+		{
+			ent->s.frame = start;
+		}
+	}
+}
 
 void
 G_RunEntity(edict_t *ent)
@@ -1363,8 +1454,20 @@ G_RunEntity(edict_t *ent)
 		ent->prethink(ent);
 	}
 
+	/* bmodel animation stuff runs first, so custom entities
+	 * can override them */
+	if (ent->bmodel_anim.enabled)
+	{
+		G_RunBmodelAnimation(ent);
+	}
+
 	switch ((int)ent->movetype)
 	{
+		//JABot[start]
+		case MOVETYPE_WALK:
+			SV_RunThink(ent);
+			break;
+		//[end]
 		case MOVETYPE_PUSH:
 		case MOVETYPE_STOP:
 			SV_Physics_Pusher(ent);
@@ -1389,7 +1492,7 @@ G_RunEntity(edict_t *ent)
 			SV_Physics_NewToss(ent);
 			break;
 		default:
-			gi.error("SV_Physics: bad movetype %i", (int)ent->movetype);
+			gi.error("%s: bad movetype %i", __func__, (int)ent->movetype);
 	}
 
 	/* if we moved, check and fix origin if needed */
@@ -1410,7 +1513,7 @@ G_RunEntity(edict_t *ent)
  * Toss, bounce, and fly movement. When on ground and
  * no velocity, do nothing. With velocity, slide.
  */
-void
+static void
 SV_Physics_NewToss(edict_t *ent)
 {
 	trace_t trace;

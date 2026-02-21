@@ -29,6 +29,9 @@
 #include "../header/client.h"
 #include "header/qmenu.h"
 
+void IN_GetClipboardText(char *out, size_t n);
+int IN_SetClipboardText(const char *s);
+
 static void Action_Draw(menuaction_s *a);
 static void Menu_DrawStatusBar(const char *string);
 static void MenuList_Draw(menulist_s *l);
@@ -43,20 +46,45 @@ extern viddef_t viddef;
 #define VID_WIDTH viddef.width
 #define VID_HEIGHT viddef.height
 
+static size_t
+StrLenUTF8(const char *src)
+{
+	size_t symbols = 0;
+
+	while (*src)
+	{
+		size_t size = 1;
+
+		if (!(*src & 0x80))
+		{
+			size = 1;
+		}
+		else if ((*src & 0xE0) == 0xC0)
+		{
+			size = 2;
+		}
+		else if ((*src & 0xF0) == 0xE0)
+		{
+			size = 3;
+		}
+		else if ((*src & 0xF8) == 0xF0)
+		{
+			size = 4;
+		}
+
+		src += size;
+
+		symbols ++;
+	}
+
+	return symbols;
+}
+
+// "Wrapper" for Q_clamp to evaluate parameters just once (TODO: delete?)
 float
 ClampCvar(float min, float max, float value)
 {
-	if (value < min)
-	{
-		return min;
-	}
-
-	if (value > max)
-	{
-		return max;
-	}
-
-	return value;
+	return Q_clamp(value, min, max);
 }
 
 /*
@@ -64,7 +92,8 @@ ClampCvar(float min, float max, float value)
 Bitmap_Draw
 =================
 */
-void Bitmap_Draw(menubitmap_s * item)
+static void
+Bitmap_Draw(menubitmap_s * item)
 {
 	float scale = SCR_GetMenuScale();
 	int x = 0;
@@ -76,11 +105,13 @@ void Bitmap_Draw(menubitmap_s * item)
 	if (((item->generic.flags & QMF_HIGHLIGHT_IF_FOCUS) &&
 		(Menu_ItemAtCursor(item->generic.parent) == item)))
 	{
-		Draw_PicScaled(x * scale, y * scale, item->focuspic, scale);
+		Draw_PicScaledAltText(x * scale, y * scale, item->focuspic, scale,
+			item->generic.alttext);
 	}
 	else if (item->generic.name)
 	{
-		Draw_PicScaled(x * scale, y * scale, ( char * )item->generic.name, scale);
+		Draw_PicScaledAltText(x * scale, y * scale, ( char * )item->generic.name, scale,
+			item->generic.alttext);
 	}
 }
 
@@ -99,13 +130,13 @@ Action_Draw(menuaction_s *a)
 		if (a->generic.flags & QMF_GRAYED)
 		{
 			Menu_DrawStringDark(x + (LCOLUMN_OFFSET * scale),
-				y, a->generic.name);
+				y, SV_LocalizationUIMessage(a->generic.alttext, a->generic.name));
 		}
 
 		else
 		{
 			Menu_DrawString(x + (LCOLUMN_OFFSET * scale),
-				y, a->generic.name);
+				y, SV_LocalizationUIMessage(a->generic.alttext, a->generic.name));
 		}
 	}
 	else
@@ -113,13 +144,13 @@ Action_Draw(menuaction_s *a)
 		if (a->generic.flags & QMF_GRAYED)
 		{
 			Menu_DrawStringR2LDark(x + (LCOLUMN_OFFSET * scale),
-				y, a->generic.name);
+				y, SV_LocalizationUIMessage(a->generic.alttext, a->generic.name));
 		}
 
 		else
 		{
 			Menu_DrawStringR2L(x + (LCOLUMN_OFFSET * scale),
-				y, a->generic.name);
+				y, SV_LocalizationUIMessage(a->generic.alttext, a->generic.name));
 		}
 	}
 
@@ -129,19 +160,7 @@ Action_Draw(menuaction_s *a)
 	}
 }
 
-qboolean
-Field_DoEnter(menufield_s *f)
-{
-	if (f->generic.callback)
-	{
-		f->generic.callback(f);
-		return true;
-	}
-
-	return false;
-}
-
-void
+static void
 Field_Draw(menufield_s *f)
 {
 	int i, n;
@@ -156,7 +175,7 @@ Field_Draw(menufield_s *f)
 	if (f->generic.name)
 	{
 		Menu_DrawStringR2LDark(x + LCOLUMN_OFFSET * scale,
-			y, f->generic.name);
+			y, SV_LocalizationUIMessage(f->generic.alttext, f->generic.name));
 	}
 
 	n = f->visible_length + 1;
@@ -166,7 +185,8 @@ Field_Draw(menufield_s *f)
 		n = sizeof(tempbuffer);
 	}
 
-	Q_strlcpy(tempbuffer, f->buffer + f->visible_offset, n);
+	i = (f->cursor > f->visible_length) ? (f->cursor - f->visible_length) : 0;
+	Q_strlcpy(tempbuffer, f->buffer + i, n);
 
 	Draw_CharScaled(x + (16 * scale),
 			(y - 4) * scale, 18, scale);
@@ -191,68 +211,133 @@ Field_Draw(menufield_s *f)
 
 	if (Menu_ItemAtCursor(f->generic.parent) == f)
 	{
-		int offset;
-
-		if (f->visible_offset)
-		{
-			offset = f->visible_length;
-		}
-
-		else
-		{
-			offset = f->cursor;
-		}
-
 		if (((int)(Sys_Milliseconds() / 250)) & 1)
 		{
+			int offset;
+
+			if (f->cursor > f->visible_length)
+			{
+				offset = f->visible_length;
+			}
+			else
+			{
+				offset = f->cursor;
+			}
+
 			Draw_CharScaled(
 				x + (24 * scale) + (offset * (8 * scale)),
 				y * scale, 11, scale);
 		}
-		else
-		{
-			Draw_CharScaled(
-				x + (24 * scale) + (offset * (8 * scale)),
-				y * scale, ' ', scale);
-		}
 	}
 }
 
-extern int keydown[];
+void
+Field_ResetCursor(menuframework_s *m)
+{
+	menucommon_s *item = Menu_ItemAtCursor(m);
+
+	if (item && item->type == MTYPE_FIELD)
+	{
+		menufield_s *f = (menufield_s *)item;
+
+		f->cursor = strlen(f->buffer);
+	}
+}
 
 qboolean
 Field_Key(menufield_s *f, int key)
 {
-	if (key > 127)
+	char txt[256];
+
+	if (keydown[K_CTRL])
 	{
-		return false;
+		if (key == 'l')
+		{
+			*f->buffer = '\0';
+			f->cursor = 0;
+
+			return true;
+		}
+
+		if (key == 'c' || key == 'x')
+		{
+			if (*f->buffer != '\0')
+			{
+				if (IN_SetClipboardText(f->buffer))
+				{
+					Com_Printf("Copying menu field to clipboard failed.\n");
+				}
+				else if (key == 'x')
+				{
+					*f->buffer = '\0';
+					f->cursor = 0;
+				}
+			}
+
+			return true;
+		}
+
+		if (key == 'v')
+		{
+			IN_GetClipboardText(txt, sizeof(txt));
+
+			if (*txt != '\0')
+			{
+				if ((f->generic.flags & QMF_NUMBERSONLY) && !Q_strisnum(txt))
+				{
+					return false;
+				}
+
+				f->cursor += Q_strins(f->buffer, txt, f->cursor, f->length);
+			}
+		}
+
+		return true;
 	}
 
 	switch (key)
 	{
 		case K_KP_LEFTARROW:
 		case K_LEFTARROW:
-		case K_BACKSPACE:
-
 			if (f->cursor > 0)
 			{
-				memmove(&f->buffer[f->cursor - 1],
-						&f->buffer[f->cursor],
-						strlen(&f->buffer[f->cursor]) + 1);
 				f->cursor--;
-
-				if (f->visible_offset)
-				{
-					f->visible_offset--;
-				}
 			}
+			break;
 
+		case K_KP_RIGHTARROW:
+		case K_RIGHTARROW:
+			if (f->buffer[f->cursor] != '\0')
+			{
+				f->cursor++;
+			}
+			break;
+
+		case K_BACKSPACE:
+			if (f->cursor > 0)
+			{
+				Q_strdel(f->buffer, f->cursor - 1, 1);
+				f->cursor--;
+			}
+			break;
+
+		case K_END:
+			if (f->buffer[f->cursor] == '\0')
+			{
+				f->cursor = 0;
+			}
+			else
+			{
+				f->cursor = strlen(f->buffer);
+			}
 			break;
 
 		case K_KP_DEL:
 		case K_DEL:
-			memmove(&f->buffer[f->cursor], &f->buffer[f->cursor + 1],
-				strlen(&f->buffer[f->cursor + 1]) + 1);
+			if (f->buffer[f->cursor] != '\0')
+			{
+				Q_strdel(f->buffer, f->cursor, 1);
+			}
 			break;
 
 		case K_KP_ENTER:
@@ -261,24 +346,21 @@ Field_Key(menufield_s *f, int key)
 		case K_TAB:
 			return false;
 
-		case K_SPACE:
 		default:
+			if (key > 127)
+			{
+				return false;
+			}
 
 			if (!isdigit(key) && (f->generic.flags & QMF_NUMBERSONLY))
 			{
 				return false;
 			}
 
-			if (f->cursor < f->length)
-			{
-				f->buffer[f->cursor++] = key;
-				f->buffer[f->cursor] = 0;
+			*txt = key;
+			*(txt + 1) = '\0';
 
-				if (f->cursor > f->visible_length)
-				{
-					f->visible_offset++;
-				}
-			}
+			f->cursor += Q_strins(f->buffer, txt, f->cursor, f->length);
 	}
 
 	return true;
@@ -454,7 +536,7 @@ Menu_DrawStatusBar(const char *string)
 
 	if (string)
 	{
-		int l = (int)strlen(string);
+		int l = (int)StrLenUTF8(string);
 		int col = (VID_WIDTH / 2) - (l*8 / 2) * scale;
 
 		Draw_Fill(0, VID_HEIGHT - 8 * scale, VID_WIDTH, 8 * scale, 4);
@@ -469,49 +551,43 @@ Menu_DrawStatusBar(const char *string)
 void
 Menu_DrawString(int x, int y, const char *string)
 {
-	unsigned i;
 	float scale = SCR_GetMenuScale();
 
-	for (i = 0; i < strlen(string); i++)
-	{
-		Draw_CharScaled(x + i * 8 * scale, y * scale, string[i], scale);
-	}
+	Draw_StringScaled(x, y * scale, scale, false, string);
 }
 
 void
 Menu_DrawStringDark(int x, int y, const char *string)
 {
-	unsigned i;
 	float scale = SCR_GetMenuScale();
 
-	for (i = 0; i < strlen(string); i++)
-	{
-		Draw_CharScaled(x + i * 8 * scale, y * scale, string[i] + 128, scale);
-	}
+	Draw_StringScaled(x, y * scale, scale, true, string);
 }
 
 void
 Menu_DrawStringR2L(int x, int y, const char *string)
 {
-	unsigned i;
-	float scale = SCR_GetMenuScale();
+	char message[161];
+	float scale;
+	int pos;
 
-	for (i = 0; i < strlen(string); i++)
-	{
-		Draw_CharScaled(x - i * 8 * scale, y * scale, string[strlen(string) - i - 1], scale);
-	}
+	scale = SCR_GetMenuScale();
+
+	pos = SCR_CopyUtf8(string, message, Q_min(40, x / (8 * scale)));
+	Draw_StringScaled(x - 8 * scale * pos, y * scale, scale, false, message);
 }
 
 void
 Menu_DrawStringR2LDark(int x, int y, const char *string)
 {
-	unsigned i;
-	float scale = SCR_GetMenuScale();
+	char message[161];
+	float scale;
+	int pos;
 
-	for (i = 0; i < strlen(string); i++)
-	{
-		Draw_CharScaled(x - i * 8 * scale, y * scale, string[strlen(string) - i - 1] + 128, scale);
-	}
+	scale = SCR_GetMenuScale();
+
+	pos = SCR_CopyUtf8(string, message, Q_min(40, x / (8 * scale)));
+	Draw_StringScaled(x - 8 * scale * pos, y * scale, scale, true, message);
 }
 
 void *
@@ -577,7 +653,7 @@ MenuList_Draw(menulist_s *l)
 	y = l->generic.parent->y + l->generic.y;
 
 	Menu_DrawStringR2LDark(x + (LCOLUMN_OFFSET * scale),
-		y, l->generic.name);
+		y, SV_LocalizationUIMessage(l->generic.alttext, l->generic.name));
 
 	n = l->itemnames;
 
@@ -606,21 +682,17 @@ Separator_Draw(menuseparator_s *s)
 	if (s->generic.name)
 	{
 		Menu_DrawStringR2LDark(x,
-			y, s->generic.name);
+			y, SV_LocalizationUIMessage(s->generic.alttext, s->generic.name));
 	}
 }
 
 void
 Slider_DoSlide(menuslider_s *s, int dir)
 {
+	const float step = (s->slidestep)? s->slidestep : 0.1f;
 	float value = Cvar_VariableValue(s->cvar);
-	float step = 0.1f;
 	float sign = 1.0f;
 
-	if (s->slidestep)
-	{
-		step = s->slidestep;
-	}
 	if (s->abs && value < 0)	// absolute value treatment
 	{
 		value = -value;
@@ -641,48 +713,40 @@ Slider_DoSlide(menuslider_s *s, int dir)
 void
 Slider_Draw(menuslider_s *s)
 {
+	const float scale = SCR_GetMenuScale();
+	const int x = s->generic.parent->x + s->generic.x;
+	const int y = s->generic.parent->y + s->generic.y;
+	const int x_rcol = x + (RCOLUMN_OFFSET * scale);
 	int i;
 	char buffer[5];
-	const char * format;
-	float scale = SCR_GetMenuScale();
-	int x = s->generic.parent->x + s->generic.x;
-	int y = s->generic.parent->y + s->generic.y;
 
 	float value = Cvar_VariableValue(s->cvar);
 	if (s->abs && value < 0)	// absolute value
 	{
 		value = -value;
 	}
-	float range = (ClampCvar(s->minvalue, s->maxvalue, value) - s->minvalue) /
+	const float range = (ClampCvar(s->minvalue, s->maxvalue, value) - s->minvalue) /
 			(s->maxvalue - s->minvalue);
 
 	Menu_DrawStringR2LDark(x + (LCOLUMN_OFFSET * scale),
-		y, s->generic.name);
+		y, SV_LocalizationUIMessage(s->generic.alttext, s->generic.name));
 
-	Draw_CharScaled(x + (RCOLUMN_OFFSET * scale),
+	Draw_CharScaled(x_rcol,
 		y * scale, 128, scale);
 
 	for (i = 0; i < SLIDER_RANGE * scale; i++)
 	{
-		Draw_CharScaled(x + (RCOLUMN_OFFSET * scale) + (i * 8) + 8,
+		Draw_CharScaled(x_rcol + (i * 8) + 8,
 			y * scale, 129, scale);
 	}
 
-	Draw_CharScaled(x + (RCOLUMN_OFFSET * scale) + (i * 8) + 8,
+	Draw_CharScaled(x_rcol + (i * 8) + 8,
 		y * scale, 130, scale);
-	Draw_CharScaled(x + ((int)((RCOLUMN_OFFSET * scale) + (SLIDER_RANGE * scale - 1) * 8 * range)) + 8,
+	Draw_CharScaled(x_rcol + (int)((SLIDER_RANGE * scale - 1) * 8 * range) + 8,
 		y * scale, 131, scale);
 
-	if (!s->printformat)
-	{
-		format = "%.1f";
-	}
-	else
-	{
-		format = s->printformat;
-	}
-	snprintf(buffer, 5, format, value);
-	Menu_DrawString(x + (RCOLUMN_OFFSET * scale) + ((SLIDER_RANGE + 2) * scale * 8),
+	snprintf(buffer, 5, (s->printformat)? s->printformat : "%.1f", value);
+	Menu_DrawString(x_rcol + ((SLIDER_RANGE + 2) * scale * 8),
 		y, buffer);
 }
 
@@ -722,7 +786,7 @@ SpinControl_Draw(menulist_s *s)
 	if (s->generic.name)
 	{
 		Menu_DrawStringR2LDark(x + (LCOLUMN_OFFSET * scale),
-			y, s->generic.name);
+			y, SV_LocalizationUIMessage(s->generic.alttext, s->generic.name));
 	}
 
 	if (!strchr(s->itemnames[s->curvalue], '\n'))
@@ -732,11 +796,21 @@ SpinControl_Draw(menulist_s *s)
 	}
 	else
 	{
-		strcpy(buffer, s->itemnames[s->curvalue]);
-		*strchr(buffer, '\n') = 0;
+		char *newline = NULL;
+
+		Q_strlcpy(buffer, s->itemnames[s->curvalue], sizeof(buffer));
+
+		/* buffer smaller than item and could lose new line */
+		newline = strchr(buffer, '\n');
+		if (newline)
+		{
+			*newline = 0;
+		}
+
 		Menu_DrawString(x + (RCOLUMN_OFFSET * scale),
 			y, buffer);
-		strcpy(buffer, strchr(s->itemnames[s->curvalue], '\n') + 1);
+		Q_strlcpy(buffer, strchr(s->itemnames[s->curvalue], '\n') + 1,
+			sizeof(buffer));
 		Menu_DrawString(x + (RCOLUMN_OFFSET * scale),
 			y + 10, buffer);
 	}

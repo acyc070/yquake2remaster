@@ -28,9 +28,10 @@
  */
 
 {"changemap", LLOFS(changemap), F_LSTRING},
+{"disguise_violator", LLOFS(disguise_violator), F_EDICT},
 {"sight_client", LLOFS(sight_client), F_EDICT},
 {"sight_entity", LLOFS(sight_entity), F_EDICT},
-{"sound_entity", LLOFS(sound_entity), F_EDICT},
 {"sound2_entity", LLOFS(sound2_entity), F_EDICT},
-{"disguise_violator", LLOFS(disguise_violator), F_EDICT},
+{"sound_entity", LLOFS(sound_entity), F_EDICT},
+{"shadow_light_count", LLOFS(shadow_light_count), F_INT},
 {NULL, 0, F_INT}

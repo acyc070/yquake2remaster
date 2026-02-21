@@ -37,9 +37,7 @@ static msurface_t *gl4_alpha_surfaces;
 
 gl4lightmapstate_t gl4_lms;
 
-#define BACKFACE_EPSILON 0.01
-
-extern gl4image_t gl4textures[MAX_GL4TEXTURES];
+extern gl4image_t gl4textures[MAX_TEXTURES];
 extern int numgl4textures;
 
 void GL4_SurfInit(void)
@@ -53,7 +51,7 @@ void GL4_SurfInit(void)
 	glGenBuffers(1, &gl4state.vbo3D);
 	GL4_BindVBO(gl4state.vbo3D);
 
-	if(gl4config.useBigVBO)
+	if (gl4config.useBigVBO)
 	{
 		gl4state.vbo3Dsize = 5*1024*1024; // a 5MB buffer seems to work well?
 		gl4state.vbo3DcurOffset = 0;
@@ -144,7 +142,7 @@ SetLightFlags(msurface_t *surf)
 	mvtx_t* verts = surf->polys->verts;
 
 	int numVerts = surf->polys->numverts;
-	for(int i=0; i<numVerts; ++i)
+	for (int i=0; i<numVerts; ++i)
 	{
 		verts[i].lightFlags = lightFlags;
 	}
@@ -158,7 +156,7 @@ SetAllLightFlags(msurface_t *surf)
 	mvtx_t* verts = surf->polys->verts;
 
 	int numVerts = surf->polys->numverts;
-	for(int i=0; i<numVerts; ++i)
+	for (int i=0; i<numVerts; ++i)
 	{
 		verts[i].lightFlags = lightFlags;
 	}
@@ -179,20 +177,16 @@ void
 GL4_DrawGLFlowingPoly(msurface_t *fa)
 {
 	mpoly_t *p;
-	float scroll;
+	float sscroll, tscroll;
 
 	p = fa->polys;
 
-	scroll = -64.0f * ((gl4_newrefdef.time / 40.0f) - (int)(gl4_newrefdef.time / 40.0f));
+	R_FlowingScroll(&r_newrefdef, fa->texinfo->flags, &sscroll, &tscroll);
 
-	if (scroll == 0.0f)
+	if ((gl4state.uni3DData.sscroll != sscroll) || (gl4state.uni3DData.tscroll != tscroll))
 	{
-		scroll = -64.0f;
-	}
-
-	if(gl4state.uni3DData.scroll != scroll)
-	{
-		gl4state.uni3DData.scroll = scroll;
+		gl4state.uni3DData.sscroll = sscroll;
+		gl4state.uni3DData.tscroll = tscroll;
 		GL4_UpdateUBO3D();
 	}
 
@@ -266,13 +260,13 @@ UpdateLMscales(const hmm_vec4 lmScales[MAX_LIGHTMAPS_PER_SURFACE], gl4ShaderInfo
 	int i;
 	qboolean hasChanged = false;
 
-	for(i=0; i<MAX_LIGHTMAPS_PER_SURFACE; ++i)
+	for (i=0; i<MAX_LIGHTMAPS_PER_SURFACE; ++i)
 	{
-		if(hasChanged)
+		if (hasChanged)
 		{
 			si->lmScales[i] = lmScales[i];
 		}
-		else if(   si->lmScales[i].R != lmScales[i].R
+		else if (  si->lmScales[i].R != lmScales[i].R
 		        || si->lmScales[i].G != lmScales[i].G
 		        || si->lmScales[i].B != lmScales[i].B
 		        || si->lmScales[i].A != lmScales[i].A )
@@ -282,7 +276,7 @@ UpdateLMscales(const hmm_vec4 lmScales[MAX_LIGHTMAPS_PER_SURFACE], gl4ShaderInfo
 		}
 	}
 
-	if(hasChanged)
+	if (hasChanged)
 	{
 		glUniform4fv(si->uniLmScalesOrTime, MAX_LIGHTMAPS_PER_SURFACE, si->lmScales[0].Elements);
 	}
@@ -319,13 +313,13 @@ RenderBrushPoly(entity_t *currententity, msurface_t *fa)
 	// Any dynamic lights on this surface?
 	for (map = 0; map < MAX_LIGHTMAPS_PER_SURFACE && fa->styles[map] != 255; map++)
 	{
-		lmScales[map].R = gl4_newrefdef.lightstyles[fa->styles[map]].rgb[0];
-		lmScales[map].G = gl4_newrefdef.lightstyles[fa->styles[map]].rgb[1];
-		lmScales[map].B = gl4_newrefdef.lightstyles[fa->styles[map]].rgb[2];
+		lmScales[map].R = r_newrefdef.lightstyles[fa->styles[map]].rgb[0];
+		lmScales[map].G = r_newrefdef.lightstyles[fa->styles[map]].rgb[1];
+		lmScales[map].B = r_newrefdef.lightstyles[fa->styles[map]].rgb[2];
 		lmScales[map].A = 1.0f;
 	}
 
-	if (fa->texinfo->flags & SURF_FLOWING)
+	if (fa->texinfo->flags & SURF_SCROLL)
 	{
 		GL4_UseProgram(gl4state.si3DlmFlow.shaderProgram);
 		UpdateLMscales(lmScales, &gl4state.si3DlmFlow);
@@ -371,7 +365,7 @@ GL4_DrawAlphaSurfaces(void)
 			alpha = 0.666f;
 		}
 
-		if(alpha != gl4state.uni3DData.alpha)
+		if (alpha != gl4state.uni3DData.alpha)
 		{
 			gl4state.uni3DData.alpha = alpha;
 			GL4_UpdateUBO3D();
@@ -381,7 +375,7 @@ GL4_DrawAlphaSurfaces(void)
 		{
 			GL4_EmitWaterPolys(s);
 		}
-		else if (s->texinfo->flags & SURF_FLOWING)
+		else if (s->texinfo->flags & SURF_SCROLL)
 		{
 			GL4_UseProgram(gl4state.si3DtransFlow.shaderProgram);
 			GL4_DrawGLFlowingPoly(s);
@@ -453,9 +447,9 @@ RenderLightmappedPoly(entity_t *currententity, msurface_t *surf)
 	// Any dynamic lights on this surface?
 	for (map = 0; map < MAX_LIGHTMAPS_PER_SURFACE && surf->styles[map] != 255; map++)
 	{
-		lmScales[map].R = gl4_newrefdef.lightstyles[surf->styles[map]].rgb[0];
-		lmScales[map].G = gl4_newrefdef.lightstyles[surf->styles[map]].rgb[1];
-		lmScales[map].B = gl4_newrefdef.lightstyles[surf->styles[map]].rgb[2];
+		lmScales[map].R = r_newrefdef.lightstyles[surf->styles[map]].rgb[0];
+		lmScales[map].G = r_newrefdef.lightstyles[surf->styles[map]].rgb[1];
+		lmScales[map].B = r_newrefdef.lightstyles[surf->styles[map]].rgb[2];
 		lmScales[map].A = 1.0f;
 	}
 
@@ -464,7 +458,7 @@ RenderLightmappedPoly(entity_t *currententity, msurface_t *surf)
 	GL4_Bind(image->texnum);
 	GL4_BindLightmap(surf->lightmaptexturenum);
 
-	if (surf->texinfo->flags & SURF_FLOWING)
+	if (surf->texinfo->flags & SURF_SCROLL)
 	{
 		GL4_UseProgram(gl4state.si3DlmFlow.shaderProgram);
 		UpdateLMscales(lmScales, &gl4state.si3DlmFlow);
@@ -486,7 +480,7 @@ DrawInlineBModel(entity_t *currententity, gl4model_t *currentmodel)
 	float dot;
 	msurface_t *psurf;
 
-	R_PushDlights(&gl4_newrefdef, currentmodel->nodes + currentmodel->firstnode,
+	R_PushDlights(&r_newrefdef, currentmodel->nodes + currentmodel->firstnode,
 			r_dlightframecount, currentmodel->surfaces);
 
 	psurf = &currentmodel->surfaces[currentmodel->firstmodelsurface];
@@ -518,7 +512,7 @@ DrawInlineBModel(entity_t *currententity, gl4model_t *currentmodel)
 				psurf->texturechain = gl4_alpha_surfaces;
 				gl4_alpha_surfaces = psurf;
 			}
-			else if(!(psurf->flags & SURF_DRAWTURB))
+			else if (!(psurf->flags & SURF_DRAWTURB))
 			{
 				SetAllLightFlags(psurf);
 				RenderLightmappedPoly(currententity, psurf);
@@ -577,7 +571,7 @@ GL4_DrawBrushModel(entity_t *e, gl4model_t *currentmodel)
 		glEnable(GL_POLYGON_OFFSET_FILL);
 	}
 
-	VectorSubtract(gl4_newrefdef.vieworg, e->origin, modelorg);
+	VectorSubtract(r_newrefdef.vieworg, e->origin, modelorg);
 
 	if (rotated)
 	{
@@ -646,7 +640,7 @@ RecursiveWorldNode(entity_t *currententity, mnode_t *node)
 
 		/* check for door connected areas */
 		// check for door connected areas
-		if (!R_AreaVisible(gl4_newrefdef.areabits, pleaf))
+		if (!R_AreaVisible(r_newrefdef.areabits, pleaf))
 			return;	// not visible
 
 		mark = pleaf->firstmarksurface;
@@ -701,7 +695,7 @@ RecursiveWorldNode(entity_t *currententity, mnode_t *node)
 
 	if ((node->numsurfaces + node->firstsurface) > gl4_worldmodel->numsurfaces)
 	{
-		R_Printf(PRINT_ALL, "Broken node firstsurface\n");
+		Com_Printf("Broken node firstsurface\n");
 		return;
 	}
 
@@ -732,13 +726,18 @@ RecursiveWorldNode(entity_t *currententity, mnode_t *node)
 			gl4_alpha_surfaces = surf;
 			gl4_alpha_surfaces->texinfo->image = R_TextureAnimation(currententity, surf->texinfo);
 		}
+		else if (surf->texinfo->flags & SURF_NODRAW)
+		{
+			/* Surface should be skipped */
+			continue;
+		}
 		else
 		{
 			// calling RenderLightmappedPoly() here probably isn't optimal, rendering everything
 			// through texturechains should be faster, because far less glBindTexture() is needed
 			// (and it might allow batching the drawcalls of surfaces with the same texture)
 #if 0
-			if(!(surf->flags & SURF_DRAWTURB))
+			if (!(surf->flags & SURF_DRAWTURB))
 			{
 				RenderLightmappedPoly(surf);
 			}
@@ -767,16 +766,16 @@ GL4_DrawWorld(void)
 		return;
 	}
 
-	if (gl4_newrefdef.rdflags & RDF_NOWORLDMODEL)
+	if (r_newrefdef.rdflags & RDF_NOWORLDMODEL)
 	{
 		return;
 	}
 
-	VectorCopy(gl4_newrefdef.vieworg, modelorg);
+	VectorCopy(r_newrefdef.vieworg, modelorg);
 
 	/* auto cycle the world frame for texture animation */
 	memset(&ent, 0, sizeof(ent));
-	ent.frame = (int)(gl4_newrefdef.time * 2);
+	ent.frame = (int)(r_newrefdef.time * 2);
 
 	gl4state.currenttexture = -1;
 
@@ -795,11 +794,10 @@ void
 GL4_MarkLeaves(void)
 {
 	const byte *vis;
-	YQ2_ALIGNAS_TYPE(int) byte fatvis[MAX_MAP_LEAFS / 8];
+	byte *fatvis = NULL;
 	mnode_t *node;
-	int i, c;
+	int i;
 	mleaf_t *leaf;
-	int cluster;
 
 	if ((gl4_oldviewcluster == gl4_viewcluster) &&
 		(gl4_oldviewcluster2 == gl4_viewcluster2) &&
@@ -841,6 +839,9 @@ GL4_MarkLeaves(void)
 	/* may have to combine two clusters because of solid water boundaries */
 	if (gl4_viewcluster2 != gl4_viewcluster)
 	{
+		int c;
+
+		fatvis = malloc(((gl4_worldmodel->numleafs + 31) / 32) * sizeof(int));
 		memcpy(fatvis, vis, (gl4_worldmodel->numleafs + 7) / 8);
 		vis = GL4_Mod_ClusterPVS(gl4_viewcluster2, gl4_worldmodel);
 		c = (gl4_worldmodel->numleafs + 31) / 32;
@@ -857,6 +858,8 @@ GL4_MarkLeaves(void)
 		 i < gl4_worldmodel->numleafs;
 		 i++, leaf++)
 	{
+		int cluster;
+
 		cluster = leaf->cluster;
 
 		if (cluster == -1)
@@ -881,5 +884,10 @@ GL4_MarkLeaves(void)
 			while (node);
 		}
 	}
-}
 
+	/* clean combined buffer */
+	if (fatvis)
+	{
+		free(fatvis);
+	}
+}

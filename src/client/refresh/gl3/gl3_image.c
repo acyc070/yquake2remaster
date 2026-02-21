@@ -45,14 +45,14 @@ glmode_t modes[] = {
 int gl_filter_min = GL_LINEAR_MIPMAP_NEAREST;
 int gl_filter_max = GL_LINEAR;
 
-gl3image_t gl3textures[MAX_GL3TEXTURES];
+gl3image_t gl3textures[MAX_TEXTURES];
 int numgl3textures = 0;
 static int image_max = 0;
 
 void
 GL3_TextureMode(char *string)
 {
-	const int num_modes = sizeof(modes)/sizeof(modes[0]);
+	const int num_modes = ARRLEN(modes);
 	int i;
 
 	for (i = 0; i < num_modes; i++)
@@ -65,7 +65,7 @@ GL3_TextureMode(char *string)
 
 	if (i == num_modes)
 	{
-		R_Printf(PRINT_ALL, "bad filter name '%s' (probably from gl_texturemode)\n", string);
+		Com_Printf("bad filter name '%s' (probably from gl_texturemode)\n", string);
 		return;
 	}
 
@@ -75,7 +75,7 @@ GL3_TextureMode(char *string)
 	/* clamp selected anisotropy */
 	if (gl3config.anisotropic)
 	{
-		if (gl_anisotropic->value > gl3config.max_anisotropy)
+		if (r_anisotropic->value > gl3config.max_anisotropy)
 		{
 			ri.Cvar_SetValue("r_anisotropic", gl3config.max_anisotropy);
 		}
@@ -114,9 +114,10 @@ GL3_TextureMode(char *string)
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_max);
 
 			/* Set anisotropic filter if supported and enabled */
-			if (gl3config.anisotropic && gl_anisotropic->value)
+			if (gl3config.anisotropic && r_anisotropic->value)
 			{
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, Q_max(gl_anisotropic->value, 1.f));
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT,
+					Q_max(r_anisotropic->value, 1.f));
 			}
 		}
 		else /* texture has no mipmaps */
@@ -162,9 +163,9 @@ void
 GL3_BindLightmap(int lightmapnum)
 {
 	int i=0;
-	if(lightmapnum < 0 || lightmapnum >= MAX_LIGHTMAPS)
+	if (lightmapnum < 0 || lightmapnum >= MAX_LIGHTMAPS)
 	{
-		R_Printf(PRINT_ALL, "WARNING: Invalid lightmapnum %i used!\n", lightmapnum);
+		Com_Printf("WARNING: Invalid lightmapnum %i used!\n", lightmapnum);
 		return;
 	}
 
@@ -174,7 +175,7 @@ GL3_BindLightmap(int lightmapnum)
 	}
 
 	gl3state.currentlightmap = lightmapnum;
-	for(i=0; i<MAX_LIGHTMAPS_PER_SURFACE; ++i)
+	for (i=0; i<MAX_LIGHTMAPS_PER_SURFACE; ++i)
 	{
 		// this assumes that GL_TEXTURE<i+1> = GL_TEXTURE<i> + 1
 		// at least for GL_TEXTURE0 .. GL_TEXTURE31 that's true
@@ -186,7 +187,7 @@ GL3_BindLightmap(int lightmapnum)
 /*
  * Returns has_alpha
  */
-qboolean
+static qboolean
 GL3_Upload32(unsigned *data, int width, int height, qboolean mipmap)
 {
 	qboolean res;
@@ -207,8 +208,14 @@ GL3_Upload32(unsigned *data, int width, int height, qboolean mipmap)
 		}
 	}
 
+	/* optimize 8bit images only when we forced such logic */
+	if (r_scale8bittextures->value)
+	{
+		SmoothColorImage(data, width * height, width);
+	}
+
 	glTexImage2D(GL_TEXTURE_2D, 0, comp, width, height,
-	             0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+		0, GL_RGBA, GL_UNSIGNED_BYTE, data);
 
 	res = (samples == gl3_alpha_format);
 
@@ -225,9 +232,9 @@ GL3_Upload32(unsigned *data, int width, int height, qboolean mipmap)
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_max);
 	}
 
-	if (mipmap && gl3config.anisotropic && gl_anisotropic->value)
+	if (mipmap && gl3config.anisotropic && r_anisotropic->value)
 	{
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, Q_max(gl_anisotropic->value, 1.f));
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, Q_max(r_anisotropic->value, 1.f));
 	}
 
 	return res;
@@ -237,13 +244,21 @@ GL3_Upload32(unsigned *data, int width, int height, qboolean mipmap)
 /*
  * Returns has_alpha
  */
-qboolean
+static qboolean
 GL3_Upload8(byte *data, int width, int height, qboolean mipmap, qboolean is_sky)
 {
-	int s = width * height;
+	size_t i, s = width * height;
 	unsigned *trans = malloc(s * sizeof(unsigned));
 
-	for (int i = 0; i < s; i++)
+	YQ2_COM_CHECK_OOM(trans, "malloc()",
+		s * sizeof(unsigned))
+	if (!trans)
+	{
+		/* unaware about YQ2_ATTR_NORETURN_FUNCPTR? */
+		return false;
+	}
+
+	for (i = 0; i < s; i++)
 	{
 		int p = data[i];
 		trans[i] = d_8to24table[p];
@@ -412,9 +427,10 @@ GL3_LoadPic(char *name, byte *pic, int width, int realwidth,
 
 	if (i == numgl3textures)
 	{
-		if (numgl3textures == MAX_GL3TEXTURES)
+		if (numgl3textures == MAX_TEXTURES)
 		{
-			Com_Error(ERR_DROP, "MAX_GLTEXTURES");
+			Com_Error(ERR_DROP, "MAX_TEXTURES");
+			return NULL;
 		}
 
 		numgl3textures++;
@@ -425,6 +441,7 @@ GL3_LoadPic(char *name, byte *pic, int width, int realwidth,
 	if (strlen(name) >= sizeof(image->name))
 	{
 		Com_Error(ERR_DROP, "%s: \"%s\" is too long", __func__, name);
+		return NULL;
 	}
 
 	strcpy(image->name, name);
@@ -499,7 +516,7 @@ GL3_LoadPic(char *name, byte *pic, int width, int realwidth,
 		}
 		else
 		{
-			R_Printf(PRINT_DEVELOPER,
+			Com_DPrintf(
 					"Warning, image '%s' has hi-res replacement smaller than the original! (%d x %d) < (%d x %d)\n",
 					name, image->width, image->height, realwidth, realheight);
 		}
@@ -584,7 +601,7 @@ GL3_LoadPic(char *name, byte *pic, int width, int realwidth,
 			}
 			else
 			{
-				R_Printf(PRINT_DEVELOPER,
+				Com_DPrintf(
 						"Warning, image '%s' has hi-res replacement smaller than the original! (%d x %d) < (%d x %d)\n",
 						name, image->width, image->height, realwidth, realheight);
 			}
@@ -609,42 +626,41 @@ GL3_LoadPic(char *name, byte *pic, int width, int realwidth,
  * Finds or loads the given image or NULL
  */
 gl3image_t *
-GL3_FindImage(const char *name, imagetype_t type)
+GL3_FindImage(const char *originname, imagetype_t type)
 {
+	char namewe[256], name[256] = {0};
 	gl3image_t *image;
-	int i, len;
-	char *ptr;
-	char namewe[256];
 	const char* ext;
+	size_t len;
+	int i;
 
-	if (!name)
+	if (!originname)
 	{
 		return NULL;
 	}
 
+	Q_strlcpy(name, originname, sizeof(name));
+
+	/* fix backslashes */
+	Q_replacebackslash(name);
+
 	ext = COM_FileExtension(name);
-	if(!ext[0])
+	if (!ext[0])
 	{
 		/* file has no extension */
 		return NULL;
 	}
 
-	len = strlen(name);
-
 	/* Remove the extension */
-	memset(namewe, 0, 256);
-	memcpy(namewe, name, len - (strlen(ext) + 1));
-
-	if (len < 5)
+	len = (ext - name) - 1;
+	if ((len < 1) || (len > sizeof(namewe) - 1))
 	{
+		Com_DPrintf("%s: Bad filename %s\n", __func__, name);
 		return NULL;
 	}
 
-	/* fix backslashes */
-	while ((ptr = strchr(name, '\\')))
-	{
-		*ptr = '/';
-	}
+	memcpy(namewe, name, len);
+	namewe[len] = 0;
 
 	/* look for it */
 	for (i = 0, image = gl3textures; i < numgl3textures; i++, image++)
@@ -660,11 +676,11 @@ GL3_FindImage(const char *name, imagetype_t type)
 	// load the pic from disk
 	//
 	image = (gl3image_t *)R_LoadImage(name, namewe, ext, type,
-		r_retexturing->value, (loadimage_t)GL3_LoadPic);
+		(loadimage_t)GL3_LoadPic);
 
 	if (!image && r_validation->value)
 	{
-		R_Printf(PRINT_ALL, "%s: can't load %s\n", __func__, name);
+		Com_Printf("%s: can't load %s\n", __func__, name);
 	}
 
 	return image;
@@ -738,7 +754,7 @@ GL3_ImageHasFreeSpace(void)
 	}
 
 	// should same size of free slots as currently used
-	return (numgl3textures + used) < MAX_GL3TEXTURES;
+	return (numgl3textures + used) < MAX_TEXTURES;
 }
 
 void
@@ -764,10 +780,10 @@ static qboolean IsNPOT(int v)
 {
 	unsigned int uv = v;
 	// just try all the power of two values between 1 and 1 << 15 (32k)
-	for(unsigned int i=0; i<16; ++i)
+	for (unsigned int i=0; i<16; ++i)
 	{
 		unsigned int pot = (1u << i);
-		if(uv & pot)
+		if (uv & pot)
 		{
 			return uv != pot;
 		}
@@ -791,7 +807,7 @@ GL3_ImageList_f(void)
 		" POT", "NPOT"
 	};
 
-	R_Printf(PRINT_ALL, "------------------\n");
+	Com_Printf("------------------\n");
 	texels = 0;
 	used = 0;
 
@@ -842,11 +858,12 @@ GL3_ImageList_f(void)
 		}
 		char isLava = image->is_lava ? 'L' : ' ';
 
-		R_Printf(PRINT_ALL, "%c%c %3i %3i %s %s: %s %s\n", imageType, isLava, w, h,
+		Com_Printf("%c%c %3i %3i %s %s: %s %s\n", imageType, isLava, w, h,
 		         formatstrings[image->has_alpha], potstrings[isNPOT], image->name, in_use);
 	}
 
-	R_Printf(PRINT_ALL, "Total texel count (not counting mipmaps): %i\n", texels);
+	Com_Printf("Total texel count (not counting mipmaps): %i\n", texels);
 	freeup = GL3_ImageHasFreeSpace();
-	R_Printf(PRINT_ALL, "Used %d of %d images%s.\n", used, image_max, freeup ? ", has free space" : "");
+	Com_Printf("Used %d of %d / %d images%s.\n",
+		used, image_max, MAX_TEXTURES, freeup ? ", has free space" : "");
 }

@@ -36,9 +36,6 @@ static qboolean enemy_infront;
 static int enemy_range;
 static float enemy_yaw;
 
-qboolean FindTarget(edict_t *self);
-qboolean ai_checkattack(edict_t *self);
-
 /* ========================================================================== */
 
 /*
@@ -434,6 +431,18 @@ visible(edict_t *self, edict_t *other)
 		return false;
 	}
 
+	/*
+	 * [Paril-KEX] bit of a hack, but we'll tweak monster-player visibility
+	 * if they have the invisibility powerup.
+	 */
+	if (other->client)
+	{
+		if (other->client->invisible_framenum > level.framenum)
+		{
+			return false;
+		}
+	}
+
 	VectorCopy(self->s.origin, spot1);
 	spot1[2] += self->viewheight;
 	VectorCopy(other->s.origin, spot2);
@@ -502,9 +511,13 @@ HuntTarget(edict_t *self)
 		self->monsterinfo.run(self);
 	}
 
-	if(visible(self, self->enemy))
+	if (visible(self, self->enemy))
 	{
 		VectorSubtract(self->enemy->s.origin, self->s.origin, vec);
+	}
+	else
+	{
+		VectorClear(vec);
 	}
 
 	self->ideal_yaw = vectoyaw(vec);
@@ -519,7 +532,10 @@ HuntTarget(edict_t *self)
 void
 FoundTarget(edict_t *self)
 {
-	if (!self|| !self->enemy || !self->enemy->inuse)
+	edict_t *combatpoint;
+	vec3_t v;
+
+	if (!self || !self->enemy || !self->enemy->inuse)
 	{
 		return;
 	}
@@ -550,26 +566,30 @@ FoundTarget(edict_t *self)
 		return;
 	}
 
-	self->goalentity = self->movetarget = G_PickTarget(self->combattarget);
+	combatpoint = G_PickTarget(self->combattarget);
 
-	if (!self->movetarget)
+	if (!combatpoint)
 	{
-		self->goalentity = self->movetarget = self->enemy;
-		HuntTarget(self);
 		gi.dprintf("%s at %s, combattarget %s not found\n",
 				self->classname,
 				vtos(self->s.origin),
 				self->combattarget);
+
+		HuntTarget(self);
 		return;
 	}
+
+	VectorSubtract(combatpoint->s.origin, self->s.origin, v);
+	self->ideal_yaw = vectoyaw(v);
 
 	/* clear out our combattarget, these are a one shot deal */
 	self->combattarget = NULL;
 	self->monsterinfo.aiflags |= AI_COMBAT_POINT;
+	self->monsterinfo.pausetime = 0;
 
 	/* clear the targetname, that point is ours! */
-	self->movetarget->targetname = NULL;
-	self->monsterinfo.pausetime = 0;
+	combatpoint->targetname = NULL;
+	self->goalentity = self->movetarget = combatpoint;
 
 	/* run for it */
 	self->monsterinfo.run(self);
@@ -757,6 +777,13 @@ FindTarget(edict_t *self)
 					return false;
 				}
 			}
+
+			if ((self->enemy->client) &&
+				(self->enemy->client->invisible_framenum > level.framenum))
+			{
+				self->enemy = NULL;
+				return false;
+			}
 		}
 	}
 	else /* heardit */
@@ -866,6 +893,14 @@ M_CheckAttack(edict_t *self)
 
 	if (self->enemy->health > 0)
 	{
+		if (self->enemy->client)
+		{
+			if (self->enemy->client->invisible_framenum > level.framenum)
+			{
+				return false;
+			}
+		}
+
 		/* see if any entities are in the way of the shot */
 		VectorCopy(self->s.origin, spot1);
 		spot1[2] += self->viewheight;

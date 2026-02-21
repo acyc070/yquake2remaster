@@ -25,8 +25,6 @@
  * =======================================================================
  */
 
-#include <limits.h>
-
 #include "header/client.h"
 #include "input/header/input.h"
 
@@ -36,20 +34,6 @@
 
 #define PL_MPEG_IMPLEMENTATION
 #include "cinema/pl_mpeg.h"
-
-// don't need HDR stuff
-#define STBI_NO_LINEAR
-#define STBI_NO_HDR
-// make sure STB_image uses standard malloc(), as we'll use standard free() to deallocate
-#define STBI_MALLOC(sz)    malloc(sz)
-#define STBI_REALLOC(p,sz) realloc(p,sz)
-#define STBI_FREE(p)       free(p)
-// Switch of the thread local stuff. Breaks mingw under Windows.
-#define STBI_NO_THREAD_LOCALS
-// include implementation part of stb_image into this file
-#define STB_IMAGE_IMPLEMENTATION
-#include "refresh/files/stb_image.h"
-
 
 extern cvar_t *vid_renderer;
 
@@ -109,105 +93,6 @@ typedef struct
 } cinematics_t;
 
 cinematics_t cin;
-
-static void
-SCR_LoadPCX(char *filename, byte **pic, byte **palette, int *width, int *height)
-{
-	byte *raw;
-	pcx_t *pcx;
-	int x, y;
-	int len, full_size;
-	int dataByte, runLength;
-	byte *out, *pix;
-
-	*pic = NULL;
-
-	/* load the file */
-	len = FS_LoadFile(filename, (void **)&raw);
-
-	if (!raw || len < sizeof(pcx_t))
-	{
-		return;
-	}
-
-	/* parse the PCX file */
-	pcx = (pcx_t *)raw;
-	raw = &pcx->data;
-
-	if ((pcx->manufacturer != 0x0a) ||
-		(pcx->version != 5) ||
-		(pcx->encoding != 1) ||
-		(pcx->bits_per_pixel != 8) ||
-		(pcx->xmax >= 640) ||
-		(pcx->ymax >= 480))
-	{
-		Com_Printf("Bad pcx file %s\n", filename);
-		return;
-	}
-
-	full_size = (pcx->ymax + 1) * (pcx->xmax + 1);
-	out = Z_Malloc(full_size);
-
-	*pic = out;
-
-	pix = out;
-
-	if (palette)
-	{
-		*palette = Z_Malloc(768);
-		memcpy(*palette, (byte *)pcx + len - 768, 768);
-	}
-
-	if (width)
-	{
-		*width = pcx->xmax + 1;
-	}
-
-	if (height)
-	{
-		*height = pcx->ymax + 1;
-	}
-
-	for (y = 0; y <= pcx->ymax; y++, pix += pcx->xmax + 1)
-	{
-		for (x = 0; x <= pcx->xmax; )
-		{
-			dataByte = *raw++;
-
-			if ((dataByte & 0xC0) == 0xC0)
-			{
-				runLength = dataByte & 0x3F;
-				dataByte = *raw++;
-			}
-			else
-			{
-				runLength = 1;
-			}
-
-			while (runLength-- > 0)
-			{
-				if ((*pic + full_size) <= (pix + x))
-				{
-					x += runLength;
-					runLength = 0;
-				}
-				else
-				{
-					pix[x++] = dataByte;
-				}
-			}
-		}
-	}
-
-	if (raw - (byte *)pcx > len)
-	{
-		Com_Printf("PCX file %s was malformed", filename);
-		Z_Free(*pic);
-		*pic = NULL;
-	}
-
-	FS_FreeFile(pcx);
-}
 
 void
 SCR_StopCinematic(void)
@@ -333,13 +218,14 @@ Huff1TableInit(void)
 	int j;
 	int *node, *nodebase;
 	byte counts[256];
-	int numhnodes;
 
 	cin.hnodes1 = Z_Malloc(256 * 256 * 2 * 4);
 	memset(cin.hnodes1, 0, 256 * 256 * 2 * 4);
 
 	for (prev = 0; prev < 256; prev++)
 	{
+		int numhnodes;
+
 		memset(cin.h_count, 0, sizeof(cin.h_count));
 		memset(cin.h_used, 0, sizeof(cin.h_used));
 
@@ -386,13 +272,13 @@ Huff1TableInit(void)
 static cblock_t
 Huff1Decompress(cblock_t in)
 {
-	byte *input;
+	const byte *input;
 	byte *out_p;
 	int nodenum;
 	int count;
 	cblock_t out;
-	int inbyte;
-	int *hnodes, *hnodesbase;
+	const int *hnodes;
+	int *hnodesbase;
 
 	/* get decompressed count */
 	count = in.data[0] + (in.data[1] << 8) + (in.data[2] << 16) + (in.data[3] << 24);
@@ -407,6 +293,8 @@ Huff1Decompress(cblock_t in)
 
 	while (count)
 	{
+		int inbyte;
+
 		inbyte = *input++;
 
 		int i = 0;
@@ -566,13 +454,14 @@ SCR_ReadNextFrame(void)
 	if (((size_t)size > sizeof(compressed)) || (size < 1))
 	{
 		Com_Error(ERR_DROP, "Bad compressed frame size");
+		return NULL;
 	}
 
 	FS_Read(compressed, size, cl.cinematic_file);
 
 	/* read sound */
-	start = cl.cinematicframe * cin.s_rate / cin.fps;
-	end = (cl.cinematicframe + 1) * cin.s_rate / cin.fps;
+	start = cl.cinematicframe * cin.s_rate / (int)cin.fps;
+	end = (cl.cinematicframe + 1) * cin.s_rate / (int)cin.fps;
 	count = end - start;
 
 	FS_Read(samples, count * cin.s_width * cin.s_channels,
@@ -641,7 +530,8 @@ SCR_ReadNextAVFrame(void)
 static qboolean
 SCR_LoadAVcodec(const char *arg, const char *dot)
 {
-	char name[MAX_OSPATH], *path = NULL;
+	const char *path = NULL;
+	char name[MAX_OSPATH];
 
 	while (1)
 	{
@@ -712,6 +602,7 @@ SCR_RunCinematic(void)
 	}
 
 	cin.pic = cin.pic_pending;
+	cin.pic_pending = NULL;
 	switch (cin.video_type)
 	{
 		case video_cin:
@@ -726,7 +617,9 @@ SCR_RunCinematic(void)
 			break;
 #endif
 		default:
-			cin.pic_pending = NULL;
+			/* should be never called */
+			Com_Error(ERR_DROP, "Incorrect media data.");
+			return;
 	}
 
 	if (!cin.pic_pending)
@@ -861,35 +754,33 @@ SCR_DrawCinematic(void)
 }
 
 static byte *
-SCR_LoadHiColor(const char* namewe, const char *ext, int *width, int *height)
+SCR_LoadHiColor(const char* namewe, const char *ext, int *width, int *height,
+	byte **palette, int *bitsPerPixel)
 {
+	byte *pic, *data = NULL, *palette_in = NULL;
 	char filename[256];
-	int bytesPerPixel;
-	byte *pic, *data = NULL;
-	void *rawdata;
-	size_t len;
 
 	Q_strlcpy(filename, namewe, sizeof(filename));
 	Q_strlcat(filename, ".", sizeof(filename));
 	Q_strlcat(filename, ext, sizeof(filename));
 
-	len = FS_LoadFile(filename, &rawdata);
-
-	if (!rawdata || len <=0)
-	{
-		return NULL;
-	}
-
-	data = stbi_load_from_memory(rawdata, len, width, height,
-		&bytesPerPixel, STBI_rgb_alpha);
+	SCR_LoadImageWithPalette(filename, &data, &palette_in,
+		width, height, bitsPerPixel);
 	if (data == NULL)
 	{
-		FS_FreeFile(rawdata);
 		return NULL;
 	}
 
-	pic = Z_Malloc(cin.height * cin.width * 4);
-	memcpy(pic, data, cin.height * cin.width * 4);
+	if (palette_in)
+	{
+		/* pcx file could have palette */
+		*palette = Z_Malloc(768);
+		memcpy(*palette, palette_in, 768);
+		free(palette_in);
+	}
+
+	pic = Z_Malloc(cin.height * cin.width * (*bitsPerPixel) / 8);
+	memcpy(pic, data, cin.height * cin.width * (*bitsPerPixel) / 8);
 	free(data);
 
 	return pic;
@@ -900,7 +791,8 @@ SCR_PlayCinematic(char *arg)
 {
 	int width, height;
 	byte *palette = NULL;
-	char name[MAX_OSPATH], *dot;
+	char name[MAX_OSPATH];
+	const char *dot;
 
 	In_FlushQueue();
 	abort_cinematic = INT_MAX;
@@ -912,39 +804,46 @@ SCR_PlayCinematic(char *arg)
 	dot = strstr(arg, ".");
 
 	/* static pcx image */
-	if (dot && !strcmp(dot, ".pcx"))
+	if (dot && (!strcmp(dot, ".pcx") ||
+				!strcmp(dot, ".lmp") ||
+				!strcmp(dot, ".tga") ||
+				!strcmp(dot, ".jpg") ||
+				!strcmp(dot, ".png")))
 	{
-		cvar_t	*r_retexturing;
+		const cvar_t *r_retexturing;
+		char namewe[256];
 
 		Com_sprintf(name, sizeof(name), "pics/%s", arg);
 		r_retexturing = Cvar_Get("r_retexturing", "1", CVAR_ARCHIVE);
 
+		/* Remove the extension */
+		memset(namewe, 0, 256);
+		memcpy(namewe, name, strlen(name) - strlen(dot));
+
 		if (r_retexturing->value)
 		{
-			char namewe[256];
-
 			cin.color_bits = 32;
 
-			/* Remove the extension */
-			memset(namewe, 0, 256);
-			memcpy(namewe, name, strlen(name) - strlen(dot));
-			cin.pic = SCR_LoadHiColor(namewe, "tga", &cin.width, &cin.height);
+			cin.pic = SCR_LoadHiColor(namewe, "tga", &cin.width, &cin.height,
+				&palette, &cin.color_bits);
 
 			if (!cin.pic)
 			{
-				cin.pic = SCR_LoadHiColor(namewe, "png", &cin.width, &cin.height);
+				cin.pic = SCR_LoadHiColor(namewe, "png", &cin.width, &cin.height,
+					&palette, &cin.color_bits);
 			}
 
 			if (!cin.pic)
 			{
-				cin.pic = SCR_LoadHiColor(namewe, "jpg", &cin.width, &cin.height);
+				cin.pic = SCR_LoadHiColor(namewe, "jpg", &cin.width, &cin.height,
+					&palette, &cin.color_bits);
 			}
 		}
 
 		if (!cin.pic)
 		{
-			SCR_LoadPCX(name, &cin.pic, &palette, &cin.width, &cin.height);
-			cin.color_bits = 8;
+			cin.pic = SCR_LoadHiColor(namewe, dot + 1, &cin.width, &cin.height,
+				&palette, &cin.color_bits);
 		}
 
 		cl.cinematicframe = -1;
@@ -963,6 +862,18 @@ SCR_PlayCinematic(char *arg)
 			memcpy(cl.cinematicpalette, palette, sizeof(cl.cinematicpalette));
 			Z_Free(palette);
 		}
+		else if (cin.color_bits == 8)
+		{
+			int i;
+
+			/* palette r:2bit, g:3bit, b:3bit */
+			for (i = 0; i < sizeof(cl.cinematicpalette) / 3; i++)
+			{
+				cl.cinematicpalette[i * 3 + 0] = ((i >> 0) & 0x3) << 6;
+				cl.cinematicpalette[i * 3 + 1] = ((i >> 2) & 0x7) << 5;
+				cl.cinematicpalette[i * 3 + 2] = ((i >> 5) & 0x7) << 5;
+			}
+		}
 
 		return;
 	}
@@ -970,6 +881,7 @@ SCR_PlayCinematic(char *arg)
 #ifdef AVMEDIADECODE
 	if (dot && (!strcmp(dot, ".cin") ||
 				!strcmp(dot, ".ogv") ||
+				!strcmp(dot, ".avi") ||
 				!strcmp(dot, ".mpg") ||
 				!strcmp(dot, ".smk") ||
 				!strcmp(dot, ".roq")))
@@ -983,6 +895,7 @@ SCR_PlayCinematic(char *arg)
 		if (SCR_LoadAVcodec(namewe, ".ogv") ||
 			SCR_LoadAVcodec(namewe, ".roq") ||
 			SCR_LoadAVcodec(namewe, ".mpg") ||
+			SCR_LoadAVcodec(namewe, ".avi") ||
 			SCR_LoadAVcodec(namewe, dot))
 		{
 			SCR_EndLoadingPlaque();
@@ -1030,7 +943,9 @@ SCR_PlayCinematic(char *arg)
 		}
 
 		cin.plm_video = plm_create_with_memory(cin.raw_video, len, 0);
-		if (!cin.plm_video || !cin.plm_video->demux)
+		if (!cin.plm_video ||
+			!plm_probe(cin.plm_video, len) ||
+			!cin.plm_video->demux)
 		{
 			FS_FreeFile(cin.raw_video);
 			cin.raw_video = NULL;

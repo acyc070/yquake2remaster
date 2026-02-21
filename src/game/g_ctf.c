@@ -464,7 +464,7 @@ CTFAssignSkin(edict_t *ent, char *s)
 	}
 	else
 	{
-		strcpy(t, "male/");
+		Q_strlcpy(t, "male/", sizeof(t));
 	}
 
 	switch (ent->client->resp.ctf_team)
@@ -1198,7 +1198,7 @@ CTFFlagSetup(edict_t *ent)
 
 	if (tr.startsolid)
 	{
-		gi.dprintf("CTFFlagSetup: %s startsolid at %s\n", ent->classname,
+		gi.dprintf("%s: %s startsolid at %s\n", __func__, ent->classname,
 				vtos(ent->s.origin));
 		G_FreeEdict(ent);
 		return;
@@ -1357,7 +1357,7 @@ CTFSetIDView(edict_t *ent)
 		}
 	}
 
-	if (bd > 0.90)
+	if (bd > 0.90 && best)
 	{
 		ent->client->ps.stats[STAT_CTF_ID_VIEW] =
 			CS_GENERAL + (best - g_edicts - 1);
@@ -1403,7 +1403,8 @@ SetCTFStats(edict_t *ent)
 	if (ent->client->resp.ghost)
 	{
 		ent->client->resp.ghost->score = ent->client->resp.score;
-		strcpy(ent->client->resp.ghost->netname, ent->client->pers.netname);
+		Q_strlcpy(ent->client->resp.ghost->netname, ent->client->pers.netname,
+			sizeof(ent->client->resp.ghost->netname));
 		ent->client->resp.ghost->number = ent->s.number;
 	}
 
@@ -1600,6 +1601,7 @@ SetCTFStats(edict_t *ent)
 void
 SP_info_player_team1(edict_t *self)
 {
+	DynamicResetSpawnModels(self);
 }
 
 /*
@@ -1609,6 +1611,7 @@ SP_info_player_team1(edict_t *self)
 void
 SP_info_player_team2(edict_t *self)
 {
+	DynamicResetSpawnModels(self);
 }
 
 /*------------------------------------------------------------------------*/
@@ -1750,8 +1753,6 @@ CTFGrappleDrawCable(edict_t *self)
 	gi.WritePosition(offset);
 	gi.multicast(self->s.origin, MULTICAST_PVS);
 }
-
-void SV_AddGravity(edict_t *ent);
 
 /*
  * pull the player toward the grapple
@@ -2075,10 +2076,10 @@ CTFScoreboardMessage(edict_t *ent, edict_t *killer)
 {
 	char entry[1024];
 	char string[1400];
-	int len;
+	size_t len;
 	int i, j, k, n;
-	int sorted[2][MAX_CLIENTS];
-	int sortedscores[2][MAX_CLIENTS];
+	int sorted[2][MAX_CLIENTS] = {0};
+	int sortedscores[2][MAX_CLIENTS] = {0};
 	int score, total[2], totalscore[2];
 	int last[2];
 	gclient_t *cl;
@@ -2138,10 +2139,9 @@ CTFScoreboardMessage(edict_t *ent, edict_t *killer)
 	/* print level name and exit rules
 	   add the clients in sorted order */
 	*string = 0;
-	len = 0;
 
 	/* team one */
-	sprintf(string, "if 24 xv 8 yv 8 pic 24 endif "
+	snprintf(string, sizeof(string), "if 24 xv 8 yv 8 pic 24 endif "
 					"xv 40 yv 28 string \"%4d/%-3d\" "
 					"xv 98 yv 12 num 2 18 "
 					"if 25 xv 168 yv 8 pic 25 endif "
@@ -2178,7 +2178,7 @@ CTFScoreboardMessage(edict_t *ent, edict_t *killer)
 
 			if (maxsize - len > strlen(entry))
 			{
-				strcat(string, entry);
+				Q_strlcat(string, entry, sizeof(string));
 				len = strlen(string);
 				last[0] = i;
 			}
@@ -2202,7 +2202,7 @@ CTFScoreboardMessage(edict_t *ent, edict_t *killer)
 
 			if (maxsize - len > strlen(entry))
 			{
-				strcat(string, entry);
+				Q_strlcat(string, entry, sizeof(string));
 				len = strlen(string);
 				last[1] = i;
 			}
@@ -2241,7 +2241,7 @@ CTFScoreboardMessage(edict_t *ent, edict_t *killer)
 			{
 				k = 1;
 				sprintf(entry, "xv 0 yv %d string2 \"Spectators\" ", j);
-				strcat(string, entry);
+				Q_strlcat(string, entry, sizeof(string));
 				len = strlen(string);
 				j += 8;
 			}
@@ -2256,7 +2256,7 @@ CTFScoreboardMessage(edict_t *ent, edict_t *killer)
 
 			if (maxsize - len > strlen(entry))
 			{
-				strcat(string, entry);
+				Q_strlcat(string, entry, sizeof(string));
 				len = strlen(string);
 			}
 
@@ -3098,7 +3098,7 @@ CTFSay_Team_Sight(edict_t *who, char *buf)
 					strcat(s, ", ");
 				}
 
-				strcat(s, s2);
+				Q_strlcat(s, s2, sizeof(s));
 				*s2 = 0;
 			}
 
@@ -3114,10 +3114,10 @@ CTFSay_Team_Sight(edict_t *who, char *buf)
 		{
 			if (n)
 			{
-				strcat(s, " and ");
+				Q_strlcat(s, " and ", sizeof(s));
 			}
 
-			strcat(s, s2);
+			Q_strlcat(s, s2, sizeof(s));
 		}
 
 		strcpy(buf, s);
@@ -3321,11 +3321,11 @@ SetLevelName(pmenu_t *p)
 
 	if (g_edicts[0].message)
 	{
-		strncpy(levelname + 1, g_edicts[0].message, sizeof(levelname) - 2);
+		Q_strlcpy(levelname + 1, g_edicts[0].message, sizeof(levelname) - 1);
 	}
 	else
 	{
-		strncpy(levelname + 1, level.mapname, sizeof(levelname) - 2);
+		Q_strlcpy(levelname + 1, level.mapname, sizeof(levelname) - 1);
 	}
 
 	levelname[sizeof(levelname) - 1] = 0;
@@ -3381,7 +3381,7 @@ CTFBeginElection(edict_t *ent, elect_t type, char *msg)
 	ctfgame.evotes = 0;
 	ctfgame.needvotes = (count * electpercentage->value) / 100;
 	ctfgame.electtime = level.time + 20; /* twenty seconds for election */
-	strncpy(ctfgame.emsg, msg, sizeof(ctfgame.emsg) - 1);
+	Q_strlcpy(ctfgame.emsg, msg, sizeof(ctfgame.emsg));
 
 	/* tell everyone */
 	gi.bprintf(PRINT_CHAT, "%s\n", ctfgame.emsg);
@@ -3542,8 +3542,8 @@ CTFStartMatch(void)
 			ent->client->respawn_time = level.time + 1.0 + ((rand() % 30) / 10.0);
 			ent->client->ps.pmove.pm_type = PM_DEAD;
 			ent->client->anim_priority = ANIM_DEATH;
-			ent->s.frame = FRAME_death308 - 1;
-			ent->client->anim_end = FRAME_death308;
+			P_SetAnimGroup(ent, "death", FRAME_death301, FRAME_death308, 3);
+			ent->s.frame = ent->client->anim_end - 1;
 			ent->deadflag = DEAD_DEAD;
 			ent->movetype = MOVETYPE_NOCLIP;
 			ent->client->ps.gunindex = 0;
@@ -3634,7 +3634,7 @@ CTFWinElection(void)
 		case ELECT_MAP:
 			gi.bprintf(PRINT_HIGH, "%s is warping to level %s.\n",
 				ctfgame.etarget->client->pers.netname, ctfgame.elevel);
-			strncpy(level.forcemap, ctfgame.elevel, sizeof(level.forcemap) - 1);
+			Q_strlcpy(level.forcemap, ctfgame.elevel, sizeof(level.forcemap));
 			EndDMLevel();
 			break;
 		default:
@@ -3832,7 +3832,7 @@ CTFGhost(edict_t *ent)
 		return;
 	}
 
-	n = atoi(gi.argv(1));
+	n = (int)strtol(gi.argv(1), (char **)NULL, 10);
 
 	for (i = 0; i < MAX_CLIENTS; i++)
 	{
@@ -4281,7 +4281,7 @@ CTFObserver(edict_t *ent)
 	ent->client->ps.gunindex = 0;
 	ent->client->resp.score = 0;
 	memcpy(userinfo, ent->client->pers.userinfo, sizeof(userinfo));
-	InitClientPersistant(ent->client);
+	InitClientPersistant(ent);
 	ClientUserinfoChanged(ent, userinfo);
 	gi.linkentity(ent);
 	CTFOpenJoinMenu(ent);
@@ -4835,6 +4835,11 @@ CTFAdmin_Settings(edict_t *ent, pmenuhnd_t *p)
 	PMenu_Close(ent);
 
 	settings = malloc(sizeof(*settings));
+	if (!settings)
+	{
+		gi.error("%s: malloc failed\n", __func__);
+		return;
+	}
 
 	settings->matchlen = matchtime->value;
 	settings->matchsetuplen = matchsetuptime->value;
@@ -5019,7 +5024,7 @@ CTFStats(edict_t *ent)
 
 				if (strlen(text) + strlen(st) < sizeof(text) - 50)
 				{
-					strcat(text, st);
+					Q_strlcat(text, st, sizeof(text));
 				}
 			}
 		}
@@ -5044,7 +5049,8 @@ CTFStats(edict_t *ent)
 		return;
 	}
 
-	strcat(text, "  #|Name            |Score|Kills|Death|BasDf|CarDf|Effcy|\n");
+	Q_strlcat(text, "  #|Name            |Score|Kills|Death|BasDf|CarDf|Effcy|\n",
+		sizeof(text));
 
 	for (i = 0, g = ctfgame.ghosts; i < MAX_CLIENTS; i++, g++)
 	{
@@ -5073,7 +5079,7 @@ CTFStats(edict_t *ent)
 			return;
 		}
 
-		strcat(text, st);
+		Q_strlcat(text, st, sizeof(text));
 	}
 
 	gi.cprintf(ent, PRINT_HIGH, "%s", text);
@@ -5116,7 +5122,7 @@ CTFPlayerList(edict_t *ent)
 			return;
 		}
 
-		strcat(text, st);
+		Q_strlcat(text, st, sizeof(text));
 	}
 
 	gi.cprintf(ent, PRINT_HIGH, "%s", text);
@@ -5166,7 +5172,7 @@ CTFWarp(edict_t *ent)
 	{
 		gi.bprintf(PRINT_HIGH, "%s is warping to level %s.\n",
 				ent->client->pers.netname, gi.argv(1));
-		strncpy(level.forcemap, gi.argv(1), sizeof(level.forcemap) - 1);
+		Q_strlcpy(level.forcemap, gi.argv(1), sizeof(level.forcemap));
 		EndDMLevel();
 		return;
 	}
@@ -5176,7 +5182,7 @@ CTFWarp(edict_t *ent)
 
 	if (CTFBeginElection(ent, ELECT_MAP, text))
 	{
-		strncpy(ctfgame.elevel, gi.argv(1), sizeof(ctfgame.elevel) - 1);
+		Q_strlcpy(ctfgame.elevel, gi.argv(1), sizeof(ctfgame.elevel));
 	}
 }
 
@@ -5199,13 +5205,13 @@ CTFBoot(edict_t *ent)
 		return;
 	}
 
-	if ((*gi.argv(1) < '0') && (*gi.argv(1) > '9'))
+	if ((*gi.argv(1) < '0') || (*gi.argv(1) > '9'))
 	{
 		gi.cprintf(ent, PRINT_HIGH, "Specify the player number to kick.\n");
 		return;
 	}
 
-	i = atoi(gi.argv(1));
+	i = (int)strtol(gi.argv(1), (char **)NULL, 10);
 
 	if ((i < 1) || (i > maxclients->value))
 	{

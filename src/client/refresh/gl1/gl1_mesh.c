@@ -26,47 +26,13 @@
 
 #include "header/local.h"
 
-#define NUMVERTEXNORMALS 162
-#define SHADEDOT_QUANT 16
-
-/* precalculated dot products for quantized angles */
-static float r_avertexnormal_dots[SHADEDOT_QUANT][256] = {
-#include "../constants/anormtab.h"
-};
-
-vec3_t shadevector;
-float shadelight[3];
-float *shadedots = r_avertexnormal_dots[0];
-
 static void
-R_DrawAliasDrawCommands(entity_t *currententity, int *order, int *order_end,
-	float alpha, dxtrivertx_t *verts, vec4_t *s_lerped)
+R_DrawAliasDrawCommands(const entity_t *currententity, int *order, const int *order_end,
+	float alpha, dxtrivertx_t *verts, vec4_t *s_lerped, const float *shadelight,
+	const float *shadevector)
 {
-#ifdef _MSC_VER // workaround for lack of VLAs (=> our workaround uses alloca() which is bad in loops)
-	int maxCount = 0;
-	const int* tmpOrder = order;
 	while (1)
 	{
-		int c = *tmpOrder++;
-		if (!c)
-			break;
-		if ( c < 0 )
-			c = -c;
-		if ( c > maxCount )
-			maxCount = c;
-
-		tmpOrder += 3 * c;
-	}
-
-	YQ2_VLA( GLfloat, vtx, 3 * maxCount );
-	YQ2_VLA( GLfloat, tex, 2 * maxCount );
-	YQ2_VLA( GLfloat, clr, 4 * maxCount );
-#endif
-
-	while (1)
-	{
-		unsigned short total;
-		GLenum type;
 		int count;
 
 		/* get the vertex count and primitive type */
@@ -80,44 +46,42 @@ R_DrawAliasDrawCommands(entity_t *currententity, int *order, int *order_end,
 		if (count < 0)
 		{
 			count = -count;
-
-			type = GL_TRIANGLE_FAN;
+			R_SetBufferIndices(GL_TRIANGLE_FAN, count);
 		}
 		else
 		{
-			type = GL_TRIANGLE_STRIP;
+			R_SetBufferIndices(GL_TRIANGLE_STRIP, count);
 		}
-
-		total = count;
-
-#ifndef _MSC_VER // we have real VLAs, so it's safe to use one in this loop
-		YQ2_VLA(GLfloat, vtx, 3*total);
-		YQ2_VLA(GLfloat, tex, 2*total);
-		YQ2_VLA(GLfloat, clr, 4*total);
-#endif
-
-		unsigned int index_vtx = 0;
-		unsigned int index_tex = 0;
-		unsigned int index_clr = 0;
 
 		if (currententity->flags &
 			(RF_SHELL_RED | RF_SHELL_GREEN | RF_SHELL_BLUE))
 		{
 			do
 			{
-				int index_xyz;
+				int index_xyz, i;
+				int idx[3];
 
 				index_xyz = order[2];
 				order += 3;
 
-				clr[index_clr++] = shadelight[0];
-				clr[index_clr++] = shadelight[1];
-				clr[index_clr++] = shadelight[2];
-				clr[index_clr++] = alpha;
+				GLBUFFER_VERTEX(s_lerped[index_xyz][0],
+					s_lerped[index_xyz][1], s_lerped[index_xyz][2])
 
-				vtx[index_vtx++] = s_lerped[index_xyz][0];
-				vtx[index_vtx++] = s_lerped[index_xyz][1];
-				vtx[index_vtx++] = s_lerped[index_xyz][2];
+				for (i = 0; i < 3; i++)
+				{
+					idx[i] = shadelight[i] * 255;
+					idx[i] = Q_clamp(idx[i], 0, 255);
+				}
+
+				if (gl_state.minlight_set)
+				{
+					for (i = 0; i < 3; i++)
+					{
+						idx[i] = minlight[idx[i]];
+					}
+				}
+
+				GLBUFFER_COLOR(idx[0], idx[1], idx[2], alpha * 255)
 			}
 			while (--count);
 		}
@@ -125,48 +89,52 @@ R_DrawAliasDrawCommands(entity_t *currententity, int *order, int *order_end,
 		{
 			do
 			{
-				int index_xyz;
-				float l;
+				int i, index_xyz;
+				vec3_t normal;
+				float l, tex[2];
+				int idx[3];
 
 				/* texture coordinates come from the draw list */
-				tex[index_tex++] = ((float *) order)[0];
-				tex[index_tex++] = ((float *) order)[1];
+				tex[0] = ((float *)order)[0];
+				tex[1] = ((float *)order)[1];
 
 				index_xyz = order[2];
 				order += 3;
 
+				/* unpack normal */
+				for (i = 0; i < 3; i++)
+				{
+					normal[i] = verts[index_xyz].normal[i] / 127.f;
+				}
+
 				/* normals and vertexes come from the frame list */
-				l = shadedots[verts[index_xyz].lightnormalindex];
+				/* shadevector is set above according to rotation (around Z axis I think) */
+				l = DotProduct(normal, shadevector) + 1;
 
-				clr[index_clr++] = l * shadelight[0];
-				clr[index_clr++] = l * shadelight[1];
-				clr[index_clr++] = l * shadelight[2];
-				clr[index_clr++] = alpha;
+				GLBUFFER_VERTEX(s_lerped[index_xyz][0],
+					s_lerped[index_xyz][1], s_lerped[index_xyz][2])
 
-				vtx[index_vtx++] = s_lerped[index_xyz][0];
-				vtx[index_vtx++] = s_lerped[index_xyz][1];
-				vtx[index_vtx++] = s_lerped[index_xyz][2];
+				GLBUFFER_SINGLETEX(tex[0], tex[1])
+
+				for (i = 0; i < 3; i++)
+				{
+					idx[i] = l * shadelight[i] * 255;
+					idx[i] = Q_clamp(idx[i], 0, 255);
+				}
+
+				if (gl_state.minlight_set)
+				{
+					for (i = 0; i < 3; i++)
+					{
+						idx[i] = minlight[idx[i]];
+					}
+				}
+
+				GLBUFFER_COLOR(idx[0], idx[1], idx[2], alpha * 255)
 			}
 			while (--count);
 		}
-
-		glEnableClientState(GL_VERTEX_ARRAY);
-		glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-		glEnableClientState(GL_COLOR_ARRAY);
-
-		glVertexPointer(3, GL_FLOAT, 0, vtx);
-		glTexCoordPointer(2, GL_FLOAT, 0, tex);
-		glColorPointer(4, GL_FLOAT, 0, clr);
-		glDrawArrays(type, 0, total);
-
-		glDisableClientState(GL_VERTEX_ARRAY);
-		glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-		glDisableClientState(GL_COLOR_ARRAY);
 	}
-
-	YQ2_VLAFREE( vtx );
-	YQ2_VLAFREE( tex );
-	YQ2_VLAFREE( clr );
 }
 
 /*
@@ -174,10 +142,11 @@ R_DrawAliasDrawCommands(entity_t *currententity, int *order, int *order_end,
  */
 static void
 R_DrawAliasFrameLerp(entity_t *currententity, dmdx_t *paliashdr, float backlerp,
-	vec4_t *s_lerped)
+	vec4_t *s_lerped, const float *shadelight, const float *shadevector)
 {
 	daliasxframe_t *frame, *oldframe;
-	dxtrivertx_t *v, *ov, *verts;
+	const dxtrivertx_t *ov;
+	dxtrivertx_t *verts;
 	int *order;
 	float frontlerp;
 	float alpha;
@@ -193,7 +162,7 @@ R_DrawAliasFrameLerp(entity_t *currententity, dmdx_t *paliashdr, float backlerp,
 
 	frame = (daliasxframe_t *)((byte *)paliashdr + paliashdr->ofs_frames
 							  + currententity->frame * paliashdr->framesize);
-	verts = v = frame->verts;
+	verts = frame->verts;
 
 	oldframe = (daliasxframe_t *)((byte *)paliashdr + paliashdr->ofs_frames
 				+ currententity->oldframe * paliashdr->framesize);
@@ -208,11 +177,6 @@ R_DrawAliasFrameLerp(entity_t *currententity, dmdx_t *paliashdr, float backlerp,
 	else
 	{
 		alpha = 1.0;
-	}
-
-	if (colorOnly)
-	{
-		glDisable(GL_TEXTURE_2D);
 	}
 
 	frontlerp = 1.0 - backlerp;
@@ -237,56 +201,36 @@ R_DrawAliasFrameLerp(entity_t *currententity, dmdx_t *paliashdr, float backlerp,
 
 	lerp = s_lerped[0];
 
-	R_LerpVerts(colorOnly, paliashdr->num_xyz, v, ov, verts, lerp, move, frontv, backv);
+	R_LerpVerts(colorOnly, paliashdr->num_xyz, verts, ov, lerp,
+		move, frontv, backv, currententity->scale);
 
 	num_mesh_nodes = paliashdr->num_meshes;
 	mesh_nodes = (dmdxmesh_t *)((char*)paliashdr + paliashdr->ofs_meshes);
 
 	for (i = 0; i < num_mesh_nodes; i++)
 	{
-		R_DrawAliasDrawCommands(currententity,
-			order + mesh_nodes[i].start,
-			order + Q_min(paliashdr->num_glcmds,
-				mesh_nodes[i].start + mesh_nodes[i].num),
-			alpha, verts, s_lerped);
-	}
+		if (currententity->rr_mesh & (1 << i))
+		{
+			continue;
+		}
 
-	if (colorOnly)
-	{
-		glEnable(GL_TEXTURE_2D);
+		R_DrawAliasDrawCommands(currententity,
+			order + mesh_nodes[i].ofs_glcmds,
+			order + Q_min(paliashdr->num_glcmds,
+				mesh_nodes[i].ofs_glcmds + mesh_nodes[i].num_glcmds),
+			alpha, verts, s_lerped, shadelight, shadevector);
 	}
 }
 
 static void
-R_DrawAliasShadowCommand(entity_t *currententity, int *order, int *order_end,
-	float height, float lheight, vec4_t *s_lerped)
+R_DrawAliasShadowCommand(const entity_t *currententity, int *order, const int *order_end,
+	float height, float lheight, vec4_t *s_lerped, const float *shadevector)
 {
-	unsigned short total;
-	vec3_t point;
-	GLenum type;
-	int count;
-
-	#ifdef _MSC_VER // workaround for lack of VLAs (=> our workaround uses alloca() which is bad in loops)
-	int maxCount = 0;
-	const int* tmpOrder = order;
 	while (1)
 	{
-		int c = *tmpOrder++;
-		if (!c)
-			break;
-		if (c < 0)
-			c = -c;
-		if (c > maxCount)
-			maxCount = c;
+		vec3_t point;
+		int count;
 
-		tmpOrder += 3 * c;
-	}
-
-	YQ2_VLA(GLfloat, vtx, 3 * maxCount);
-#endif
-
-	while (1)
-	{
 		/* get the vertex count and primitive type */
 		count = *order++;
 
@@ -298,20 +242,12 @@ R_DrawAliasShadowCommand(entity_t *currententity, int *order, int *order_end,
 		if (count < 0)
 		{
 			count = -count;
-
-			type = GL_TRIANGLE_FAN;
+			R_SetBufferIndices(GL_TRIANGLE_FAN, count);
 		}
 		else
 		{
-			type = GL_TRIANGLE_STRIP;
+			R_SetBufferIndices(GL_TRIANGLE_STRIP, count);
 		}
-
-		total = count;
-
-#ifndef _MSC_VER // we have real VLAs, so it's safe to use one in this loop
-		YQ2_VLA(GLfloat, vtx, 3*total);
-#endif
-		unsigned int index_vtx = 0;
 
 		do
 		{
@@ -322,28 +258,22 @@ R_DrawAliasShadowCommand(entity_t *currententity, int *order, int *order_end,
 			point[1] -= shadevector[1] * (point[2] + lheight);
 			point[2] = height;
 
-			vtx[index_vtx++] = point[0];
-			vtx[index_vtx++] = point[1];
-			vtx[index_vtx++] = point[2];
+			GLBUFFER_VERTEX( point[0], point[1], point[2] )
 
 			order += 3;
 		}
 		while (--count);
-
-		glEnableClientState( GL_VERTEX_ARRAY );
-
-		glVertexPointer( 3, GL_FLOAT, 0, vtx );
-		glDrawArrays( type, 0, total );
-
-		glDisableClientState( GL_VERTEX_ARRAY );
 	}
-	YQ2_VLAFREE(vtx);
 }
 
 static void
 R_DrawAliasShadow(entity_t *currententity, dmdx_t *paliashdr, int posenum,
-	vec4_t *s_lerped)
+	vec4_t *s_lerped, vec3_t shadevector)
 {
+	// Don't do stencil test on unsupported stereo modes
+	const qboolean stencilt = ( gl_state.stencil && gl1_stencilshadow->value &&
+		( gl_state.stereo_mode < STEREO_MODE_ROW_INTERLEAVED
+		|| gl_state.stereo_mode > STEREO_MODE_PIXEL_INTERLEAVED ) );
 	int *order, i, num_mesh_nodes;
 	float height = 0, lheight;
 	dmdxmesh_t *mesh_nodes;
@@ -352,8 +282,10 @@ R_DrawAliasShadow(entity_t *currententity, dmdx_t *paliashdr, int posenum,
 	order = (int *)((byte *)paliashdr + paliashdr->ofs_glcmds);
 	height = -lheight + 0.1f;
 
+	R_UpdateGLBuffer(buf_shadow, 0, 0, 0, 1);
+
 	/* stencilbuffer shadows */
-	if (gl_state.stencil && gl1_stencilshadow->value)
+	if (stencilt)
 	{
 		glEnable(GL_STENCIL_TEST);
 		glStencilFunc(GL_EQUAL, 1, 2);
@@ -366,14 +298,16 @@ R_DrawAliasShadow(entity_t *currententity, dmdx_t *paliashdr, int posenum,
 	for (i = 0; i < num_mesh_nodes; i++)
 	{
 		R_DrawAliasShadowCommand(currententity,
-			order + mesh_nodes[i].start,
+			order + mesh_nodes[i].ofs_glcmds,
 			order + Q_min(paliashdr->num_glcmds,
-				mesh_nodes[i].start + mesh_nodes[i].num),
-			height, lheight, s_lerped);
+				mesh_nodes[i].ofs_glcmds + mesh_nodes[i].num_glcmds),
+			height, lheight, s_lerped, shadevector);
 	}
 
+	R_ApplyGLBuffer();
+
 	/* stencilbuffer shadows */
-	if (gl_state.stencil && gl1_stencilshadow->value)
+	if (stencilt)
 	{
 		glDisable(GL_STENCIL_TEST);
 	}
@@ -387,21 +321,21 @@ R_CullAliasModel(const model_t *currentmodel, vec3_t bbox[8], entity_t *e)
 	paliashdr = (dmdx_t *)currentmodel->extradata;
 	if (!paliashdr)
 	{
-		R_Printf(PRINT_ALL, "%s %s: Model is not fully loaded\n",
+		Com_Printf("%s %s: Model is not fully loaded\n",
 				__func__, currentmodel->name);
 		return true;
 	}
 
 	if ((e->frame >= paliashdr->num_frames) || (e->frame < 0))
 	{
-		R_Printf(PRINT_DEVELOPER, "%s %s: no such frame %d\n",
+		Com_DPrintf("%s %s: no such frame %d\n",
 				__func__, currentmodel->name, e->frame);
 		e->frame = 0;
 	}
 
 	if ((e->oldframe >= paliashdr->num_frames) || (e->oldframe < 0))
 	{
-		R_Printf(PRINT_DEVELOPER, "%s %s: no such oldframe %d\n",
+		Com_DPrintf("%s %s: no such oldframe %d\n",
 				__func__, currentmodel->name, e->oldframe);
 		e->oldframe = 0;
 	}
@@ -414,10 +348,11 @@ void
 R_DrawAliasModel(entity_t *currententity, const model_t *currentmodel)
 {
 	int i;
-	dmdx_t *paliashdr;
 	float an;
+	const image_t *skin = NULL;
 	vec3_t bbox[8];
-	image_t *skin = NULL;
+	vec3_t shadevector, shadelight;
+	dmdx_t *paliashdr;
 	vec4_t *s_lerped;
 
 	if (!(currententity->flags & RF_WEAPONMODEL))
@@ -430,7 +365,7 @@ R_DrawAliasModel(entity_t *currententity, const model_t *currentmodel)
 
 	if (currententity->flags & RF_WEAPONMODEL)
 	{
-		if (gl_lefthand->value == 2)
+		if (r_lefthand->value == 2)
 		{
 			return;
 		}
@@ -438,131 +373,28 @@ R_DrawAliasModel(entity_t *currententity, const model_t *currentmodel)
 
 	paliashdr = (dmdx_t *)currentmodel->extradata;
 
-	/* get lighting information */
-	if (currententity->flags &
-		(RF_SHELL_HALF_DAM | RF_SHELL_GREEN | RF_SHELL_RED |
-		 RF_SHELL_BLUE | RF_SHELL_DOUBLE))
+	for (i = 0; i < 3; i++)
 	{
-		VectorClear(shadelight);
-
-		if (currententity->flags & RF_SHELL_HALF_DAM)
+		/* fix scale */
+		if (!currententity->scale[i])
 		{
-			shadelight[0] = 0.56;
-			shadelight[1] = 0.59;
-			shadelight[2] = 0.45;
-		}
-
-		if (currententity->flags & RF_SHELL_DOUBLE)
-		{
-			shadelight[0] = 0.9;
-			shadelight[1] = 0.7;
-		}
-
-		if (currententity->flags & RF_SHELL_RED)
-		{
-			shadelight[0] = 1.0;
-		}
-
-		if (currententity->flags & RF_SHELL_GREEN)
-		{
-			shadelight[1] = 1.0;
-		}
-
-		if (currententity->flags & RF_SHELL_BLUE)
-		{
-			shadelight[2] = 1.0;
+			currententity->scale[i] = 1.0f;
 		}
 	}
-	else if (currententity->flags & RF_FULLBRIGHT)
+
+	if (r_worldmodel)
 	{
-		for (i = 0; i < 3; i++)
-		{
-			shadelight[i] = 1.0;
-		}
+		R_ApplyModelLight(r_worldmodel->grid, currententity, r_worldmodel->surfaces,
+			r_worldmodel->nodes, shadelight, lightspot, r_worldmodel->lightdata);
 	}
 	else
 	{
-		if (!r_worldmodel || !r_worldmodel->lightdata)
-		{
-			shadelight[0] = shadelight[1] = shadelight[2] = 1.0F;
-		}
-		else
-		{
-			R_LightPoint(r_worldmodel->grid, currententity, &r_newrefdef, r_worldmodel->surfaces,
-				r_worldmodel->nodes, currententity->origin, shadelight,
-				r_modulate->value, lightspot);
-		}
-
-		/* player lighting hack for communication back to server */
-		if (currententity->flags & RF_WEAPONMODEL)
-		{
-			/* pick the greatest component, which should be
-			   the same as the mono value returned by software */
-			if (shadelight[0] > shadelight[1])
-			{
-				if (shadelight[0] > shadelight[2])
-				{
-					r_lightlevel->value = 150 * shadelight[0];
-				}
-				else
-				{
-					r_lightlevel->value = 150 * shadelight[2];
-				}
-			}
-			else
-			{
-				if (shadelight[1] > shadelight[2])
-				{
-					r_lightlevel->value = 150 * shadelight[1];
-				}
-				else
-				{
-					r_lightlevel->value = 150 * shadelight[2];
-				}
-			}
-		}
+		R_ApplyModelLight(NULL, currententity, NULL, NULL, shadelight,
+			lightspot, NULL);
 	}
 
-	if (currententity->flags & RF_MINLIGHT)
-	{
-		for (i = 0; i < 3; i++)
-		{
-			if (shadelight[i] > 0.1)
-			{
-				break;
-			}
-		}
-
-		if (i == 3)
-		{
-			shadelight[0] = 0.1;
-			shadelight[1] = 0.1;
-			shadelight[2] = 0.1;
-		}
-	}
-
-	if (currententity->flags & RF_GLOW)
-	{
-		/* bonus items will pulse with time */
-		float scale;
-
-		scale = 0.1 * sin(r_newrefdef.time * 7);
-
-		for (i = 0; i < 3; i++)
-		{
-			float	min;
-
-			min = shadelight[i] * 0.8;
-			shadelight[i] += scale;
-
-			if (shadelight[i] < min)
-			{
-				shadelight[i] = min;
-			}
-		}
-	}
-
-	// Apply gl1_overbrightbits to the mesh. If we don't do this they will appear slightly dimmer relative to walls.
+	/* Apply gl1_overbrightbits to the mesh. If we don't do this they will
+	 * appear slightly dimmer relative to walls. */
 	if (gl1_overbrightbits->value)
 	{
 		for (i = 0; i < 3; ++i)
@@ -580,9 +412,6 @@ R_DrawAliasModel(entity_t *currententity, const model_t *currentmodel)
 		shadelight[2] = 0.0;
 	}
 
-	shadedots = r_avertexnormal_dots[((int)(currententity->angles[1] *
-				(SHADEDOT_QUANT / 360.0))) & (SHADEDOT_QUANT - 1)];
-
 	an = currententity->angles[1] / 180 * M_PI;
 	shadevector[0] = cos(-an);
 	shadevector[1] = sin(-an);
@@ -591,45 +420,6 @@ R_DrawAliasModel(entity_t *currententity, const model_t *currentmodel)
 
 	/* locate the proper data */
 	c_alias_polys += paliashdr->num_tris;
-
-	/* draw all the triangles */
-	if (currententity->flags & RF_DEPTHHACK)
-	{
-		/* hack the depth range to prevent view model from poking into walls */
-		glDepthRange(gldepthmin, gldepthmin + 0.3 * (gldepthmax - gldepthmin));
-	}
-
-	if (currententity->flags & RF_WEAPONMODEL)
-	{
-		extern void R_MYgluPerspective(GLdouble fovy, GLdouble aspect, GLdouble zNear, GLdouble zFar);
-
-		glMatrixMode(GL_PROJECTION);
-		glPushMatrix();
-		glLoadIdentity();
-
-		if (gl_lefthand->value == 1.0F)
-		{
-			glScalef(-1, 1, 1);
-		}
-
-		float dist = (r_farsee->value == 0) ? 4096.0f : 8192.0f;
-
-		if (r_gunfov->value < 0)
-		{
-			R_MYgluPerspective(r_newrefdef.fov_y, (float)r_newrefdef.width / r_newrefdef.height, 4, dist);
-		}
-		else
-		{
-			R_MYgluPerspective(r_gunfov->value, (float)r_newrefdef.width / r_newrefdef.height, 4, dist);
-		}
-
-		glMatrixMode(GL_MODELVIEW);
-
-		if (gl_lefthand->value == 1.0F)
-		{
-			glCullFace(GL_BACK);
-		}
-	}
 
 	glPushMatrix();
 	currententity->angles[PITCH] = -currententity->angles[PITCH];
@@ -648,7 +438,7 @@ R_DrawAliasModel(entity_t *currententity, const model_t *currentmodel)
 			skin = currentmodel->skins[currententity->skinnum];
 		}
 
-		if (!skin)
+		if (!skin && currentmodel->numskins)
 		{
 			skin = currentmodel->skins[0];
 		}
@@ -659,23 +449,11 @@ R_DrawAliasModel(entity_t *currententity, const model_t *currentmodel)
 		skin = r_notexture; /* fallback... */
 	}
 
-	R_Bind(skin->texnum);
-
-	/* draw it */
-	glShadeModel(GL_SMOOTH);
-
-	R_TexEnv(GL_MODULATE);
-
-	if (currententity->flags & RF_TRANSLUCENT)
-	{
-		glEnable(GL_BLEND);
-	}
-
 	if ((currententity->frame >= paliashdr->num_frames) ||
 		(currententity->frame < 0))
 	{
-		R_Printf(PRINT_DEVELOPER, "R_DrawAliasModel %s: no such frame %d\n",
-				currentmodel->name, currententity->frame);
+		Com_DPrintf("%s %s: no such frame %d\n",
+				__func__, currentmodel->name, currententity->frame);
 		currententity->frame = 0;
 		currententity->oldframe = 0;
 	}
@@ -683,8 +461,8 @@ R_DrawAliasModel(entity_t *currententity, const model_t *currentmodel)
 	if ((currententity->oldframe >= paliashdr->num_frames) ||
 		(currententity->oldframe < 0))
 	{
-		R_Printf(PRINT_DEVELOPER, "R_DrawAliasModel %s: no such oldframe %d\n",
-				currentmodel->name, currententity->oldframe);
+		Com_DPrintf("%s %s: no such oldframe %d\n",
+				__func__, currentmodel->name, currententity->oldframe);
 		currententity->frame = 0;
 		currententity->oldframe = 0;
 	}
@@ -697,8 +475,10 @@ R_DrawAliasModel(entity_t *currententity, const model_t *currentmodel)
 	/* buffer for scalled vert from frame */
 	s_lerped = R_VertBufferRealloc(paliashdr->num_xyz);
 
+	R_UpdateGLBuffer(buf_alias, skin->texnum, 0, currententity->flags, 1);
 	R_DrawAliasFrameLerp(currententity, paliashdr, currententity->backlerp,
-		s_lerped);
+		s_lerped, shadelight, shadevector);
+	R_ApplyGLBuffer();
 
 	R_TexEnv(GL_REPLACE);
 	glShadeModel(GL_FLAT);
@@ -710,39 +490,18 @@ R_DrawAliasModel(entity_t *currententity, const model_t *currentmodel)
 		glDisable(GL_CULL_FACE);
 		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 		glDisable(GL_TEXTURE_2D);
-		glBegin(GL_TRIANGLE_STRIP);
 
-		for (i = 0; i < 8; i++)
-		{
-			glVertex3fv(bbox[i]);
-		}
+		glEnableClientState(GL_VERTEX_ARRAY);
+		glVertexPointer(3, GL_FLOAT, 0, bbox);
+		glDrawArrays(GL_TRIANGLE_STRIP, 0, 8);
+		glDisableClientState(GL_VERTEX_ARRAY);
 
-		glEnd();
 		glEnable(GL_TEXTURE_2D);
 		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 		glEnable(GL_CULL_FACE);
 	}
 
-	if (currententity->flags & RF_WEAPONMODEL)
-	{
-		glMatrixMode(GL_PROJECTION);
-		glPopMatrix();
-		glMatrixMode(GL_MODELVIEW);
-		if (gl_lefthand->value == 1.0F)
-			glCullFace(GL_FRONT);
-	}
-
-	if (currententity->flags & RF_TRANSLUCENT)
-	{
-		glDisable(GL_BLEND);
-	}
-
-	if (currententity->flags & RF_DEPTHHACK)
-	{
-		glDepthRange(gldepthmin, gldepthmax);
-	}
-
-	if (gl_shadows->value &&
+	if (r_shadows->value &&
 		!(currententity->flags & (RF_TRANSLUCENT | RF_WEAPONMODEL | RF_NOSHADOW)))
 	{
 		glPushMatrix();
@@ -755,7 +514,7 @@ R_DrawAliasModel(entity_t *currententity, const model_t *currentmodel)
 		glEnable(GL_BLEND);
 		glColor4f(0, 0, 0, 0.5f);
 		R_DrawAliasShadow(currententity, paliashdr, currententity->frame,
-			s_lerped);
+			s_lerped, shadevector);
 		glEnable(GL_TEXTURE_2D);
 		glDisable(GL_BLEND);
 		glPopMatrix();

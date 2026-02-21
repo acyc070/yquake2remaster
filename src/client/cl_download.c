@@ -76,8 +76,7 @@ void
 CL_RequestNextDownload(void)
 {
 	unsigned int map_checksum; /* for detecting cheater maps */
-	char fn[MAX_OSPATH];
-	dmdl_t *pheader;
+	const dmdl_t *pheader;
 
 	if (precacherIteration == 0)
 	{
@@ -250,6 +249,8 @@ CL_RequestNextDownload(void)
 			while (precache_check < CS_SOUNDS + MAX_SOUNDS &&
 				   cl.configstrings[precache_check][0])
 			{
+				char fn[MAX_OSPATH];
+
 				if (cl.configstrings[precache_check][0] == '*')
 				{
 					precache_check++;
@@ -280,6 +281,8 @@ CL_RequestNextDownload(void)
 		while (precache_check < CS_IMAGES + MAX_IMAGES &&
 			   cl.configstrings[precache_check][0])
 		{
+			char fn[MAX_OSPATH];
+
 			Com_sprintf(fn, sizeof(fn), "pics/%s.pcx",
 					cl.configstrings[precache_check++]);
 
@@ -304,6 +307,7 @@ CL_RequestNextDownload(void)
 			{
 				int i, n;
 				char model[MAX_QPATH], skin[MAX_QPATH], *p;
+				char fn[MAX_OSPATH];
 
 				i = (precache_check - CS_PLAYERSKINS) / PLAYER_MULT;
 				n = (precache_check - CS_PLAYERSKINS) % PLAYER_MULT;
@@ -323,7 +327,7 @@ CL_RequestNextDownload(void)
 					p = cl.configstrings[CS_PLAYERSKINS + i];
 				}
 
-				strcpy(model, p);
+				Q_strlcpy(model, p, sizeof(model));
 
 				p = strchr(model, '/');
 
@@ -335,7 +339,7 @@ CL_RequestNextDownload(void)
 				if (p)
 				{
 					*p++ = 0;
-					strcpy(skin, p);
+					Q_strlcpy(skin, p, sizeof(skin));
 				}
 
 				else
@@ -354,7 +358,7 @@ CL_RequestNextDownload(void)
 							return;
 						}
 
-						n++;
+						/* fall through */
 
 					case 1: /* weapon model */
 						Com_sprintf(fn, sizeof(fn), "players/%s/weapon.md2", model);
@@ -365,7 +369,7 @@ CL_RequestNextDownload(void)
 							return;
 						}
 
-						n++;
+						/* fall through */
 
 					case 2: /* weapon skin */
 						Com_sprintf(fn, sizeof(fn), "players/%s/weapon.pcx", model);
@@ -376,7 +380,7 @@ CL_RequestNextDownload(void)
 							return;
 						}
 
-						n++;
+						/* fall through */
 
 					case 3: /* skin */
 						Com_sprintf(fn, sizeof(fn), "players/%s/%s.pcx", model, skin);
@@ -387,7 +391,7 @@ CL_RequestNextDownload(void)
 							return;
 						}
 
-						n++;
+						/* fall through */
 
 					case 4: /* skin_i */
 						Com_sprintf(fn, sizeof(fn), "players/%s/%s_i.pcx", model, skin);
@@ -446,6 +450,8 @@ CL_RequestNextDownload(void)
 		{
 			while (precache_check < TEXTURE_CNT)
 			{
+				char fn[MAX_OSPATH];
+
 				int n = precache_check++ - ENV_CNT - 1;
 
 				if (n & 1)
@@ -541,6 +547,61 @@ CL_DownloadFileName(char *dest, int destlen, char *fn)
 }
 
 /*
+ * Returns true if a file is filtered and
+ * should not be downloaded, false otherwise.
+ */
+static qboolean
+CL_DownloadFilter(const char *filename)
+{
+	size_t i;
+	static const char *extensions[] = {
+		".dll",
+		".dylib",
+		".lib",
+		".so",
+		".a",
+		NULL,
+	};
+
+	if ((*filename == '.') || (*filename == '/') || strchr(filename, ':') || strstr(filename, ".."))
+	{
+		Com_Printf("Refusing to download a path containing '..' or ':' or starting with '.' or '/': %s\n", filename);
+		return true;
+	}
+
+	for (i = 0; extensions[i]; i ++) {
+		if (strstr(filename, extensions[i]))
+		{
+			Com_Printf("Refusing to download a path containing '%s': %s\n", extensions[i], filename);
+			return true;
+		}
+	}
+
+	char *nodownload = strdup(cl_nodownload_list->string);
+	char *nodownload_token = strtok(nodownload, " ");
+	while (nodownload_token != NULL)
+	{
+		Com_Printf("Token: %s\n", nodownload_token);
+		if (Q_strcasestr(filename, nodownload_token))
+		{
+			Com_Printf("Filename is filtered by cl_nodownload_list: %s\n", filename);
+			free(nodownload);
+			return true;
+		}
+		nodownload_token = strtok(NULL, " ");
+	}
+	free(nodownload);
+
+	if (FS_LoadFile((char *) filename, NULL) != -1)
+	{
+		/* it exists, no need to download */
+		return true;
+	}
+
+	return false;
+}
+
+/*
  * Returns true if the file exists, otherwise it attempts
  * to start a download from the server.
  */
@@ -557,15 +618,8 @@ CL_CheckOrDownloadFile(const char *filename)
 		*ptr = '/';
 	}
 
-	if (FS_LoadFile(filename, NULL) != -1)
+	if (CL_DownloadFilter(filename))
 	{
-		/* it exists, no need to download */
-		return true;
-	}
-
-	if (strstr(filename, "..") || strstr(filename, ":") || (*filename == '.') || (*filename == '/'))
-	{
-		Com_Printf("Refusing to download a path with ..: %s\n", filename);
 		return true;
 	}
 
@@ -614,13 +668,13 @@ CL_CheckOrDownloadFile(const char *filename)
 		}
 	}
 #endif
-	strcpy(cls.downloadname, filename);
+	Q_strlcpy(cls.downloadname, filename, sizeof(cls.downloadname));
 
 	/* download to a temp name, and only rename
 	   to the real name when done, so if interrupted
 	   a runt file wont be left */
 	COM_StripExtension(cls.downloadname, cls.downloadtempname);
-	strcat(cls.downloadtempname, ".tmp");
+	Q_strlcat(cls.downloadtempname, ".tmp", sizeof(cls.downloadtempname));
 
 	/* check to see if we already have a tmp for this
 	   file, if so, try to resume and open the file if
@@ -633,7 +687,14 @@ CL_CheckOrDownloadFile(const char *filename)
 	{
 		/* it exists */
 		int len;
-		fseek(fp, 0, SEEK_END);
+
+		if (fseek(fp, 0, SEEK_END))
+		{
+			Com_Error(ERR_FATAL, "%s: can't seek in file '%s'",
+				__func__, name);
+			return true;
+		}
+
 		len = ftell(fp);
 
 		cls.download = fp;
@@ -672,16 +733,8 @@ CL_Download_f(void)
 
 	Com_sprintf(filename, sizeof(filename), "%s", Cmd_Argv(1));
 
-	if (strstr(filename, ".."))
+	if (CL_DownloadFilter(filename))
 	{
-		Com_Printf("Refusing to download a path with ..\n");
-		return;
-	}
-
-	if (FS_LoadFile(filename, NULL) != -1)
-	{
-		/* it exists, no need to download */
-		Com_Printf("File already exists.\n");
 		return;
 	}
 
@@ -713,6 +766,11 @@ CL_ParseDownload(void)
 	/* read the data */
 	size = MSG_ReadShort(&net_message);
 	percent = MSG_ReadByte(&net_message);
+	if (percent < 0)
+	{
+		Com_Error(ERR_DROP, "%s: unexpected message end", __func__);
+		return;
+	}
 
 	if (size == -1)
 	{

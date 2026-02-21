@@ -36,32 +36,10 @@ extern int edit_line;
 extern int key_linepos;
 
 void
-DrawStringScaled(int x, int y, const char *s, float factor)
-{
-	while (*s)
-	{
-		Draw_CharScaled(x, y, *s, factor);
-		x += 8*factor;
-		s++;
-	}
-}
-
-void
-DrawAltStringScaled(int x, int y, const char *s, float factor)
-{
-	while (*s)
-	{
-		Draw_CharScaled(x, y, *s ^ 0x80, factor);
-		x += 8*factor;
-		s++;
-	}
-}
-
-void
 Key_ClearTyping(void)
 {
-	key_lines[edit_line][1] = 0; /* clear any typing */
-	key_linepos = 1;
+	key_lines[edit_line][0] = '\0';
+	key_linepos = 0;
 }
 
 void
@@ -157,8 +135,8 @@ Con_Clear_f(void)
 static void
 Con_Dump_f(void)
 {
+	const char *line;
 	int l, x;
-	char *line;
 	FILE *f;
 	char buffer[1024];
 	char name[MAX_OSPATH];
@@ -269,8 +247,7 @@ Con_MessageMode2_f(void)
 void
 Con_CheckResize(void)
 {
-	int i, j, width, oldwidth, oldtotallines, numlines, numchars;
-	char tbuf[CON_TEXTSIZE];
+	int width;
 	float scale = SCR_GetConsoleScale();
 
 	/* We need to clamp the line width to MAXCMDLINE - 2,
@@ -297,6 +274,9 @@ Con_CheckResize(void)
 	}
 	else
 	{
+		int i, oldwidth, oldtotallines, numlines, numchars;
+		char tbuf[CON_TEXTSIZE];
+
 		oldwidth = con.linewidth;
 		con.linewidth = width;
 		oldtotallines = con.totallines;
@@ -315,11 +295,13 @@ Con_CheckResize(void)
 			numchars = con.linewidth;
 		}
 
-		memcpy(tbuf, con.text, CON_TEXTSIZE);
+		memcpy(tbuf, con.text, sizeof(tbuf));
 		memset(con.text, ' ', CON_TEXTSIZE);
 
 		for (i = 0; i < numlines; i++)
 		{
+			int j;
+
 			for (j = 0; j < numchars; j++)
 			{
 				con.text[(con.totallines - 1 - i) * con.linewidth + j] =
@@ -377,7 +359,7 @@ Con_Linefeed(void)
  * visible, the text will appear at the top of the game window
  */
 void
-Con_Print(char *txt)
+Con_Print(const char *txt)
 {
 	int y;
 	int c, l;
@@ -471,6 +453,10 @@ Con_DrawInput(void)
 	int i;
 	float scale;
 	char *text;
+	char ch;
+	size_t txtlen;
+	int linepos;
+	int draw_icon;
 
 	if (cls.key_dest == key_menu)
 	{
@@ -485,29 +471,50 @@ Con_DrawInput(void)
 
 	scale = SCR_GetConsoleScale();
 	text = key_lines[edit_line];
-
-	/* add the cursor frame */
-	text[key_linepos] = 10 + ((int)(cls.realtime >> 8) & 1);
-
-	/* fill out remainder with spaces */
-	for (i = key_linepos + 1; i < con.linewidth; i++)
-	{
-		text[i] = ' ';
-	}
+	linepos = key_linepos;
 
 	/* prestep if horizontally scrolling */
-	if (key_linepos >= con.linewidth)
+	if (linepos >= (con.linewidth - 1))
 	{
-		text += 1 + key_linepos - con.linewidth;
+		int ofs = 1 + linepos - con.linewidth;
+
+		text += ofs;
+		linepos -= ofs;
+
+		draw_icon = 0;
+	}
+	else
+	{
+		Draw_CharScaled(8 * scale, con.vislines - 22 * scale, CON_INPUT_INDICATOR, scale);
+		draw_icon = 1;
 	}
 
-	for (i = 0; i < con.linewidth; i++)
-	{
-		Draw_CharScaled(((i + 1) << 3) * scale, con.vislines - 22 * scale, text[i], scale);
-	}
+	txtlen = strlen(text);
 
-	/* remove cursor */
-	key_lines[edit_line][key_linepos] = 0;
+	for (i = 0; i < (con.linewidth - draw_icon); i++)
+	{
+		if (i == linepos)
+		{
+			if ((cls.realtime >> 8) & 1)
+			{
+				ch = CON_INPUT_CURSOR;
+			}
+			else
+			{
+				ch = (text[i] == '\0') ? 10 : text[i];
+			}
+		}
+		else if (i >= txtlen)
+		{
+			ch = ' ';
+		}
+		else
+		{
+			ch = text[i];
+		}
+
+		Draw_CharScaled(((i + 1 + draw_icon) << 3) * scale, con.vislines - 22 * scale, ch, scale);
+	}
 }
 
 /*
@@ -517,11 +524,9 @@ void
 Con_DrawNotify(void)
 {
 	int x, v;
-	char *text;
+	const char *text;
 	int i;
 	int time;
-	char *s;
-	int skip;
 	float scale;
 
 	v = 0;
@@ -560,14 +565,17 @@ Con_DrawNotify(void)
 
 	if (cls.key_dest == key_message)
 	{
+		int skip;
+		char *s;
+
 		if (chat_team)
 		{
-			DrawStringScaled(8 * scale, v * scale, "say_team:", scale);
+			Draw_StringScaled(8 * scale, v * scale, scale, false, "say_team:");
 			skip = 11;
 		}
 		else
 		{
-			DrawStringScaled(8 * scale, v * scale, "say:", scale);
+			Draw_StringScaled(8 * scale, v * scale, scale, false, "say:");
 			skip = 5;
 		}
 
@@ -605,8 +613,8 @@ Con_DrawConsole(float frac)
 {
 	int i, j, x, y, n;
 	int rows;
-	int verLen;
-	char *text;
+	size_t verLen;
+	const char *text;
 	int row;
 	int lines;
 	float scale;
@@ -616,7 +624,7 @@ Con_DrawConsole(float frac)
 	char tmpbuf[48];
 
 	time_t t;
-	struct tm *today;
+	const struct tm *today;
 
 	scale = SCR_GetConsoleScale();
 	lines = viddef.height * frac;
@@ -641,10 +649,7 @@ Con_DrawConsole(float frac)
 
 	verLen = strlen(version);
 
-	for (x = 0; x < verLen; x++)
-	{
-		Draw_CharScaled(viddef.width - ((verLen*8+5) * scale) + x * 8 * scale, lines - 35 * scale, 128 + version[x], scale);
-	}
+	Draw_StringScaled(viddef.width - ((verLen * 8 + 5) * scale), lines - 35 * scale, scale, true, version);
 
 	t = time(NULL);
 	today = localtime(&t);
@@ -652,10 +657,7 @@ Con_DrawConsole(float frac)
 
 	Com_sprintf(tmpbuf, sizeof(tmpbuf), "%s", timebuf);
 
-	for (x = 0; x < 21; x++)
-	{
-		Draw_CharScaled(viddef.width - (173 * scale) + x * 8 * scale, lines - 25 * scale, 128 + tmpbuf[x], scale);
-	}
+	Draw_StringScaled(viddef.width - (173 * scale), lines - 25 * scale, scale, true, tmpbuf);
 
 	/* draw the text */
 	con.vislines = lines;
@@ -765,7 +767,7 @@ Con_DrawConsole(float frac)
 		sprintf(dlbar + strlen(dlbar), " %02d%%", cls.downloadpercent);
 
 		/* draw it */
-		y = con.vislines - 12;
+		y = (lines - 12 * scale) / scale;
 
 		for (i = 0; i < strlen(dlbar); i++)
 		{
@@ -776,4 +778,3 @@ Con_DrawConsole(float frac)
 	/* draw the input prompt, user text, and cursor if desired */
 	Con_DrawInput();
 }
-

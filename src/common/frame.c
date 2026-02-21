@@ -38,7 +38,6 @@ cvar_t *dedicated;
 extern cvar_t *color_terminal;
 extern cvar_t *logfile_active;
 extern jmp_buf abortframe; /* an ERR_DROP occured, exit the entire frame */
-extern zhead_t z_chain;
 
 #ifndef DEDICATED_ONLY
 FILE *log_stats_file;
@@ -53,7 +52,7 @@ cvar_t *showtrace;
 
 // Forward declarations
 #ifndef DEDICATED_ONLY
-int GLimp_GetRefreshRate(void);
+float GLimp_GetRefreshRate(void);
 qboolean R_IsVSyncActive(void);
 #endif
 
@@ -117,7 +116,7 @@ static void
 Qcommon_Buildstring(void)
 {
 	int i;
-	int verLen;
+	size_t verLen;
 	const char* versionString;
 
 
@@ -126,7 +125,7 @@ Qcommon_Buildstring(void)
 
 	printf("\n%s\n", versionString);
 
-	for( i = 0; i < verLen; ++i)
+	for (i = 0; i < verLen; ++i)
 	{
 		printf("=");
 	}
@@ -160,6 +159,12 @@ Qcommon_Buildstring(void)
 #else
 	printf(" - AVcodec decode\n");
 #endif
+#endif
+
+#ifdef USE_XDG
+	printf(" + XDG directory support\n");
+#else
+	printf(" - XDG directory support\n");
 #endif
 
 	printf("Platform: %s\n", YQ2OSTYPE);
@@ -236,7 +241,7 @@ void Qcommon_ExecConfigs(qboolean gameStartUp)
 static qboolean checkForHelp(int argc, char **argv)
 {
 	const char* helpArgs[] = { "--help", "-h", "-help", "-?", "/?" };
-	const int numHelpArgs = sizeof(helpArgs)/sizeof(helpArgs[0]);
+	const int numHelpArgs = ARRLEN(helpArgs);
 
 	for (int i=1; i<argc; ++i)
 	{
@@ -313,7 +318,7 @@ Qcommon_Init(int argc, char **argv)
 	randk_seed();
 
 	// Initialize zone malloc().
-	z_chain.next = z_chain.prev = &z_chain;
+	Z_Init();
 
 	// Start early subsystems.
 	COM_InitArgv(argc, argv);
@@ -332,15 +337,25 @@ Qcommon_Init(int argc, char **argv)
 	   the settings of the config files */
 	Cbuf_AddEarlyCommands(false);
 	Cbuf_Execute();
+	/* Set default maptype  */
+	Cvar_Get("maptype", "0", CVAR_ARCHIVE);
 
 	// remember the initial game name that might have been set on commandline
 	{
-		cvar_t* gameCvar = Cvar_Get("game", "", CVAR_LATCH | CVAR_SERVERINFO);
+		cvar_t* gameCvar, *gametypeCvar;
 		const char* game = "";
+
+		gameCvar = Cvar_Get("game", "", CVAR_LATCH | CVAR_SERVERINFO);
+		gametypeCvar = Cvar_Get("gametype", "", CVAR_LATCH | CVAR_SERVERINFO);
 
 		if(gameCvar->string && gameCvar->string[0])
 		{
 			game = gameCvar->string;
+			if (strcmp(gametypeCvar->string, gameCvar->string))
+			{
+				/* Set gametype if game is provided */
+				Cvar_Set("gametype", gameCvar->string);
+			}
 		}
 
 		Q_strlcpy(userGivenGame, game, sizeof(userGivenGame));
@@ -348,6 +363,8 @@ Qcommon_Init(int argc, char **argv)
 
 	// The filesystems needs to be initialized after the cvars.
 	FS_InitFilesystem();
+	Mod_AliasesInit();
+	CM_ModInit();
 
 	// Add and execute configuration files.
 	Qcommon_ExecConfigs(true);
@@ -395,6 +412,7 @@ Qcommon_Init(int argc, char **argv)
 	NET_Init();
 	Netchan_Init();
 	SV_Init();
+	SV_LocalizationInit();
 #ifndef DEDICATED_ONLY
 	CL_Init();
 #endif
@@ -562,7 +580,7 @@ Qcommon_Frame(int usec)
 	// Calculate target and renderframerate.
 	if (R_IsVSyncActive())
 	{
-		int refreshrate = GLimp_GetRefreshRate();
+		float refreshrate = GLimp_GetRefreshRate();
 
 		// using refreshRate - 2, because targeting a value slightly below the
 		// (possibly not 100% correctly reported) refreshRate would introduce jittering, so only
@@ -820,6 +838,9 @@ Qcommon_Frame(int usec)
 void
 Qcommon_Shutdown(void)
 {
+	CM_ModFreeAll();
+	Mod_AliasesFreeAll();
+	SV_LocalizationFree();
 	FS_ShutdownFilesystem();
 	Cvar_Fini();
 

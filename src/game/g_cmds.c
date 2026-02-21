@@ -31,7 +31,7 @@
 gitem_t *CTFWhat_Tech(edict_t *ent);
 
 static char *
-ClientTeam(edict_t *ent, char* value)
+ClientTeam(const edict_t *ent, char* value, size_t val_len)
 {
 	char *p;
 
@@ -47,7 +47,7 @@ ClientTeam(edict_t *ent, char* value)
 		return value;
 	}
 
-	strcpy(value, Info_ValueForKey(ent->client->pers.userinfo, "skin"));
+	Q_strlcpy(value, Info_ValueForKey(ent->client->pers.userinfo, "skin"), val_len);
 	p = strchr(value, '/');
 
 	if (!p)
@@ -65,7 +65,7 @@ ClientTeam(edict_t *ent, char* value)
 }
 
 qboolean
-OnSameTeam(edict_t *ent1, edict_t *ent2)
+OnSameTeam(const edict_t *ent1, const edict_t *ent2)
 {
 	char ent1Team[512];
 	char ent2Team[512];
@@ -80,8 +80,8 @@ OnSameTeam(edict_t *ent1, edict_t *ent2)
 		return false;
 	}
 
-	ClientTeam(ent1, ent1Team);
-	ClientTeam(ent2, ent2Team);
+	ClientTeam(ent1, ent1Team, sizeof(ent1Team));
+	ClientTeam(ent2, ent2Team, sizeof(ent2Team));
 
 	if (ent1Team[0] != '\0' && strcmp(ent1Team, ent2Team) == 0)
 	{
@@ -91,12 +91,11 @@ OnSameTeam(edict_t *ent1, edict_t *ent2)
 	return false;
 }
 
-void
+static void
 SelectNextItem(edict_t *ent, int itflags)
 {
 	gclient_t *cl;
-	int i, index;
-	gitem_t *it;
+	int i;
 
 	if (!ent)
 	{
@@ -119,6 +118,9 @@ SelectNextItem(edict_t *ent, int itflags)
 	/* scan  for the next valid one */
 	for (i = 1; i <= MAX_ITEMS; i++)
 	{
+		const gitem_t *it;
+		int index;
+
 		index = (cl->pers.selected_item + i) % MAX_ITEMS;
 
 		if (!cl->pers.inventory[index])
@@ -145,12 +147,11 @@ SelectNextItem(edict_t *ent, int itflags)
 	cl->pers.selected_item = -1;
 }
 
-void
+static void
 SelectPrevItem(edict_t *ent, int itflags)
 {
 	gclient_t *cl;
-	int i, index;
-	gitem_t *it;
+	int i;
 
 	if (!ent)
 	{
@@ -173,6 +174,9 @@ SelectPrevItem(edict_t *ent, int itflags)
 	/* scan for the next valid one */
 	for (i = 1; i <= MAX_ITEMS; i++)
 	{
+		const gitem_t *it;
+		int index;
+
 		index = (cl->pers.selected_item + MAX_ITEMS - i) % MAX_ITEMS;
 
 		if (!cl->pers.inventory[index])
@@ -202,7 +206,7 @@ SelectPrevItem(edict_t *ent, int itflags)
 void
 ValidateSelectedItem(edict_t *ent)
 {
-	gclient_t *cl;
+	const gclient_t *cl;
 
 	if (!ent)
 	{
@@ -224,7 +228,7 @@ ValidateSelectedItem(edict_t *ent)
 /*
  * Give items to a client
  */
-void
+static void
 Cmd_Give_f(edict_t *ent)
 {
 	char *name;
@@ -291,6 +295,13 @@ Cmd_Give_f(edict_t *ent)
 				continue;
 			}
 
+			if (!ItemHasValidModel(it))
+			{
+				gi.dprintf("Item %s does not have valid model\n",
+					it->classname ? it->classname : "<unknown>");
+				continue;
+			}
+
 			ent->client->pers.inventory[i] += 1;
 		}
 
@@ -316,6 +327,13 @@ Cmd_Give_f(edict_t *ent)
 				continue;
 			}
 
+			if (!ItemHasValidModel(it))
+			{
+				gi.dprintf("Item %s does not have valid model\n",
+					it->classname ? it->classname : "<unknown>");
+				continue;
+			}
+
 			Add_Ammo(ent, it, 1000);
 		}
 
@@ -327,17 +345,26 @@ Cmd_Give_f(edict_t *ent)
 
 	if (give_all || (Q_stricmp(name, "armor") == 0))
 	{
-		gitem_armor_t *info;
+		const gitem_armor_t *info;
 
 		it = FindItem("Jacket Armor");
-		ent->client->pers.inventory[ITEM_INDEX(it)] = 0;
+		if (it)
+		{
+			ent->client->pers.inventory[ITEM_INDEX(it)] = 0;
+		}
 
 		it = FindItem("Combat Armor");
-		ent->client->pers.inventory[ITEM_INDEX(it)] = 0;
+		if (it)
+		{
+			ent->client->pers.inventory[ITEM_INDEX(it)] = 0;
+		}
 
 		it = FindItem("Body Armor");
-		info = (gitem_armor_t *)it->info;
-		ent->client->pers.inventory[ITEM_INDEX(it)] = info->max_count;
+		if (it)
+		{
+			info = (gitem_armor_t *)it->info;
+			ent->client->pers.inventory[ITEM_INDEX(it)] = info->max_count;
+		}
 
 		if (!give_all)
 		{
@@ -348,14 +375,17 @@ Cmd_Give_f(edict_t *ent)
 	if (give_all || (Q_stricmp(name, "Power Shield") == 0))
 	{
 		it = FindItem("Power Shield");
-		it_ent = G_Spawn();
-		it_ent->classname = it->classname;
-		SpawnItem(it_ent, it);
-		Touch_Item(it_ent, ent, NULL, NULL);
-
-		if (it_ent->inuse)
+		if (it)
 		{
-			G_FreeEdict(it_ent);
+			it_ent = G_Spawn();
+			it_ent->classname = it->classname;
+			SpawnItem(it_ent, it);
+			Touch_Item(it_ent, ent, NULL, NULL);
+
+			if (it_ent->inuse)
+			{
+				G_FreeEdict(it_ent);
+			}
 		}
 
 		if (!give_all)
@@ -400,7 +430,12 @@ Cmd_Give_f(edict_t *ent)
 
 		if (!it)
 		{
-			gi.cprintf(ent, PRINT_HIGH, "unknown item\n");
+			it = FindItemByClassname(name);
+		}
+
+		if (!it)
+		{
+			gi.cprintf(ent, PRINT_HIGH, "unknown item: %s\n", name);
 			return;
 		}
 	}
@@ -451,10 +486,67 @@ Cmd_Give_f(edict_t *ent)
 	}
 }
 
+static void
+Cmd_ListItems_f(edict_t *ent)
+{
+	int i;
+
+	if (!ent)
+	{
+		return;
+	}
+
+	if ((deathmatch->value || coop->value) && !sv_cheats->value)
+	{
+		gi.cprintf(ent, PRINT_HIGH,
+				"You must run the server with '+set cheats 1' to enable this command.\n");
+		return;
+	}
+
+	for (i = 0; i < game.num_items; i++)
+	{
+		const char *item_type = "<unknow>";
+		const gitem_t *it;
+
+		it = itemlist + i;
+
+		if (it->flags & IT_WEAPON)
+		{
+			item_type = "weapon";
+		}
+		else if (it->flags & IT_AMMO)
+		{
+			item_type = "ammo";
+		}
+		else if (it->flags & IT_ARMOR)
+		{
+			item_type = "armor";
+		}
+		else if (it->flags & IT_KEY)
+		{
+			item_type = "key";
+		}
+		else if (it->flags & IT_POWERUP)
+		{
+			item_type = "powerup";
+		}
+		else if (it->flags & IT_TECH)
+		{
+			item_type = "tech";
+		}
+
+		gi.dprintf("#%d: '%s' '%s' %s #%d\n",
+			i, it->classname ? it->classname : "",
+			it->pickup_name ? it->pickup_name: "",
+			item_type,
+			it->quantity);
+	}
+}
+
 /*
  * Sets client to godmode
  */
-void
+static void
 Cmd_God_f(edict_t *ent)
 {
 	char *msg;
@@ -488,7 +580,7 @@ Cmd_God_f(edict_t *ent)
 /*
  * Sets client to notarget
  */
-void
+static void
 Cmd_Notarget_f(edict_t *ent)
 {
 	char *msg;
@@ -522,7 +614,7 @@ Cmd_Notarget_f(edict_t *ent)
 /*
  * argv(0) noclip
  */
-void
+static void
 Cmd_Noclip_f(edict_t *ent)
 {
 	char *msg;
@@ -556,7 +648,7 @@ Cmd_Noclip_f(edict_t *ent)
 /*
  * Use an inventory item
  */
-void
+static void
 Cmd_Use_f(edict_t *ent)
 {
 	int index;
@@ -570,6 +662,11 @@ Cmd_Use_f(edict_t *ent)
 
 	s = gi.args();
 	it = FindItem(s);
+
+	if (!it)
+	{
+		it = FindItemByClassname(s);
+	}
 
 	if (!it)
 	{
@@ -622,7 +719,7 @@ Cmd_Use_f(edict_t *ent)
 /*
  * Drop an inventory item
  */
-void
+static void
 Cmd_Drop_f(edict_t *ent)
 {
 	int index;
@@ -642,6 +739,11 @@ Cmd_Drop_f(edict_t *ent)
 
 	s = gi.args();
 	it = FindItem(s);
+
+	if (!it)
+	{
+		it = FindItemByClassname(s);
+	}
 
 	if (!it)
 	{
@@ -694,7 +796,7 @@ Cmd_Drop_f(edict_t *ent)
 /*
  * Display the scoreboard
  */
-void
+static void
 Cmd_Score_f(edict_t *ent)
 {
 	if (!ent)
@@ -749,7 +851,7 @@ Cmd_Help_f(edict_t *ent)
 	ent->client->showscores = false;
 
 	if (ent->client->showhelp &&
-		(ent->client->resp.game_helpchanged == game.helpchanged))
+		(!ctf->value || ent->client->resp.game_helpchanged == game.helpchanged))
 	{
 		ent->client->showhelp = false;
 		return;
@@ -761,7 +863,7 @@ Cmd_Help_f(edict_t *ent)
 	gi.unicast(ent, true);
 }
 
-void
+static void
 Cmd_Inven_f(edict_t *ent)
 {
 	gclient_t *cl;
@@ -801,7 +903,7 @@ Cmd_Inven_f(edict_t *ent)
 	gi.unicast(ent, true);
 }
 
-void
+static void
 Cmd_InvUse_f(edict_t *ent)
 {
 	gitem_t *it;
@@ -836,11 +938,11 @@ Cmd_InvUse_f(edict_t *ent)
 	it->use(ent, it);
 }
 
-void
+static void
 Cmd_WeapPrev_f(edict_t *ent)
 {
 	gclient_t *cl;
-	int i, index;
+	int i;
 	gitem_t *it;
 	int selected_weapon;
 
@@ -869,6 +971,8 @@ Cmd_WeapPrev_f(edict_t *ent)
 	/* scan for the next valid one */
 	for (i = 1; i <= MAX_ITEMS; i++)
 	{
+		int index;
+
 		index = (selected_weapon + MAX_ITEMS - i) % MAX_ITEMS;
 
 		if (!cl->pers.inventory[index])
@@ -898,11 +1002,11 @@ Cmd_WeapPrev_f(edict_t *ent)
 	}
 }
 
-void
+static void
 Cmd_WeapNext_f(edict_t *ent)
 {
 	gclient_t *cl;
-	int i, index;
+	int i;
 	gitem_t *it;
 	int selected_weapon;
 
@@ -931,6 +1035,8 @@ Cmd_WeapNext_f(edict_t *ent)
 	/* scan for the next valid one */
 	for (i = 1; i <= MAX_ITEMS; i++)
 	{
+		int index;
+
 		index = (selected_weapon + i) % MAX_ITEMS;
 
 		if (!cl->pers.inventory[index])
@@ -960,7 +1066,7 @@ Cmd_WeapNext_f(edict_t *ent)
 	}
 }
 
-void
+static void
 Cmd_WeapLast_f(edict_t *ent)
 {
 	gclient_t *cl;
@@ -1001,7 +1107,7 @@ Cmd_WeapLast_f(edict_t *ent)
 	it->use(ent, it);
 }
 
-void
+static void
 Cmd_InvDrop_f(edict_t *ent)
 {
 	gitem_t *it;
@@ -1030,7 +1136,7 @@ Cmd_InvDrop_f(edict_t *ent)
 	it->drop(ent, it);
 }
 
-void
+static void
 Cmd_Kill_f(edict_t *ent)
 {
 	if (!ent)
@@ -1068,7 +1174,7 @@ Cmd_Kill_f(edict_t *ent)
 	player_die(ent, ent, ent, 100000, vec3_origin);
 }
 
-void
+static void
 Cmd_PutAway_f(edict_t *ent)
 {
 	if (!ent)
@@ -1088,7 +1194,7 @@ Cmd_PutAway_f(edict_t *ent)
 	ent->client->update_chase = true;
 }
 
-int
+static int
 PlayerSort(void const *a, void const *b)
 {
 	int anum, bnum;
@@ -1117,14 +1223,14 @@ PlayerSort(void const *a, void const *b)
 	return 0;
 }
 
-void
+static void
 Cmd_Players_f(edict_t *ent)
 {
 	int i;
 	int count;
 	char small[64];
 	char large[1280];
-	int index[256];
+	int index[256] = {0};
 
 	if (!ent)
 	{
@@ -1157,27 +1263,26 @@ Cmd_Players_f(edict_t *ent)
 		if (strlen(small) + strlen(large) > sizeof(large) - 100)
 		{
 			/* can't print all of them in one packet */
-			strcat(large, "...\n");
+			Q_strlcat(large, "...\n", sizeof(large));
 			break;
 		}
 
-		strcat(large, small);
+		Q_strlcat(large, small, sizeof(large));
 	}
 
 	gi.cprintf(ent, PRINT_HIGH, "%s\n%i players\n", large, count);
 }
 
-void
+static void
 Cmd_Wave_f(edict_t *ent)
 {
-	int i;
+	int i, firstframe, lastframe;
+	const char *animname = NULL;
 
 	if (!ent)
 	{
 		return;
 	}
-
-	i = (int)strtol(gi.argv(1), (char **)NULL, 10);
 
 	/* can't wave when ducked */
 	if (ent->client->ps.pmove.pm_flags & PMF_DUCKED)
@@ -1192,35 +1297,65 @@ Cmd_Wave_f(edict_t *ent)
 
 	ent->client->anim_priority = ANIM_WAVE;
 
+	if (!strcmp(gi.argv(1), "flipoff"))
+	{
+		i = GESTURE_FLIP_OFF;
+	}
+	else if (!strcmp(gi.argv(1), "salute"))
+	{
+		i = GESTURE_SALUTE;
+	}
+	else if (!strcmp(gi.argv(1), "taunt"))
+	{
+		i = GESTURE_TAUNT;
+	}
+	else if (!strcmp(gi.argv(1), "wave"))
+	{
+		i = GESTURE_WAVE;
+	}
+	else if (!strcmp(gi.argv(1), "point"))
+	{
+		i = GESTURE_POINT;
+	}
+	else
+	{
+		i = (int)strtol(gi.argv(1), (char **)NULL, 10);
+	}
+
 	switch (i)
 	{
-		case 0:
-			gi.cprintf(ent, PRINT_HIGH, "flipoff\n");
-			ent->s.frame = FRAME_flip01 - 1;
-			ent->client->anim_end = FRAME_flip12;
+		case GESTURE_FLIP_OFF:
+			animname = "flipoff";
+			firstframe = FRAME_flip01;
+			lastframe = FRAME_flip12;
 			break;
-		case 1:
-			gi.cprintf(ent, PRINT_HIGH, "salute\n");
-			ent->s.frame = FRAME_salute01 - 1;
-			ent->client->anim_end = FRAME_salute11;
+		case GESTURE_SALUTE:
+			animname = "salute";
+			firstframe = FRAME_salute01;
+			lastframe = FRAME_salute11;
 			break;
-		case 2:
-			gi.cprintf(ent, PRINT_HIGH, "taunt\n");
-			ent->s.frame = FRAME_taunt01 - 1;
-			ent->client->anim_end = FRAME_taunt17;
+		case GESTURE_TAUNT:
+			animname = "taunt";
+			firstframe = FRAME_taunt01;
+			lastframe = FRAME_taunt17;
 			break;
-		case 3:
-			gi.cprintf(ent, PRINT_HIGH, "wave\n");
-			ent->s.frame = FRAME_wave01 - 1;
-			ent->client->anim_end = FRAME_wave11;
+		case GESTURE_WAVE:
+			animname = "wave";
+			firstframe = FRAME_wave01;
+			lastframe = FRAME_wave11;
 			break;
-		case 4:
+		case GESTURE_POINT:
 		default:
-			gi.cprintf(ent, PRINT_HIGH, "point\n");
-			ent->s.frame = FRAME_point01 - 1;
-			ent->client->anim_end = FRAME_point12;
+			animname = "point";
+			firstframe = FRAME_point01;
+			lastframe = FRAME_point12;
 			break;
 	}
+
+	gi.cprintf(ent, PRINT_HIGH, "%s\n", animname, lastframe, firstframe);
+
+	P_SetAnimGroup(ent, animname, firstframe, lastframe, 0);
+	ent->s.frame --;
 }
 
 qboolean
@@ -1291,11 +1426,10 @@ CheckFlood(edict_t *ent)
 	return false;
 }
 
-void
+static void
 Cmd_Say_f(edict_t *ent, qboolean team, qboolean arg0)
 {
 	int j;
-	edict_t *other;
 	char *p;
 	char text[2048];
 
@@ -1330,9 +1464,9 @@ Cmd_Say_f(edict_t *ent, qboolean team, qboolean arg0)
 
 	if (arg0)
 	{
-		strcat(text, gi.argv(0));
-		strcat(text, " ");
-		strcat(text, gi.args());
+		Q_strlcat(text, gi.argv(0), sizeof(text));
+		Q_strlcat(text, " ", sizeof(text));
+		Q_strlcat(text, gi.args(), sizeof(text));
 	}
 	else
 	{
@@ -1344,7 +1478,7 @@ Cmd_Say_f(edict_t *ent, qboolean team, qboolean arg0)
 			p[strlen(p) - 1] = 0;
 		}
 
-		strcat(text, p);
+		Q_strlcat(text, p, sizeof(text));
 	}
 
 	/* don't let text be too long for malicious reasons */
@@ -1353,7 +1487,7 @@ Cmd_Say_f(edict_t *ent, qboolean team, qboolean arg0)
 		text[150] = 0;
 	}
 
-	strcat(text, "\n");
+	Q_strlcat(text, "\n", sizeof(text));
 
 	if (dedicated->value)
 	{
@@ -1362,6 +1496,8 @@ Cmd_Say_f(edict_t *ent, qboolean team, qboolean arg0)
 
 	for (j = 1; j <= game.maxclients; j++)
 	{
+		edict_t *other;
+
 		other = &g_edicts[j];
 
 		if (!other->inuse)
@@ -1386,11 +1522,11 @@ Cmd_Say_f(edict_t *ent, qboolean team, qboolean arg0)
 	}
 }
 
-void
-Cmd_Ent_Count_f(edict_t *ent)
+static void
+Cmd_Ent_Count_f(const edict_t *ent)
 {
+	const edict_t *e;
 	int x;
-	edict_t *e;
 
 	if (!ent)
 	{
@@ -1410,7 +1546,7 @@ Cmd_Ent_Count_f(edict_t *ent)
 	gi.dprintf("%d entites active\n", x);
 }
 
-void
+static void
 Cmd_PlayerList_f(edict_t *ent)
 {
 	int i;
@@ -1428,7 +1564,7 @@ Cmd_PlayerList_f(edict_t *ent)
 
 	for (i = 0, e2 = g_edicts + 1; i < maxclients->value; i++, e2++)
 	{
-		int text_len;
+		size_t text_len;
 
 		if (!e2->inuse)
 		{
@@ -1452,7 +1588,7 @@ Cmd_PlayerList_f(edict_t *ent)
 			return;
 		}
 
-		strcat(text, st);
+		Q_strlcat(text, st, sizeof(text));
 	}
 
 	gi.cprintf(ent, PRINT_HIGH, "%s", text);
@@ -1485,9 +1621,9 @@ Cmd_Teleport_f(edict_t *ent)
 	gi.unlinkentity(ent);
 
 	/* Set new position */
-	ent->s.origin[0] = atof(gi.argv(1));
-	ent->s.origin[1] = atof(gi.argv(2));
-	ent->s.origin[2] = atof(gi.argv(3)) + 10.0;
+	ent->s.origin[0] = (float)strtod(gi.argv(1), (char **)NULL);
+	ent->s.origin[1] = (float)strtod(gi.argv(2), (char **)NULL);
+	ent->s.origin[2] = (float)strtod(gi.argv(3), (char **)NULL) + 10.0f;
 
 	/* Remove velocity and keep the entity briefly in place
 	   to give the server and clients time to catch up. */
@@ -1533,20 +1669,20 @@ Cmd_SpawnEntity_f(edict_t *ent)
 	ent = G_Spawn();
 
 	// set position
-	ent->s.origin[0] = atof(gi.argv(2));
-	ent->s.origin[1] = atof(gi.argv(3));
-	ent->s.origin[2] = atof(gi.argv(4));
+	ent->s.origin[0] = (float)strtod(gi.argv(2), (char **)NULL);
+	ent->s.origin[1] = (float)strtod(gi.argv(3), (char **)NULL);
+	ent->s.origin[2] = (float)strtod(gi.argv(4), (char **)NULL);
 	// angles
 	if (gi.argc() >= 8)
 	{
-		ent->s.angles[0] = atof(gi.argv(5));
-		ent->s.angles[1] = atof(gi.argv(6));
-		ent->s.angles[2] = atof(gi.argv(7));
+		ent->s.angles[PITCH] = (float)strtod(gi.argv(5), (char **)NULL);
+		ent->s.angles[YAW] = (float)strtod(gi.argv(6), (char **)NULL);
+		ent->s.angles[ROLL] = (float)strtod(gi.argv(7), (char **)NULL);
 	}
 	// flags
 	if (gi.argc() >= 9)
 	{
-		ent->spawnflags = atoi(gi.argv(8));
+		ent->spawnflags = (int)strtol(gi.argv(8), (char **)NULL, 10);
 	}
 
 	ent->classname = G_CopyString(gi.argv(1));
@@ -1740,7 +1876,7 @@ Cmd_ListEntities_f(edict_t *ent)
 }
 
 static int
-get_ammo_usage(gitem_t *weap)
+get_ammo_usage(const gitem_t *weap)
 {
 	if (!weap)
 	{
@@ -1764,8 +1900,6 @@ cycle_weapon(edict_t *ent)
 	gclient_t *cl;
 	gitem_t *noammo_fallback;
 	gitem_t *noweap_fallback;
-	gitem_t *weap;
-	gitem_t *ammo;
 	int i;
 	int start;
 	int num_weaps;
@@ -1824,6 +1958,8 @@ cycle_weapon(edict_t *ent)
 	/* find the first eligible weapon in the list we can switch to */
 	do
 	{
+		gitem_t *weap;
+
 		weap = FindItemByClassname(gi.argv(i));
 
 		if (weap && weap != cl->pers.weapon && (weap->flags & IT_WEAPON) && weap->use)
@@ -1832,6 +1968,8 @@ cycle_weapon(edict_t *ent)
 			{
 				if (weap->ammo)
 				{
+					const gitem_t *ammo;
+
 					ammo = FindItem(weap->ammo);
 					if (ammo)
 					{
@@ -1881,40 +2019,46 @@ static void
 Cmd_CycleWeap_f(edict_t *ent)
 {
 	gitem_t *weap;
+	gclient_t *cl;
+	int num_weaps;
 
 	if (!ent)
 	{
 		return;
 	}
 
-	if (gi.argc() <= 1)
+	num_weaps = gi.argc();
+	if (num_weaps <= 1)
 	{
 		gi.cprintf(ent, PRINT_HIGH, "Usage: cycleweap classname1 classname2 .. classnameN\n");
 		return;
 	}
 
 	weap = cycle_weapon(ent);
-	if (weap)
+	if (!weap) return;
+
+	cl = ent->client;
+	if (cl->pers.inventory[ITEM_INDEX(weap)] <= 0)
 	{
-		if (ent->client->pers.inventory[ITEM_INDEX(weap)] <= 0)
-		{
-			gi.cprintf(ent, PRINT_HIGH, "Out of item: %s\n", weap->pickup_name);
-		}
-		else
-		{
-			weap->use(ent, weap);
-		}
+		gi.cprintf(ent, PRINT_HIGH, "Out of item: %s\n", weap->pickup_name);
+		return;
+	}
+
+	weap->use(ent, weap);
+	if (num_weaps > 3 && cl->newweapon == weap)
+	{
+		cl->ps.stats[STAT_PICKUP_ICON] = gi.imageindex(weap->icon);
+		cl->ps.stats[STAT_PICKUP_STRING] = CS_ITEMS + ITEM_INDEX(weap);
+		cl->pickup_msg_time = level.time + 0.7f;
 	}
 }
 
 static gitem_t *
-preferred_weapon(edict_t *ent)
+preferred_weapon(const edict_t *ent)
 {
-	gclient_t *cl;
+	const gclient_t *cl;
 	gitem_t *noammo_fallback;
 	gitem_t *noweap_fallback;
-	gitem_t *weap;
-	gitem_t *ammo;
 	int i;
 	int num_weaps;
 
@@ -1937,6 +2081,8 @@ preferred_weapon(edict_t *ent)
 	/* find the first eligible weapon in the list we can switch to */
 	for (i = 1; i < num_weaps; i++)
 	{
+		gitem_t *weap;
+
 		weap = FindItemByClassname(gi.argv(i));
 
 		if (weap && (weap->flags & IT_WEAPON) && weap->use)
@@ -1945,6 +2091,8 @@ preferred_weapon(edict_t *ent)
 			{
 				if (weap->ammo)
 				{
+					const gitem_t *ammo;
+
 					ammo = FindItem(weap->ammo);
 					if (ammo)
 					{
@@ -2016,7 +2164,7 @@ Cmd_PrefWeap_f(edict_t *ent)
 void
 ClientCommand(edict_t *ent)
 {
-	char *cmd;
+	const char *cmd;
 
 	if (!ent)
 	{
@@ -2125,11 +2273,13 @@ ClientCommand(edict_t *ent)
 	{
 		Cmd_InvDrop_f(ent);
 	}
-	else if (Q_stricmp(cmd, "weapprev") == 0)
+	else if (Q_stricmp(cmd, "weapprev") == 0 ||
+		Q_stricmp(cmd, "cl_weapprev") == 0)
 	{
 		Cmd_WeapPrev_f(ent);
 	}
-	else if (Q_stricmp(cmd, "weapnext") == 0)
+	else if (Q_stricmp(cmd, "weapnext") == 0 ||
+		Q_stricmp(cmd, "cl_weapnext") == 0)
 	{
 		Cmd_WeapNext_f(ent);
 	}
@@ -2228,6 +2378,10 @@ ClientCommand(edict_t *ent)
 	else if (Q_stricmp(cmd, "listentities") == 0)
 	{
 		Cmd_ListEntities_f(ent);
+	}
+	else if (Q_stricmp(cmd, "listitems") == 0)
+	{
+		Cmd_ListItems_f(ent);
 	}
 	else if (Q_stricmp(cmd, "cycleweap") == 0)
 	{

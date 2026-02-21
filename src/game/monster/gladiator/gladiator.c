@@ -445,10 +445,7 @@ gladiator_dead(edict_t *self)
 
 	VectorSet(self->mins, -16, -16, -24);
 	VectorSet(self->maxs, 16, 16, -8);
-	self->movetype = MOVETYPE_TOSS;
-	self->svflags |= SVF_DEADMONSTER;
-	self->nextthink = 0;
-	gi.linkentity(self);
+	monster_dynamic_dead(self);
 }
 
 static mframe_t gladiator_frames_death[] = {
@@ -486,7 +483,7 @@ mmove_t gladiator_move_death =
 
 void
 gladiator_die(edict_t *self, edict_t *inflictor /* unused */,
-	   	edict_t *attacker /* unused */, int damage /*unused */,
+		edict_t *attacker /* unused */, int damage /*unused */,
 		vec3_t point)
 {
 	int n;
@@ -510,12 +507,10 @@ gladiator_die(edict_t *self, edict_t *inflictor /* unused */,
 
 		for (n = 0; n < 4; n++)
 		{
-			ThrowGib(self, "models/objects/gibs/sm_meat/tris.md2",
-					damage, GIB_ORGANIC);
+			ThrowGib(self, NULL, damage, GIB_ORGANIC);
 		}
 
-		ThrowHead(self, "models/objects/gibs/head2/tris.md2",
-				damage, GIB_ORGANIC);
+		ThrowHead(self, NULL, damage, GIB_ORGANIC);
 		self->deadflag = DEAD_DEAD;
 		return;
 	}
@@ -588,7 +583,7 @@ SP_monster_gladiator(edict_t *self)
 	VectorSet(self->mins, -32, -32, -24);
 	VectorSet(self->maxs, 32, 32, 64);
 
-	self->health = 400;
+	self->health = 400 * st.health_multiplier;
 	self->gib_health = -175;
 	self->mass = 400;
 

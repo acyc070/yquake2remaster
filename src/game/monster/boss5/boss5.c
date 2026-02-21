@@ -36,7 +36,6 @@ static int sound_search1;
 static int sound_search2;
 static int tread_sound;
 
-qboolean visible(edict_t *self, edict_t *other);
 void BossExplode2(edict_t *self);
 void boss5_dead(edict_t *self);
 void boss5Rocket(edict_t *self);
@@ -568,7 +567,7 @@ boss5_reattack1(edict_t *self)
 
 void
 boss5_pain(edict_t *self, edict_t *other /* unused */,
-	   	float kick /* unused */, int damage)
+		float kick /* unused */, int damage)
 {
 	if (!self)
 	{
@@ -679,7 +678,7 @@ boss5MachineGun(edict_t *self)
 	flash_number = MZ2_SUPERTANK_MACHINEGUN_1 + (self->s.frame - FRAME_attak1_1);
 
 	dir[0] = 0;
-	dir[1] = self->s.angles[1];
+	dir[1] = self->s.angles[YAW];
 	dir[2] = 0;
 
 	AngleVectors(dir, forward, right, NULL);
@@ -744,10 +743,7 @@ boss5_dead(edict_t *self)
 
 	VectorSet(self->mins, -60, -60, 0);
 	VectorSet(self->maxs, 60, 60, 72);
-	self->movetype = MOVETYPE_TOSS;
-	self->svflags |= SVF_DEADMONSTER;
-	self->nextthink = 0;
-	gi.linkentity(self);
+	monster_dynamic_dead(self);
 }
 
 void
@@ -804,20 +800,17 @@ BossExplode2(edict_t *self)
 
 			for (n = 0; n < 4; n++)
 			{
-				ThrowGib(self, "models/objects/gibs/sm_meat/tris.md2",
-						500, GIB_ORGANIC);
+				ThrowGib(self, NULL, 500, GIB_ORGANIC);
 			}
 
 			for (n = 0; n < 8; n++)
 			{
-				ThrowGib(self, "models/objects/gibs/sm_metal/tris.md2",
-						500, GIB_METALLIC);
+				ThrowGib(self, NULL, 500, GIB_METALLIC);
 			}
 
 			ThrowGib(self, "models/objects/gibs/chest/tris.md2",
 				500, GIB_ORGANIC);
-			ThrowHead(self, "models/objects/gibs/gear/tris.md2",
-				500, GIB_METALLIC);
+			ThrowHead(self, NULL, 500, GIB_METALLIC);
 			self->deadflag = DEAD_DEAD;
 			return;
 	}
@@ -833,7 +826,7 @@ BossExplode2(edict_t *self)
 void
 boss5_die(edict_t *self, edict_t *inflictor /* unused */,
 		edict_t *attacker /* unused */, int damage /* unused */,
-	   	vec3_t point /* unused */)
+		vec3_t point /* unused */)
 {
 	if (!self)
 	{
@@ -879,7 +872,7 @@ SP_monster_boss5(edict_t *self)
 	VectorSet(self->mins, -64, -64, 0);
 	VectorSet(self->maxs, 64, 64, 112);
 
-	self->health = 1500;
+	self->health = 1500 * st.health_multiplier;
 	self->gib_health = -500;
 	self->mass = 800;
 

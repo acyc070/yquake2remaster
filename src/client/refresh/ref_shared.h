@@ -83,30 +83,26 @@ typedef enum
 	rserr_unknown
 } rserr_t;
 
-#define MAX_LBM_HEIGHT 480
+#define MAX_LBM_WIDTH 512
 #define DEFAULT_NOLERP_LIST "pics/conchars.* pics/ch1.* pics/ch2. pics/ch3.*"
 #define DEFAULT_LMSHIFT 4
-#define MAX_MOD_KNOWN 512
+#define BACKFACE_EPSILON	0.01
+
+#define MAX_MOD_KNOWN (MAX_MODELS * 2)
+#define MAX_TEXTURES (MAX_IMAGES * 4)
+#define MAX_FONTCODE 0x2000
 
 extern void R_Printf(int level, const char* msg, ...) PRINTF_ATTR(2, 3);
 
 /* Shared images load */
 typedef struct image_s* (*loadimage_t)(const char *name, byte *pic, int width, int realwidth,
 	int height, int realheight, size_t data_size, imagetype_t type, int bits);
-extern struct image_s* LoadWal(const char *origname, const char *namewe, imagetype_t type,
-	loadimage_t load_image);
-extern struct image_s* LoadM8(const char *origname, const char *namewe, imagetype_t type,
-	loadimage_t load_image);
-extern struct image_s* LoadM32(const char *origname, const char *namewe, imagetype_t type,
-	loadimage_t load_image);
 extern void FixFileExt(const char *origname, const char *ext, char *filename, size_t size);
-extern void GetPCXPalette(byte **colormap, unsigned *d_8to24table);
-extern void GetPCXPalette24to8(const byte *d_8to24table, byte** d_16to8table);
-extern void LoadPCX(const char *origname, byte **pic, byte **palette, int *width, int *height);
 extern void GetPCXInfo(const char *origname, int *width, int *height);
 extern void GetWalInfo(const char *name, int *width, int *height);
 extern void GetM8Info(const char *name, int *width, int *height);
 extern void GetM32Info(const char *name, int *width, int *height);
+extern void GetSWLInfo(const char *name, int *width, int *height);
 
 extern qboolean LoadSTB(const char *origname, const char* type, byte **pic, int *width, int *height);
 extern qboolean ResizeSTB(const byte *input_pixels, int input_width, int input_height,
@@ -114,10 +110,6 @@ extern qboolean ResizeSTB(const byte *input_pixels, int input_width, int input_h
 extern void SmoothColorImage(unsigned *dst, size_t size, size_t rstep);
 extern void scale2x(const byte *src, byte *dst, int width, int height);
 extern void scale3x(const byte *src, byte *dst, int width, int height);
-
-extern float Mod_RadiusFromBounds(const vec3_t mins, const vec3_t maxs);
-extern const byte* Mod_DecompressVis(const byte *in, const byte* numvisibility,
-	int row);
 
 /* Shared models struct */
 
@@ -146,6 +138,7 @@ typedef struct mvertex_s
 typedef struct medge_s
 {
 	unsigned int	v[2];
+	/* used in soft only */
 	unsigned int	cachededgeoffset;
 } medge_t;
 
@@ -252,6 +245,7 @@ typedef struct msurface_s
 	mpoly_t	*polys;                 /* multiple if warped */
 	struct msurface_s	*texturechain;
 	struct msurface_s	*lightmapchain;
+	int lmchain_frame;	// avoids adding this surface twice to the lightmap chain
 
 	mtexinfo_t	*texinfo;
 
@@ -262,6 +256,7 @@ typedef struct msurface_s
 	/* lighting info */
 	int	dlightframe;
 	int	dlightbits;
+	qboolean dirty_lightmap;	// lightmap has dynamic lights from previous frame (mtex only)
 
 	int	lightmaptexturenum;
 	byte	styles[MAXLIGHTMAPS];
@@ -300,9 +295,9 @@ typedef struct bspxlgsamp_s
 
 typedef struct bspxlgleaf_s
 {
-		int mins[3];
-		int size[3];
-		bspxlgsamp_t *rgbvalues;
+	int mins[3];
+	int size[3];
+	bspxlgsamp_t *rgbvalues;
 } bspxlgleaf_t;
 
 typedef struct
@@ -320,36 +315,42 @@ typedef struct
 	bspxlgleaf_t *leafs;
 } bspxlightgrid_t;
 
+/* screen size info */
+extern refdef_t r_newrefdef;
+extern viddef_t vid;
+
 /* Shared models func */
 typedef struct image_s* (*findimage_t)(const char *name, imagetype_t type);
 extern void *Mod_LoadModel(const char *mod_name, const void *buffer, int modfilelen,
 	vec3_t mins, vec3_t maxs, struct image_s ***skins, int *numskins,
-	findimage_t find_image, loadimage_t load_image, modtype_t *type);
-extern int Mod_ReLoadSkins(struct image_s **skins, findimage_t find_image,
-	loadimage_t load_image, void *extradata, modtype_t type);
+	findimage_t find_image, modtype_t *type);
+extern int Mod_ReLoadSkins(const char *name, struct image_s **skins, findimage_t find_image,
+	void *extradata, modtype_t type);
 extern struct image_s *GetSkyImage(const char *skyname, const char* surfname,
 	qboolean palettedtexture, findimage_t find_image);
 extern struct image_s *GetTexImage(const char *name, findimage_t find_image);
 extern struct image_s *R_FindPic(const char *name, findimage_t find_image);
+extern struct image_s *R_LoadConsoleChars(findimage_t find_image);
+extern unsigned R_NextUTF8Code(const char **curr);
 extern struct image_s *R_LoadImage(const char *name, const char* namewe, const char *ext,
-	imagetype_t type, qboolean r_retexturing, loadimage_t load_image);
+	imagetype_t type, loadimage_t load_image);
 extern void Mod_LoadQBSPMarksurfaces(const char *name, msurface_t ***marksurfaces,
 	unsigned int *nummarksurfaces, msurface_t *surfaces, int numsurfaces,
-	const byte *mod_base, const lump_t *l, int ident);
+	const byte *mod_base, const lump_t *lMod_LoadQBSPMarksurfaces);
 extern void Mod_LoadQBSPNodes(const char *name, cplane_t *planes, int numplanes,
-	mleaf_t *leafs, int numleafs, mnode_t **nodes, int *numnodes,
+	mleaf_t *leafs, int numleafs, mnode_t **nodes, int *numnodes, vec3_t mins, vec3_t maxs,
 	const byte *mod_base, const lump_t *l, int ident);
 extern void Mod_LoadQBSPLeafs(const char *name, mleaf_t **leafs, int *numleafs,
 	msurface_t **marksurfaces, unsigned int nummarksurfaces,
-	const byte *mod_base, const lump_t *l, int ident);
+	int *numclusters, const byte *mod_base, const lump_t *l);
 extern void Mod_LoadQBSPEdges(const char *name, medge_t **edges, int *numedges,
-	const byte *mod_base, const lump_t *l, int ident);
+	const byte *mod_base, const lump_t *l);
 extern void Mod_LoadVertexes(const char *name, mvertex_t **vertexes, int *numvertexes,
 	const byte *mod_base, const lump_t *l);
 extern void Mod_LoadLighting(byte **lightdata, int *size, const byte *mod_base, const lump_t *l);
 extern void Mod_LoadSetSurfaceLighting(byte *lightdata, int size, msurface_t *out,
 	const byte *styles, int lightofs);
-extern void Mod_CalcSurfaceExtents(const int *surfedges, mvertex_t *vertexes,
+extern void Mod_CalcSurfaceExtents(const int *surfedges, int numsurfedges, mvertex_t *vertexes,
 	medge_t *edges, msurface_t *s);
 extern void Mod_LoadTexinfo(const char *name, mtexinfo_t **texinfo, int *numtexinfo,
 	const byte *mod_base, const lump_t *l, findimage_t find_image,
@@ -361,12 +362,10 @@ extern const void *Mod_LoadBSPXFindLump(const bspx_header_t *bspx_header,
 	const char *lumpname, int *plumpsize, const byte *mod_base);
 extern const bspx_header_t *Mod_LoadBSPX(int filesize, const byte *mod_base);
 extern int Mod_LoadBSPXDecoupledLM(const dlminfo_t* lminfos, int surfnum, msurface_t *out);
-extern int Mod_LoadFile(const char *name, void **buffer);
+extern int Mod_CalcNonModelLumpHunkSize(const byte *mod_base, const dheader_t *header);
 
 /* Surface logic */
-#define DLIGHT_CUTOFF 64
-
-extern void R_PushDlights(refdef_t *r_newrefdef, mnode_t *nodes, int r_dlightframecount,
+extern void R_PushDlights(refdef_t *r_newrefdef, mnode_t *nodes, int lightframecount,
 	msurface_t *surfaces);
 extern struct image_s *R_TextureAnimation(const entity_t *currententity,
 	const mtexinfo_t *tex);
@@ -382,20 +381,27 @@ extern qboolean R_CullAliasMeshModel(dmdx_t *paliashdr, cplane_t *frustum,
 	int frame, int oldframe, vec3_t e_angles, vec3_t e_origin, vec3_t bbox[8]);
 extern void R_LerpVerts(qboolean powerUpEffect, int nverts,
 		const dxtrivertx_t *v, const dxtrivertx_t *ov,
-		const dxtrivertx_t *verts, float *lerp, const float move[3],
-		const float frontv[3], const float backv[3]);
-extern byte R_CompressNormalMDL(const float *normal);
+		float *lerp, const float move[3],
+		const float frontv[3], const float backv[3], const float *scale);
+extern void R_ConvertNormalMDL(byte in_normal, signed char *normal);
 extern vec4_t *R_VertBufferRealloc(int num);
 extern void R_VertBufferInit(void);
 extern void R_VertBufferFree(void);
+extern void R_GenFanIndexes(unsigned short *data, unsigned from, unsigned to);
+extern void R_GenStripIndexes(unsigned short *data, unsigned from, unsigned to);
 
 /* Lights logic */
 extern bspxlightgrid_t *Mod_LoadBSPXLightGrid(const bspx_header_t *bspx_header, const byte *mod_base);
-extern void R_LightPoint(const bspxlightgrid_t *grid, const entity_t *currententity, refdef_t *refdef, const msurface_t *surfaces,
-	const mnode_t *nodes, vec3_t p, vec3_t color, float modulate, vec3_t lightspot);
-extern void R_SetCacheState(msurface_t *surf, const refdef_t *r_newrefdef);
-extern void R_BuildLightMap(const msurface_t *surf, byte *dest, int stride, const byte *destmax,
-	const refdef_t *r_newrefdef, float modulate, int r_framecount);
+extern void R_LightPoint(const bspxlightgrid_t *grid, const entity_t *currententity,
+	const msurface_t *surfaces, const mnode_t *nodes, const vec3_t p, vec3_t color,
+	vec3_t lightspot);
+extern void R_ApplyModelLight(const bspxlightgrid_t *grid, const entity_t *currententity,
+	const msurface_t *surfaces, const mnode_t *nodes, vec3_t shadelight,
+	vec3_t lightspot, const byte *lightdata);
+extern void R_SetCacheState(msurface_t *surf, const refdef_t *refdef);
+extern void R_BuildLightMap(const msurface_t *surf, byte *dest, int stride,
+	const refdef_t *r_newrefdef, float modulate, int r_framecount,
+	const byte *gammatable, const byte *minlight);
 extern void R_InitTemporaryLMBuffer(void);
 extern void R_FreeTemporaryLMBuffer(void);
 extern byte *R_GetTemporaryLMBuffer(size_t size);
@@ -408,5 +414,56 @@ extern void R_AddSkySurface(msurface_t *fa,
 extern void R_ClearSkyBox(float skymins[2][6], float skymaxs[2][6]);
 extern void R_MakeSkyVec(float s, float t, int axis, mvtx_t* vert,
 	qboolean farsee, float sky_min, float sky_max);
+extern void R_FlowingScroll(const refdef_t *r_newrefdef, int flags,
+	float *sscroll, float *tscroll);
+
+/* GL only code */
+extern const char* glshader_version(int major_version, int minor_version);
+
+/* Shared common code */
+extern cvar_t *r_2D_unfiltered;
+extern cvar_t *r_anisotropic;
+extern cvar_t *r_clear;
+extern cvar_t *r_cull;
+extern cvar_t *r_customheight;
+extern cvar_t *r_customwidth;
+extern cvar_t *r_drawentities;
+extern cvar_t *r_drawworld;
+extern cvar_t *r_dynamic;
+extern cvar_t *r_farsee;
+extern cvar_t *r_fixsurfsky;
+extern cvar_t *r_flashblend;
+extern cvar_t *r_fullbright;
+extern cvar_t *r_gunfov;
+extern cvar_t *r_lefthand;
+extern cvar_t *r_lerp_list;
+extern cvar_t *r_lerpmodels;
+extern cvar_t *r_lightlevel;
+extern cvar_t *r_lightmap;
+extern cvar_t *r_lockpvs;
+extern cvar_t *r_mode;
+extern cvar_t *r_modulate;
+extern cvar_t *r_msaa_samples;
+extern cvar_t *r_nolerp_list;
+extern cvar_t *r_norefresh;
+extern cvar_t *r_novis;
+extern cvar_t *r_palettedtextures;
+extern cvar_t *r_polyblend;
+extern cvar_t *r_retexturing;
+extern cvar_t *r_scale8bittextures;
+extern cvar_t *r_shadows;
+extern cvar_t *r_showtris;
+extern cvar_t *r_speeds;
+extern cvar_t *r_ttffont;
+extern cvar_t *r_validation;
+extern cvar_t *r_videos_unfiltered;
+extern cvar_t *r_vsync;
+extern cvar_t *vid_fullscreen;
+extern cvar_t *vid_gamma;
+extern cvar_t *viewsize;
+
+extern void R_CombineBlendWithFog(float *v_blend, qboolean native_fog);
+
+extern void R_InitCvar(void);
 
 #endif /* SRC_CLIENT_REFRESH_REF_SHARED_H_ */

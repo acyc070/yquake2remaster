@@ -29,7 +29,7 @@
 
 #define MAX_IPFILTERS 1024
 
-void
+static void
 Svcmd_Test_f(void)
 {
 	gi.cprintf(NULL, PRINT_HIGH, "Svcmd_Test_f()\n");
@@ -179,14 +179,14 @@ SV_FilterPacket(char *from)
 	{
 		if ((in & ipfilters[i].mask) == ipfilters[i].compare)
 		{
-			return (int)filterban->value;
+			return (filterban->value != 0);
 		}
 	}
 
-	return (int)!filterban->value;
+	return (filterban->value == 0);
 }
 
-void
+static void
 SVCmd_AddIP_f(void)
 {
 	int i;
@@ -222,7 +222,7 @@ SVCmd_AddIP_f(void)
 	}
 }
 
-void
+static void
 SVCmd_RemoveIP_f(void)
 {
 	ipfilter_t f;
@@ -258,7 +258,7 @@ SVCmd_RemoveIP_f(void)
 	gi.cprintf(NULL, PRINT_HIGH, "Didn't find %s.\n", gi.argv(2));
 }
 
-void
+static void
 SVCmd_ListIP_f(void)
 {
 	int i;
@@ -275,24 +275,21 @@ SVCmd_ListIP_f(void)
 	}
 }
 
-void
+static void
 SVCmd_WriteIP_f(void)
 {
 	FILE *f;
 	char name[MAX_OSPATH];
 	YQ2_ALIGNAS_TYPE(unsigned) byte b[4];
 	int i;
-	cvar_t *game;
 
-	game = gi.cvar("game", "", 0);
-
-	if (!*game->string)
+	if (!*g_game->string)
 	{
 		sprintf(name, "%s/listip.cfg", GAMEVERSION);
 	}
 	else
 	{
-		sprintf(name, "%s/listip.cfg", game->string);
+		sprintf(name, "%s/listip.cfg", g_game->string);
 	}
 
 	gi.cprintf(NULL, PRINT_HIGH, "Writing %s.\n", name);
@@ -349,6 +346,35 @@ ServerCommand(void)
 	{
 		SVCmd_WriteIP_f();
 	}
+	/* JABot[start] */
+	else if (Q_stricmp(cmd, "addbot") == 0)
+	{
+		if (ctf->value) // name, skin, team
+		{
+			BOT_SpawnBot(gi.argv(2), gi.argv(3), gi.argv(4), NULL);
+		}
+		else // name, skin
+		{
+			BOT_SpawnBot(NULL, gi.argv(2), gi.argv(3), NULL);
+		}
+	}
+	else if (Q_stricmp(cmd, "editnodes") == 0)
+	{
+		AITools_InitEditnodes();
+	}
+	else if (!Q_stricmp(cmd, "makenodes"))
+	{
+		AITools_InitMakenodes();
+	}
+	else if (!Q_stricmp (cmd, "savenodes"))
+	{
+		AITools_SaveNodes();
+	}
+	else if (Q_stricmp(cmd, "removebot") == 0)
+	{
+		BOT_RemoveBot(gi.argv(2));
+	}
+	/* [end] */
 	else
 	{
 		gi.cprintf(NULL, PRINT_HIGH, "Unknown server command \"%s\"\n", cmd);

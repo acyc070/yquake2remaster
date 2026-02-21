@@ -30,8 +30,6 @@
 
 #define LEAD_TARGET 1
 
-qboolean visible(edict_t *self, edict_t *other);
-
 void chick_stand(edict_t *self);
 void chick_run(edict_t *self);
 void chick_reslash(edict_t *self);
@@ -379,7 +377,7 @@ mmove_t chick_move_pain3 =
 
 void
 chick_pain(edict_t *self, edict_t *other /* unused */,
-	   	float kick /* unused */, int damage)
+		float kick /* unused */, int damage)
 {
 	float r;
 
@@ -455,10 +453,7 @@ chick_dead(edict_t *self)
 
 	VectorSet(self->mins, -16, -16, 0);
 	VectorSet(self->maxs, 16, 16, 16);
-	self->movetype = MOVETYPE_TOSS;
-	self->svflags |= SVF_DEADMONSTER;
-	self->nextthink = 0;
-	gi.linkentity(self);
+	monster_dynamic_dead(self);
 }
 
 static mframe_t chick_frames_death2[] = {
@@ -544,12 +539,10 @@ chick_die(edict_t *self, edict_t *inflictor /* unused */,
 
 		for (n = 0; n < 4; n++)
 		{
-			ThrowGib(self, "models/objects/gibs/sm_meat/tris.md2",
-					damage, GIB_ORGANIC);
+			ThrowGib(self, NULL, damage, GIB_ORGANIC);
 		}
 
-		ThrowHead(self, "models/objects/gibs/head2/tris.md2",
-				damage, GIB_ORGANIC);
+		ThrowHead(self, NULL, damage, GIB_ORGANIC);
 		self->deadflag = DEAD_DEAD;
 		return;
 	}
@@ -1210,7 +1203,7 @@ SP_monster_chick(edict_t *self)
 	VectorSet(self->mins, -16, -16, 0);
 	VectorSet(self->maxs, 16, 16, 56);
 
-	self->health = 175;
+	self->health = 175 * st.health_multiplier;
 	self->gib_health = -70;
 	self->mass = 200;
 

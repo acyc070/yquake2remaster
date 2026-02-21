@@ -35,8 +35,8 @@ static vec3_t VEC_DOWN = {0, -2, 0};
 static vec3_t MOVEDIR_DOWN = {0, 0, -1};
 
 void
-G_ProjectSource(vec3_t point, vec3_t distance, vec3_t forward,
-		vec3_t right, vec3_t result)
+G_ProjectSource(const vec3_t point, const vec3_t distance, const vec3_t forward,
+		const vec3_t right, vec3_t result)
 {
 	result[0] = point[0] + forward[0] * distance[0] + right[0] * distance[1];
 	result[1] = point[1] + forward[1] * distance[0] + right[1] * distance[1];
@@ -45,8 +45,8 @@ G_ProjectSource(vec3_t point, vec3_t distance, vec3_t forward,
 }
 
 void
-G_ProjectSource2(vec3_t point, vec3_t distance, vec3_t forward,
-		vec3_t right, vec3_t up, vec3_t result)
+G_ProjectSource2(const vec3_t point, const vec3_t distance, const vec3_t forward,
+		const vec3_t right, const vec3_t up, vec3_t result)
 {
 	result[0] = point[0] + forward[0] * distance[0] + right[0] * distance[1] +
 				up[0] * distance[2];
@@ -66,7 +66,7 @@ G_ProjectSource2(vec3_t point, vec3_t distance, vec3_t forward,
  * if the end of the list is reached.
  */
 edict_t *
-G_Find(edict_t *from, int fieldofs, char *match)
+G_Find(edict_t *from, int fieldofs, const char *match)
 {
 	char *s;
 
@@ -321,17 +321,20 @@ G_UseTargets(edict_t *ent, edict_t *activator)
 	/* print the message */
 	if (activator && (ent->message) && !(activator->svflags & SVF_MONSTER))
 	{
-		gi.centerprintf(activator, "%s", ent->message);
+		int sound_index;
 
 		if (ent->noise_index)
 		{
-			gi.sound(activator, CHAN_AUTO, ent->noise_index, 1, ATTN_NORM, 0);
+			sound_index = ent->noise_index;
 		}
 		else
 		{
-			gi.sound(activator, CHAN_AUTO, gi.soundindex(
-							"misc/talk1.wav"), 1, ATTN_NORM, 0);
+			sound_index = gi.soundindex("misc/talk1.wav");
 		}
+
+		gi.centerprintf(activator, "%s", gi.LocalizationMessage(
+			ent->message, &sound_index));
+		gi.sound(activator, CHAN_AUTO, sound_index, 1, ATTN_NORM, 0);
 	}
 
 	/* kill killtargets */
@@ -409,7 +412,7 @@ G_UseTargets(edict_t *ent, edict_t *activator)
 
 			if (t == ent)
 			{
-				gi.dprintf("WARNING: Entity used itself.\n");
+				gi.dprintf("WARNING: %s used itself.\n", t->classname);
 			}
 			else
 			{
@@ -710,6 +713,8 @@ G_InitEdict(edict_t *e)
 	e->gravityVector[0] = 0.0;
 	e->gravityVector[1] = 0.0;
 	e->gravityVector[2] = -1.0;
+
+	VectorSet(e->rrs.scale, 1.0, 1.0, 1.0);
 }
 
 /*
@@ -771,7 +776,9 @@ G_Spawn(void)
 	edict_t *e = G_SpawnOptional();
 
 	if (!e)
-		gi.error ("ED_Alloc: no free edicts");
+	{
+		gi.error("%s: no free edicts", __func__);
+	}
 
 	return e;
 }

@@ -13,11 +13,6 @@
 
 #include "header/local.h"
 
-#define STATE_TOP 0
-#define STATE_BOTTOM 1
-#define STATE_UP 2
-#define STATE_DOWN 3
-
 #define HINT_ENDPOINT 0x0001
 #define MAX_HINT_CHAINS 100
 
@@ -26,10 +21,6 @@
 edict_t *hint_path_start[MAX_HINT_CHAINS];
 int hint_paths_present;
 int num_hint_paths;
-
-qboolean face_wall(edict_t *self);
-qboolean monsterlost_checkhint2(edict_t *self);
-void HuntTarget(edict_t *self);
 
 qboolean
 blocked_checkplat(edict_t *self, float dist)
@@ -230,130 +221,6 @@ blocked_checknewenemy(edict_t *self)
 	return false;
 }
 
-edict_t *
-hintpath_findstart(edict_t *ent)
-{
-	edict_t *e;
-	edict_t *last;
-	int field;
-
-	if (!ent)
-	{
-		return NULL;
-	}
-
-	if (ent->target) /* starting point */
-	{
-		last = world;
-		field = FOFS(targetname);
-		e = G_Find(NULL, field, ent->target);
-
-		while (e)
-		{
-			last = e;
-
-			if (!e->target)
-			{
-				break;
-			}
-
-			e = G_Find(NULL, field, e->target);
-		}
-	}
-	else /* end point */
-	{
-		last = world;
-		field = FOFS(target);
-		e = G_Find(NULL, field, ent->targetname);
-
-		while (e)
-		{
-			last = e;
-
-			if (!e->targetname)
-			{
-				break;
-			}
-
-			e = G_Find(NULL, field, e->targetname);
-		}
-	}
-
-	if (!(last->spawnflags & HINT_ENDPOINT))
-	{
-		return NULL;
-	}
-
-	if (last == world)
-	{
-		last = NULL;
-	}
-
-	return last;
-}
-
-edict_t *
-hintpath_other_end(edict_t *ent)
-{
-	edict_t *e;
-	edict_t *last;
-	int field;
-
-	if (!ent)
-	{
-		return NULL;
-	}
-
-	if (ent->target) /* starting point */
-	{
-		last = world;
-		field = FOFS(targetname);
-		e = G_Find(NULL, field, ent->target);
-
-		while (e)
-		{
-			last = e;
-
-			if (!e->target)
-			{
-				break;
-			}
-
-			e = G_Find(NULL, field, e->target);
-		}
-	}
-	else /* end point */
-	{
-		last = world;
-		field = FOFS(target);
-		e = G_Find(NULL, field, ent->targetname);
-
-		while (e)
-		{
-			last = e;
-
-			if (!e->targetname)
-			{
-				break;
-			}
-
-			e = G_Find(NULL, field, e->targetname);
-		}
-	}
-
-	if (!(last->spawnflags & HINT_ENDPOINT))
-	{
-		return NULL;
-	}
-
-	if (last == world)
-	{
-		last = NULL;
-	}
-
-	return last;
-}
-
 void
 hintpath_go(edict_t *self, edict_t *point)
 {
@@ -426,7 +293,7 @@ monsterlost_checkhint(edict_t *self)
 	edict_t *closest;
 	float closest_range = 1000000;
 	edict_t *start, *destination;
-	int count1 = 0, count2 = 0, count4 = 0, count5 = 0;
+	int count = 0;
 	float r;
 	int i;
 	qboolean hint_path_represented[MAX_HINT_CHAINS];
@@ -466,8 +333,6 @@ monsterlost_checkhint(edict_t *self)
 
 		while (e)
 		{
-			count1++;
-
 			if (e->monster_hint_chain)
 			{
 				e->monster_hint_chain = NULL;
@@ -498,8 +363,6 @@ monsterlost_checkhint(edict_t *self)
 
 		if (r > 512)
 		{
-			count2++;
-
 			if (checkpoint)
 			{
 				checkpoint->monster_hint_chain = e->monster_hint_chain;
@@ -527,8 +390,6 @@ monsterlost_checkhint(edict_t *self)
 
 		if (!visible(self, e))
 		{
-			count4++;
-
 			if (checkpoint)
 			{
 				checkpoint->monster_hint_chain = e->monster_hint_chain;
@@ -555,7 +416,7 @@ monsterlost_checkhint(edict_t *self)
 		}
 
 		/* if it passes all the tests, it's a keeper */
-		count5++;
+		count++;
 		checkpoint = e;
 		e = e->monster_hint_chain;
 	}
@@ -566,7 +427,7 @@ monsterlost_checkhint(edict_t *self)
 	   chains, seeing whether any can see the player. first,
 	   we figure out which hint chains we have represented
 	   in monster_pathchain */
-	if (count5 == 0)
+	if (count == 0)
 	{
 		return false;
 	}
@@ -590,9 +451,7 @@ monsterlost_checkhint(edict_t *self)
 		e = e->monster_hint_chain;
 	}
 
-	count2 = 0;
-	count4 = 0;
-	count5 = 0;
+	count = 0;
 
 	/* now, build the target_pathchain which contains all of
 	   the hint_path nodes we need to check for validity
@@ -638,8 +497,6 @@ monsterlost_checkhint(edict_t *self)
 
 		if (r > 512)
 		{
-			count2++;
-
 			if (checkpoint)
 			{
 				checkpoint->target_hint_chain = e->target_hint_chain;
@@ -663,8 +520,6 @@ monsterlost_checkhint(edict_t *self)
 
 		if (!visible(self->enemy, e))
 		{
-			count4++;
-
 			if (checkpoint)
 			{
 				checkpoint->target_hint_chain = e->target_hint_chain;
@@ -687,7 +542,7 @@ monsterlost_checkhint(edict_t *self)
 		}
 
 		/* if it passes all the tests, it's a keeper */
-		count5++;
+		count++;
 		checkpoint = e;
 		e = e->target_hint_chain;
 	}
@@ -706,7 +561,7 @@ monsterlost_checkhint(edict_t *self)
 	   "monster valid" nodes by which ones have "target valid" nodes on them. Once
 	   this filter is finished, we select the closest "monster valid" node, and go to it. */
 
-	if (count5 == 0)
+	if (count == 0)
 	{
 		return false;
 	}
@@ -920,7 +775,7 @@ void
 InitHintPaths(void)
 {
 	edict_t *e, *current;
-	int field, i, count2;
+	int field, i;
 
 	hint_paths_present = 0;
 
@@ -970,7 +825,6 @@ InitHintPaths(void)
 
 	for (i = 0; i < num_hint_paths; i++)
 	{
-		count2 = 1;
 		current = hint_path_start[i];
 		current->hint_chain_id = i;
 		e = G_Find(NULL, field, current->target);
@@ -993,7 +847,6 @@ InitHintPaths(void)
 				break;
 			}
 
-			count2++;
 			current->hint_chain = e;
 			current = e;
 			current->hint_chain_id = i;

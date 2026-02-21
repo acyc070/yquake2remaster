@@ -57,45 +57,6 @@ arachnid_footstep(edict_t *self)
 }
 
 //
-// stand
-//
-
-static mframe_t arachnid_frames_stand[] = {
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL}
-};
-
-mmove_t arachnid_move_stand =
-{
-	FRAME_idle1,
-	FRAME_idle13,
-	arachnid_frames_stand,
-	NULL
-};
-
-void
-arachnid_stand(edict_t *self)
-{
-	if (!self)
-	{
-		return;
-	}
-
-	self->monsterinfo.currentmove = &arachnid_move_stand;
-}
-
-//
 // walk
 //
 
@@ -163,7 +124,9 @@ arachnid_run(edict_t *self)
 {
 	if (self->monsterinfo.aiflags & AI_STAND_GROUND)
 	{
-		self->monsterinfo.currentmove = &arachnid_move_stand;
+		self->monsterinfo.firstframe = FRAME_idle1;
+		self->monsterinfo.numframes = FRAME_idle13 - FRAME_idle1 + 1;
+		monster_dynamic_stand(self);
 		return;
 	}
 
@@ -257,44 +220,28 @@ arachnid_charge_rail(edict_t *self)
 void
 arachnid_rail(edict_t *self)
 {
-	vec3_t start, dir, forward, right, offset = {0, 0, 0};
+	vec3_t start, dir, forward, right;
 	int id = 0;
 
 	switch (self->s.frame)
 	{
 		case FRAME_rails4:
 		default:
-			id = MZ2_WIDOW_RAIL;
-			/* MZ2_ARACHNID_RAIL1 */
-			offset[0] = 58.f;
-			offset[1] = 20.f;
-			offset[2] = 17.2f;
+			id = MZ2_ARACHNID_RAIL1;
 			break;
 		case FRAME_rails8:
-			id = MZ2_WIDOW_RAIL_LEFT;
-			/* MZ2_ARACHNID_RAIL2 */
-			offset[0] = 64.f;
-			offset[1] = -22.f;
-			offset[2] = 24.f;
+			id = MZ2_ARACHNID_RAIL2;
 			break;
 		case FRAME_rails_up7:
-			id = MZ2_WIDOW_RAIL_RIGHT;
-			/* MZ2_ARACHNID_RAIL_UP1 */
-			offset[0] = 37.f;
-			offset[1] = 13.f;
-			offset[2] = 72.f;
+			id = MZ2_ARACHNID_RAIL_UP1;
 			break;
 		case FRAME_rails_up11:
-			id = MZ2_WIDOW_RAIL;
-			/* MZ2_ARACHNID_RAIL_UP2 */
-			offset[0] = 58.f;
-			offset[1] = -25.f;
-			offset[2] = 72.f;
+			id = MZ2_ARACHNID_RAIL_UP2;
 			break;
 	}
 
 	AngleVectors(self->s.angles, forward, right, NULL);
-	G_ProjectSource(self->s.origin, offset, forward, right, start);
+	G_ProjectSource(self->s.origin, monster_flash_offset[id], forward, right, start);
 
 	/* calc direction to where we targeted */
 	VectorSubtract(self->pos1, start, dir);
@@ -436,10 +383,7 @@ arachnid_dead(edict_t *self)
 
 	VectorSet(self->mins, -16, -16, -24);
 	VectorSet(self->maxs, 16, 16, -8);
-	self->movetype = MOVETYPE_TOSS;
-	self->svflags |= SVF_DEADMONSTER;
-	self->nextthink = 0;
-	gi.linkentity(self);
+	monster_dynamic_dead(self);
 }
 
 static mframe_t arachnid_frames_death1[] =
@@ -499,12 +443,10 @@ arachnid_die(edict_t *self, edict_t *inflictor /* unused */,
 
 		for (n = 0; n < 4; n++)
 		{
-			ThrowGib(self, "models/objects/gibs/sm_meat/tris.md2",
-					damage, GIB_ORGANIC);
+			ThrowGib(self, NULL, damage, GIB_ORGANIC);
 		}
 
-		ThrowHead(self, "models/objects/gibs/head2/tris.md2",
-				damage, GIB_ORGANIC);
+		ThrowHead(self, NULL, damage, GIB_ORGANIC);
 
 		self->deadflag = DEAD_DEAD;
 		return;
@@ -554,14 +496,15 @@ SP_monster_arachnid(edict_t *self)
 	sound_die = gi.soundindex("arachnid/death.wav");
 	sound_sight = gi.soundindex("arachnid/sight.wav");
 
-	self->health = 1000;
+	self->health = 1000 * st.health_multiplier;
 	self->gib_health = -200;
 
 	self->mass = 450;
 
+	monster_dynamic_setinfo(self);
+
 	self->pain = arachnid_pain;
 	self->die = arachnid_die;
-	self->monsterinfo.stand = arachnid_stand;
 	self->monsterinfo.walk = arachnid_walk;
 	self->monsterinfo.run = arachnid_run;
 	self->monsterinfo.dodge = NULL;
@@ -573,7 +516,6 @@ SP_monster_arachnid(edict_t *self)
 
 	gi.linkentity(self);
 
-	self->monsterinfo.currentmove = &arachnid_move_stand;
 	self->monsterinfo.scale = MODEL_SCALE;
 
 	walkmonster_start(self);

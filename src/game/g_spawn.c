@@ -26,408 +26,469 @@
  */
 
 #include "header/local.h"
+#include "savegame/tables/spawnfunc_decs.h"
 
 #define LEG_WAIT_TIME 1
 #define MAX_LEGSFRAME 23
 
 #define SPAWNGROW_LIFESPAN 0.3
-#define STEPSIZE 18
 
 typedef struct
 {
-	char *name;
+	const char *name;
 	void (*spawn)(edict_t *ent);
 } spawn_t;
 
-void SP_item_health(edict_t *self);
-void SP_item_health_small(edict_t *self);
-void SP_item_health_large(edict_t *self);
-void SP_item_health_mega(edict_t *self);
-
-void SP_info_player_start(edict_t *ent);
-void SP_info_player_deathmatch(edict_t *ent);
-void SP_info_player_coop(edict_t *ent);
-void SP_info_player_intermission(edict_t *ent);
-
-void SP_func_plat(edict_t *ent);
-void SP_func_rotating(edict_t *ent);
-void SP_func_button(edict_t *ent);
-void SP_func_door(edict_t *ent);
-void SP_func_door_secret(edict_t *ent);
-void SP_func_door_rotating(edict_t *ent);
-void SP_func_water(edict_t *ent);
-void SP_func_train(edict_t *ent);
-void SP_func_conveyor(edict_t *self);
-void SP_func_wall(edict_t *self);
-void SP_func_object(edict_t *self);
-void SP_func_explosive(edict_t *self);
-void SP_func_timer(edict_t *self);
-void SP_func_areaportal(edict_t *ent);
-void SP_func_clock(edict_t *ent);
-void SP_func_killbox(edict_t *ent);
-
-void SP_trigger_always(edict_t *ent);
-void SP_trigger_once(edict_t *ent);
-void SP_trigger_multiple(edict_t *ent);
-void SP_trigger_relay(edict_t *ent);
-void SP_trigger_push(edict_t *ent);
-void SP_trigger_hurt(edict_t *ent);
-void SP_trigger_key(edict_t *ent);
-void SP_trigger_counter(edict_t *ent);
-void SP_trigger_elevator(edict_t *ent);
-void SP_trigger_gravity(edict_t *ent);
-void SP_trigger_monsterjump(edict_t *ent);
-
-void SP_target_temp_entity(edict_t *ent);
-void SP_target_speaker(edict_t *ent);
-void SP_target_explosion(edict_t *ent);
-void SP_target_changelevel(edict_t *ent);
-void SP_target_secret(edict_t *ent);
-void SP_target_goal(edict_t *ent);
-void SP_target_splash(edict_t *ent);
-void SP_target_spawner(edict_t *ent);
-void SP_target_blaster(edict_t *ent);
-void SP_target_crosslevel_trigger(edict_t *ent);
-void SP_target_crosslevel_target(edict_t *ent);
-void SP_target_laser(edict_t *self);
-void SP_target_help(edict_t *ent);
-void SP_target_actor(edict_t *ent);
-void SP_target_lightramp(edict_t *self);
-void SP_target_earthquake(edict_t *ent);
-void SP_target_music(edict_t *ent);
-void SP_target_sky(edict_t *ent);
-void SP_target_character(edict_t *ent);
-void SP_target_string(edict_t *ent);
-
-void SP_worldspawn(edict_t *ent);
-void SP_viewthing(edict_t *ent);
-
-void SP_light(edict_t *self);
-void SP_light_mine1(edict_t *ent);
-void SP_light_mine2(edict_t *ent);
-void SP_info_null(edict_t *self);
-void SP_info_notnull(edict_t *self);
-void SP_path_corner(edict_t *self);
-void SP_point_combat(edict_t *self);
-
-void SP_misc_explobox(edict_t *self);
-void SP_misc_banner(edict_t *self);
-void SP_misc_satellite_dish(edict_t *self);
-void SP_misc_actor(edict_t *self);
-void SP_misc_gib_arm(edict_t *self);
-void SP_misc_gib_leg(edict_t *self);
-void SP_misc_gib_head(edict_t *self);
-void SP_misc_insane(edict_t *self);
-void SP_misc_deadsoldier(edict_t *self);
-void SP_misc_viper(edict_t *self);
-void SP_misc_viper_bomb(edict_t *self);
-void SP_misc_bigviper(edict_t *self);
-void SP_misc_strogg_ship(edict_t *self);
-void SP_misc_teleporter(edict_t *self);
-void SP_misc_teleporter_dest(edict_t *self);
-void SP_misc_blackhole(edict_t *self);
-void SP_misc_eastertank(edict_t *self);
-void SP_misc_easterchick(edict_t *self);
-void SP_misc_easterchick2(edict_t *self);
-
-void SP_monster_arachnid(edict_t *self);
-void SP_monster_berserk(edict_t *self);
-void SP_monster_gladiator(edict_t *self);
-void SP_monster_gunner(edict_t *self);
-void SP_monster_guncmdr(edict_t *self);
-void SP_monster_guardian(edict_t *self);
-void SP_monster_infantry(edict_t *self);
-void SP_monster_soldier_light(edict_t *self);
-void SP_monster_soldier(edict_t *self);
-void SP_monster_soldier_ss(edict_t *self);
-void SP_monster_tank(edict_t *self);
-void SP_monster_medic(edict_t *self);
-void SP_monster_flipper(edict_t *self);
-void SP_monster_chick(edict_t *self);
-void SP_monster_parasite(edict_t *self);
-void SP_monster_flyer(edict_t *self);
-void SP_monster_brain(edict_t *self);
-void SP_monster_floater(edict_t *self);
-void SP_monster_hover(edict_t *self);
-void SP_monster_mutant(edict_t *self);
-void SP_monster_supertank(edict_t *self);
-void SP_monster_boss2(edict_t *self);
-void SP_monster_jorg(edict_t *self);
-void SP_monster_makron(edict_t *self);
-void SP_monster_boss3_stand(edict_t *self);
-
-void SP_monster_commander_body(edict_t *self);
-
-void SP_turret_breach(edict_t *self);
-void SP_turret_base(edict_t *self);
-void SP_turret_driver(edict_t *self);
-
-void SP_monster_shambler(edict_t *self);
-void SP_monster_soldier_hypergun(edict_t *self);
-void SP_monster_soldier_lasergun(edict_t *self);
-void SP_monster_soldier_ripper(edict_t *self);
-void SP_monster_fixbot(edict_t *self);
-void SP_monster_gekk(edict_t *self);
-void SP_monster_chick_heat(edict_t *self);
-void SP_monster_gladb(edict_t *self);
-void SP_monster_boss5(edict_t *self);
-void SP_rotating_light(edict_t *self);
-void SP_object_repair(edict_t *self);
-void SP_misc_crashviper(edict_t *ent);
-void SP_misc_viper_missile(edict_t *self);
-void SP_misc_amb4(edict_t *ent);
-void SP_target_mal_laser(edict_t *ent);
-void SP_misc_transport(edict_t *ent);
-
-void SP_misc_nuke(edict_t *ent);
-void SP_func_plat2(edict_t *ent);
-void SP_func_door_secret2(edict_t *ent);
-void SP_func_force_wall(edict_t *ent);
-void SP_info_player_coop_lava(edict_t *self);
-void SP_info_teleport_destination(edict_t *self);
-void SP_trigger_teleport(edict_t *self);
-void SP_trigger_disguise(edict_t *self);
-void SP_monster_stalker(edict_t *self);
-void SP_monster_turret(edict_t *self);
-void SP_target_steam(edict_t *self);
-void SP_target_anger(edict_t *self);
-void SP_target_killplayers(edict_t *self);
-
-void SP_target_blacklight(edict_t *self);
-void SP_target_orb(edict_t *self);
-
-void SP_hint_path(edict_t *self);
-void SP_monster_carrier(edict_t *self);
-void SP_monster_widow(edict_t *self);
-void SP_monster_widow2(edict_t *self);
-void SP_dm_tag_token(edict_t *self);
-void SP_dm_dball_goal(edict_t *self);
-void SP_dm_dball_ball(edict_t *self);
-void SP_dm_dball_team1_start(edict_t *self);
-void SP_dm_dball_team2_start(edict_t *self);
-void SP_dm_dball_ball_start(edict_t *self);
-void SP_dm_dball_speed_change(edict_t *self);
-void SP_monster_kamikaze(edict_t *self);
-void SP_turret_invisible_brain(edict_t *self);
-void SP_xatrix_item(edict_t *self);
-void SP_misc_nuke_core(edict_t *self);
-
-void ThrowMoreStuff(edict_t *self, vec3_t point);
-void ThrowSmallStuff(edict_t *self, vec3_t point);
-void ThrowWidowGibLoc(edict_t *self, char *gibname, int damage,
-		int type, vec3_t startpos, qboolean fade);
-void ThrowWidowGibSized(edict_t *self, char *gibname, int damage, int type,
-		vec3_t startpos, int hitsound, qboolean fade);
-
 static spawn_t spawns[] = {
-	{"item_health", SP_item_health},
-	{"item_health_small", SP_item_health_small},
-	{"item_health_large", SP_item_health_large},
-	{"item_health_mega", SP_item_health_mega},
-
-	{"info_player_start", SP_info_player_start},
-	{"info_player_deathmatch", SP_info_player_deathmatch},
-	{"info_player_coop", SP_info_player_coop},
-	{"info_player_intermission", SP_info_player_intermission},
-	{"info_player_team1", SP_info_player_team1},
-	{"info_player_team2", SP_info_player_team2},
-
-	{"func_plat", SP_func_plat},
-	{"func_button", SP_func_button},
-	{"func_door", SP_func_door},
-	{"func_door_secret", SP_func_door_secret},
-	{"func_door_rotating", SP_func_door_rotating},
-	{"func_rotating", SP_func_rotating},
-	{"func_train", SP_func_train},
-	{"func_water", SP_func_water},
-	{"func_conveyor", SP_func_conveyor},
-	{"func_areaportal", SP_func_areaportal},
-	{"func_clock", SP_func_clock},
-	{"func_wall", SP_func_wall},
-	{"func_object", SP_func_object},
-	{"func_timer", SP_func_timer},
-	{"func_explosive", SP_func_explosive},
-	{"func_killbox", SP_func_killbox},
-
-	{"func_object_repair", SP_object_repair},
-	{"rotating_light", SP_rotating_light},
-
-	{"trigger_always", SP_trigger_always},
-	{"trigger_once", SP_trigger_once},
-	{"trigger_multiple", SP_trigger_multiple},
-	{"trigger_relay", SP_trigger_relay},
-	{"trigger_push", SP_trigger_push},
-	{"trigger_hurt", SP_trigger_hurt},
-	{"trigger_key", SP_trigger_key},
-	{"trigger_counter", SP_trigger_counter},
-	{"trigger_elevator", SP_trigger_elevator},
-	{"trigger_gravity", SP_trigger_gravity},
-	{"trigger_monsterjump", SP_trigger_monsterjump},
-
-	{"target_temp_entity", SP_target_temp_entity},
-	{"target_speaker", SP_target_speaker},
-	{"target_explosion", SP_target_explosion},
-	{"target_changelevel", SP_target_changelevel},
-	{"target_secret", SP_target_secret},
-	{"target_goal", SP_target_goal},
-	{"target_splash", SP_target_splash},
-	{"target_spawner", SP_target_spawner},
-	{"target_blaster", SP_target_blaster},
-	{"target_crosslevel_trigger", SP_target_crosslevel_trigger},
-	{"target_crosslevel_target", SP_target_crosslevel_target},
-	{"target_laser", SP_target_laser},
-	{"target_help", SP_target_help},
-	{"target_actor", SP_target_actor},
-	{"target_lightramp", SP_target_lightramp},
-	{"target_earthquake", SP_target_earthquake},
-	{"target_music", SP_target_music},
-	{"target_sky", SP_target_sky},
-	{"target_character", SP_target_character},
-	{"target_string", SP_target_string},
-	{"target_mal_laser", SP_target_mal_laser},
-
-	{"worldspawn", SP_worldspawn},
-	{"viewthing", SP_viewthing},
-
-	{"light", SP_light},
-	{"light_mine1", SP_light_mine1},
-	{"light_mine2", SP_light_mine2},
-	{"info_null", SP_info_null},
-	{"func_group", SP_info_null},
-	{"info_notnull", SP_info_notnull},
-	{"path_corner", SP_path_corner},
-	{"point_combat", SP_point_combat},
-
-	{"misc_explobox", SP_misc_explobox},
-	{"misc_banner", SP_misc_banner},
-	{"misc_ctf_banner", SP_misc_ctf_banner},
-	{"misc_ctf_small_banner", SP_misc_ctf_small_banner},
-	{"misc_actor", SP_misc_actor},
-	{"misc_satellite_dish", SP_misc_satellite_dish},
-	{"misc_gib_arm", SP_misc_gib_arm},
-	{"misc_gib_leg", SP_misc_gib_leg},
-	{"misc_gib_head", SP_misc_gib_head},
-	{"misc_insane", SP_misc_insane},
-	{"misc_deadsoldier", SP_misc_deadsoldier},
-	{"misc_viper", SP_misc_viper},
-	{"misc_viper_bomb", SP_misc_viper_bomb},
-	{"misc_bigviper", SP_misc_bigviper},
-	{"misc_strogg_ship", SP_misc_strogg_ship},
-	{"misc_teleporter", SP_misc_teleporter},
-	{"misc_teleporter_dest", SP_misc_teleporter_dest},
-	{"misc_blackhole", SP_misc_blackhole},
-	{"misc_eastertank", SP_misc_eastertank},
-	{"misc_easterchick", SP_misc_easterchick},
-	{"misc_easterchick2", SP_misc_easterchick2},
-	{"misc_crashviper", SP_misc_crashviper},
-	{"misc_viper_missile", SP_misc_viper_missile},
-	{"misc_amb4", SP_misc_amb4},
-	{"misc_transport", SP_misc_transport},
-	{"misc_nuke", SP_misc_nuke},
-
-	{"monster_arachnid", SP_monster_arachnid},
-	{"monster_berserk", SP_monster_berserk},
-	{"monster_gladiator", SP_monster_gladiator},
-	{"monster_gunner", SP_monster_gunner},
-	{"monster_guncmdr", SP_monster_guncmdr},
-	{"monster_guardian", SP_monster_guardian},
-	{"monster_infantry", SP_monster_infantry},
-	{"monster_soldier_light", SP_monster_soldier_light},
-	{"monster_soldier", SP_monster_soldier},
-	{"monster_soldier_ss", SP_monster_soldier_ss},
-	{"monster_tank", SP_monster_tank},
-	{"monster_tank_commander", SP_monster_tank},
-	{"monster_tank_stand", SP_monster_tank},
-	{"monster_medic", SP_monster_medic},
-	{"monster_flipper", SP_monster_flipper},
-	{"monster_chick", SP_monster_chick},
-	{"monster_parasite", SP_monster_parasite},
-	{"monster_flyer", SP_monster_flyer},
-	{"monster_brain", SP_monster_brain},
-	{"monster_floater", SP_monster_floater},
-	{"monster_hover", SP_monster_hover},
-	{"monster_mutant", SP_monster_mutant},
-	{"monster_supertank", SP_monster_supertank},
-	{"monster_boss2", SP_monster_boss2},
-	{"monster_boss3_stand", SP_monster_boss3_stand},
-	{"monster_makron", SP_monster_makron},
-	{"monster_jorg", SP_monster_jorg},
-	{"monster_commander_body", SP_monster_commander_body},
-	{"monster_shambler", SP_monster_shambler},
-	{"monster_soldier_hypergun", SP_monster_soldier_hypergun},
-	{"monster_soldier_lasergun", SP_monster_soldier_lasergun},
-	{"monster_soldier_ripper", SP_monster_soldier_ripper},
-	{"monster_fixbot", SP_monster_fixbot},
-	{"monster_gekk", SP_monster_gekk},
-	{"monster_chick_heat", SP_monster_chick_heat},
-	{"monster_gladb", SP_monster_gladb},
-	{"monster_boss5", SP_monster_boss5},
-
-	{"turret_breach", SP_turret_breach},
-	{"turret_base", SP_turret_base},
-	{"turret_driver", SP_turret_driver},
-
-	{"func_plat2", SP_func_plat2},
-	{"func_door_secret2", SP_func_door_secret2},
-	{"func_force_wall", SP_func_force_wall},
-	{"trigger_teleport", SP_trigger_teleport},
-	{"trigger_disguise", SP_trigger_disguise},
-	{"info_teleport_destination", SP_info_teleport_destination},
-	{"info_player_coop_lava", SP_info_player_coop_lava},
-	{"monster_stalker", SP_monster_stalker},
-	{"monster_turret", SP_monster_turret},
-	{"target_steam", SP_target_steam},
-	{"target_anger", SP_target_anger},
-	{"target_killplayers", SP_target_killplayers},
-	{"target_blacklight", SP_target_blacklight},
-	{"target_orb", SP_target_orb},
-	{"monster_daedalus", SP_monster_hover},
-	{"hint_path", SP_hint_path},
-	{"monster_carrier", SP_monster_carrier},
-	{"monster_widow", SP_monster_widow},
-	{"monster_widow2", SP_monster_widow2},
-	{"monster_medic_commander", SP_monster_medic},
-	{"dm_tag_token", SP_dm_tag_token},
-	{"dm_dball_goal", SP_dm_dball_goal},
-	{"dm_dball_ball", SP_dm_dball_ball},
-	{"dm_dball_team1_start", SP_dm_dball_team1_start},
-	{"dm_dball_team2_start", SP_dm_dball_team2_start},
-	{"dm_dball_ball_start", SP_dm_dball_ball_start},
-	{"dm_dball_speed_change", SP_dm_dball_speed_change},
-	{"monster_kamikaze", SP_monster_kamikaze},
-	{"turret_invisible_brain", SP_turret_invisible_brain},
-	{"misc_nuke_core", SP_misc_nuke_core},
-
-	{"ammo_magslug", SP_xatrix_item},
-	{"ammo_trap", SP_xatrix_item},
-	{"item_quadfire", SP_xatrix_item},
-	{"weapon_boomer", SP_xatrix_item},
-	{"weapon_phalanx", SP_xatrix_item},
-
-	{NULL, NULL}
+#include "savegame/tables/spawnfunc_list.h"
 };
+
+/* Definition of dynamic object */
+typedef struct
+{
+	char classname[MAX_QPATH];
+	/* could be up to three models */
+	char model_path[MAX_QPATH * 3];
+	vec3_t scale;
+	char entity_type[MAX_QPATH];
+	vec3_t mins;
+	vec3_t maxs;
+	char noshadow[MAX_QPATH];
+	int solidflag;
+	float walk_speed;
+	float run_speed;
+	int speed;
+	int lighting;
+	int blending;
+	char target_sequence[MAX_QPATH];
+	int misc_value;
+	int no_mip;
+	char spawn_sequence[MAX_QPATH];
+	char description[MAX_QPATH];
+	/* Additional fields */
+	vec3_t color;
+	int health;
+	int mass;
+	int damage;
+	int damage_range;
+	vec3_t damage_aim;
+	gibtype_t gib;
+	int gib_health;
+} dynamicentity_t;
+
+static dynamicentity_t *dynamicentities;
+static int ndynamicentities;
+static int nstaticentities;
+
+static void
+DynamicSpawnSetScale(edict_t *self)
+{
+	/* copy to other parts if zero */
+	if (!st.scale[1])
+	{
+		st.scale[1] = st.scale[0];
+	}
+
+	if (!st.scale[2])
+	{
+		st.scale[2] = st.scale[0];
+	}
+
+	/* Copy to entity scale field */
+	VectorCopy(st.scale, self->rrs.scale);
+}
+
+/*
+ * Spawn method does not require any models to attach, so remove posible model
+ * attached by dynamic spawn. In most cases spawn function will replace model
+ * to correct one if need.
+ */
+void
+DynamicResetSpawnModels(edict_t *self)
+{
+	if (!self)
+	{
+		return;
+	}
+
+	self->s.modelindex = 0;
+	self->s.modelindex2 = 0;
+	self->s.modelindex3 = 0;
+}
+
+static gibtype_t
+DynamicSpawnGibFromName(const char *gib_type)
+{
+	if (!gib_type || !gib_type[0])
+	{
+		return GIB_NONE;
+	}
+
+	if (strlen(gib_type) <= 2 && gib_type[0] >= '0' && gib_type[0] <= '9')
+	{
+		/* Heretic 2: type is started from number */
+		int gib_val;
+
+		gib_val = (int)strtol(gib_type, (char **)NULL, 10);
+		switch (gib_val)
+		{
+			case 0: return GIB_STONE;
+			case 1: return GIB_GREYSTONE;
+			case 2: return GIB_CLOTH;
+			case 3: return GIB_METALLIC;
+			case 4: return GIB_ORGANIC;
+			case 5: return GIB_POTTERY;
+			case 6: return GIB_GLASS;
+			case 7: return GIB_LEAF;
+			case 8: return GIB_WOOD;
+			case 9: return GIB_BROWNSTONE;
+			case 10: return GIB_NONE;
+			case 11: return GIB_INSECT;
+			default: return GIB_NONE;
+		}
+	}
+
+	/* Combined ReMaster names and Heretic 2 materials */
+	if (!strcmp(gib_type, "none"))
+	{
+		return GIB_NONE;
+	}
+	else if (!strcmp(gib_type, "metal") ||
+		!strcmp(gib_type, "metallic"))
+	{
+		return GIB_METALLIC;
+	}
+	else if (!strcmp(gib_type, "flesh") ||
+		!strcmp(gib_type, "organic"))
+	{
+		return GIB_ORGANIC;
+	}
+	else if (!strcmp(gib_type, "stone"))
+	{
+		return GIB_STONE;
+	}
+	else if (!strcmp(gib_type, "greystone"))
+	{
+		return GIB_GREYSTONE;
+	}
+	else if (!strcmp(gib_type, "cloth"))
+	{
+		return GIB_CLOTH;
+	}
+	else if (!strcmp(gib_type, "pottery"))
+	{
+		return GIB_POTTERY;
+	}
+	else if (!strcmp(gib_type, "glass"))
+	{
+		return GIB_GLASS;
+	}
+	else if (!strcmp(gib_type, "leaf"))
+	{
+		return GIB_LEAF;
+	}
+	else if (!strcmp(gib_type, "wood"))
+	{
+		return GIB_WOOD;
+	}
+	else if (!strcmp(gib_type, "brownstone"))
+	{
+		return GIB_BROWNSTONE;
+	}
+	else if (!strcmp(gib_type, "insect"))
+	{
+		return GIB_INSECT;
+	}
+
+	return GIB_NONE;
+}
+
+static void
+DynamicSpawnUpdate(edict_t *self, dynamicentity_t *data)
+{
+	/* update properties by dynamic properties */
+	char model_path[MAX_QPATH * 3];
+	char *semicolon, *curr;
+
+	Q_strlcpy(model_path, data->model_path,
+		Q_min(sizeof(model_path), sizeof(data->model_path)));
+
+	/* first model */
+	curr = model_path;
+	semicolon = strchr(curr, ';');
+	if (semicolon)
+	{
+		*semicolon = 0;
+		semicolon ++;
+	}
+
+	self->s.modelindex = gi.modelindex(curr);
+
+	/* second model */
+	if (semicolon)
+	{
+		curr = semicolon;
+		semicolon = strchr(curr, ';');
+		if (semicolon)
+		{
+			*semicolon = 0;
+			semicolon ++;
+		}
+		self->s.modelindex2 = gi.modelindex(curr);
+	}
+
+	/* third model */
+	if (semicolon)
+	{
+		curr = semicolon;
+		semicolon = strchr(curr, ';');
+		if (semicolon)
+		{
+			*semicolon = 0;
+			semicolon ++;
+		}
+		self->s.modelindex3 = gi.modelindex(curr);
+	}
+
+	if (semicolon)
+	{
+		gi.dprintf("%s: '%s' use more than three models: %s\n",
+			__func__, self->classname, semicolon);
+	}
+
+	VectorCopy(data->mins, self->mins);
+	VectorCopy(data->maxs, self->maxs);
+	VectorCopy(data->damage_aim, self->damage_aim);
+	self->gib = data->gib;
+	/* Heretic 2 material types */
+	if (self->gibtype && self->gibtype[0])
+	{
+		self->gib = DynamicSpawnGibFromName(self->gibtype);
+	}
+
+	/* has updated scale */
+	if (st.scale[0] || st.scale[1] || st.scale[2])
+	{
+		DynamicSpawnSetScale(self);
+	}
+	else
+	{
+		VectorCopy(data->scale, self->rrs.scale);
+	}
+
+	self->monsterinfo.scale = (
+		data->scale[0] +
+		data->scale[1] +
+		data->scale[2]
+	) / 3;
+
+	self->monsterinfo.run_dist = data->run_speed;
+	self->monsterinfo.walk_dist = data->walk_speed;
+
+	/* override only by non zero value and only zero value*/
+	if (data->health && !self->health)
+	{
+		self->health = data->health;
+	}
+
+	if (data->mass && !self->mass)
+	{
+		self->mass = data->mass;
+	}
+
+	if (data->damage && !self->dmg)
+	{
+		self->dmg = data->damage;
+	}
+
+	if (data->damage_range && !self->dmg_range)
+	{
+		self->dmg_range = data->damage_range;
+	}
+
+	/* set default solid flag */
+	if (data->solidflag)
+	{
+		self->solid = SOLID_BBOX;
+	}
+	else
+	{
+		self->solid = SOLID_NOT;
+	}
+}
+
+void
+dynamicspawn_touch(edict_t *self, edict_t *other, cplane_t *plane /* unused */,
+		csurface_t *surf /* unused */)
+{
+	if (!self || !other)
+	{
+		return;
+	}
+
+	if (!self->message || !self->message[0])
+	{
+		gi.centerprintf(other, "Entity classname: %s", self->classname);
+		return;
+	}
+
+	gi.centerprintf(other, "Entity description: %s", self->message);
+}
+
+void
+dynamicspawn_think(edict_t *self)
+{
+	M_SetAnimGroupFrame(self, "idle", true);
+	self->nextthink = level.time + FRAMETIME;
+}
+
+static void
+DynamicSpawn(edict_t *self, dynamicentity_t *data)
+{
+	const dmdxframegroup_t * frames;
+	int num;
+
+	/* All other properties could be updated in DynamicSpawnUpdate */
+	self->movetype = MOVETYPE_NONE;
+	self->solid = SOLID_BBOX;
+
+	/* set message only if it has description */
+	if (data->description[0])
+	{
+		self->message = data->description;
+	}
+
+	/* Set Mins/Maxs based on first frame */
+	gi.GetModelFrameInfo(self->s.modelindex, self->s.frame,
+		self->mins, self->maxs);
+
+	gi.linkentity(self);
+
+	/* Set Mins/Maxs based on whole model frames in animation group */
+	frames = gi.GetModelInfo(self->s.modelindex, &num, NULL, NULL);
+	if (frames && num)
+	{
+		qboolean has_idle = false;
+		float speed;
+		size_t i;
+
+		monster_dynamic_setinfo(self);
+
+		speed = (self->maxs[0] - self->mins[0]);
+
+		if (self->monsterinfo.run_dist <= 0)
+		{
+			self->monsterinfo.run_dist = speed;
+		}
+
+		if (self->monsterinfo.walk_dist <= 0)
+		{
+			self->monsterinfo.walk_dist = speed / 2;
+		}
+
+		if (self->health <= 0)
+		{
+			self->health = 100;
+		}
+
+		if (self->mass <= 0)
+		{
+			self->mass = 100;
+		}
+
+		for (i = 0; i < num; i++)
+		{
+			if (!strcmp(frames[i].name, "walk") ||
+				!strcmp(frames[i].name, "run"))
+			{
+				self->movetype = MOVETYPE_STEP;
+				walkmonster_start(self);
+				break;
+			}
+			else if (!strcmp(frames[i].name, "swim"))
+			{
+				self->movetype = MOVETYPE_STEP;
+				swimmonster_start(self);
+				break;
+			}
+			else if (!strcmp(frames[i].name, "fly"))
+			{
+				self->movetype = MOVETYPE_STEP;
+				flymonster_start(self);
+				break;
+			}
+			else if (!strcmp(frames[i].name, "idle"))
+			{
+				has_idle = true;
+			}
+		}
+
+		if (has_idle && self->movetype != MOVETYPE_STEP)
+		{
+			self->think = dynamicspawn_think;
+			self->nextthink = level.time + FRAMETIME;
+		}
+	}
+
+	if (self->movetype != MOVETYPE_STEP)
+	{
+		self->touch = dynamicspawn_touch;
+	}
+}
+
+static int
+DynamicSpawnSearch(const char *name)
+{
+	int start, end;
+
+	start = 0;
+	end = ndynamicentities - 1;
+
+	while (start <= end)
+	{
+		int i, res;
+
+		i = start + (end - start) / 2;
+
+		res = Q_stricmp(dynamicentities[i].classname, name);
+		if (res == 0)
+		{
+			return i;
+		}
+		else if (res < 0)
+		{
+			start = i + 1;
+		}
+		else
+		{
+			end = i - 1;
+		}
+	}
+
+	return -1;
+}
 
 static qboolean
 Spawn_CheckCoop_MapHacks(edict_t *ent)
 {
-	if(!coop->value || !ent)
+	if (!coop->value || !ent)
 	{
 		return false;
 	}
 
-	if(!Q_stricmp(level.mapname, "xsewer1"))
+	if (!Q_stricmp(level.mapname, "xsewer1"))
 	{
-		if(ent->classname && !Q_stricmp(ent->classname, "trigger_relay") && ent->target && !Q_stricmp(ent->target, "t3") && ent->targetname && !Q_stricmp(ent->targetname, "t2"))
+		if (ent->classname && !Q_stricmp(ent->classname, "trigger_relay") && ent->target && !Q_stricmp(ent->target, "t3") && ent->targetname && !Q_stricmp(ent->targetname, "t2"))
 		{
 			return true;
 		}
-		if(ent->classname && !Q_stricmp(ent->classname, "func_button") && ent->target && !Q_stricmp(ent->target, "t16") && ent->model && !Q_stricmp(ent->model, "*71"))
+		if (ent->classname && !Q_stricmp(ent->classname, "func_button") && ent->target && !Q_stricmp(ent->target, "t16") && ent->model && !Q_stricmp(ent->model, "*71"))
 		{
 			ent->message = "Overflow valve maintenance\nhatch A opened.";
 			return false;
 		}
 
-		if(ent->classname && !Q_stricmp(ent->classname, "trigger_once") && ent->model && !Q_stricmp(ent->model, "*3"))
+		if (ent->classname && !Q_stricmp(ent->classname, "trigger_once") && ent->model && !Q_stricmp(ent->model, "*3"))
 		{
 			ent->message = "Overflow valve maintenance\nhatch B opened.";
 			return false;
@@ -437,6 +498,38 @@ Spawn_CheckCoop_MapHacks(edict_t *ent)
 	return false;
 }
 
+static const spawn_t *
+StaticSpawnSearch(const char *classname)
+{
+	int start, end;
+
+	start = 0;
+	end = nstaticentities - 1;
+
+	while (start <= end)
+	{
+		int i, res;
+
+		i = start + (end - start) / 2;
+
+		res = Q_stricmp(spawns[i].name, classname);
+		if (res == 0)
+		{
+			return &spawns[i];
+		}
+		else if (res < 0)
+		{
+			start = i + 1;
+		}
+		else
+		{
+			end = i - 1;
+		}
+	}
+
+	return NULL;
+}
+
 /*
  * Finds the spawn function for
  * the entity and calls it
@@ -444,9 +537,9 @@ Spawn_CheckCoop_MapHacks(edict_t *ent)
 void
 ED_CallSpawn(edict_t *ent)
 {
-	spawn_t *s;
+	const spawn_t *s;
 	gitem_t *item;
-	int i;
+	int i, dyn_id;
 
 	if (!ent)
 	{
@@ -455,7 +548,7 @@ ED_CallSpawn(edict_t *ent)
 
 	if (!ent->classname)
 	{
-		gi.dprintf("ED_CallSpawn: NULL classname\n");
+		gi.dprintf("%s: NULL classname\n", __func__);
 		G_FreeEdict(ent);
 		return;
 	}
@@ -463,6 +556,11 @@ ED_CallSpawn(edict_t *ent)
 	ent->gravityVector[0] = 0.0;
 	ent->gravityVector[1] = 0.0;
 	ent->gravityVector[2] = -1.0;
+
+	if (st.health_multiplier <= 0)
+	{
+		st.health_multiplier = 1.0;
+	}
 
 	if (!strcmp(ent->classname, "weapon_nailgun"))
 	{
@@ -477,6 +575,31 @@ ED_CallSpawn(edict_t *ent)
 	if (!strcmp(ent->classname, "weapon_heatbeam"))
 	{
 		ent->classname = (FindItem("Plasma Beam"))->classname;
+	}
+
+	/* search dynamic definitions */
+	dyn_id = -1;
+	if (dynamicentities && ndynamicentities)
+	{
+		dyn_id = DynamicSpawnSearch(ent->classname);
+
+		if (dyn_id >= 0)
+		{
+			DynamicSpawnUpdate(ent, &dynamicentities[dyn_id]);
+		}
+	}
+
+	/* No dynamic description */
+	if (dyn_id < 0)
+	{
+		if (st.scale[0])
+		{
+			DynamicSpawnSetScale(ent);
+		}
+		else
+		{
+			VectorSet(ent->rrs.scale, 1.0, 1.0, 1.0);
+		}
 	}
 
 	/* check item spawn functions */
@@ -496,13 +619,45 @@ ED_CallSpawn(edict_t *ent)
 	}
 
 	/* check normal spawn functions */
-	for (s = spawns; s->name; s++)
+	s = StaticSpawnSearch(ent->classname);
+	if (s)
 	{
-		if (!strcmp(s->name, ent->classname))
+		/* found it */
+		s->spawn(ent);
+		return;
+	}
+
+	if (dyn_id >= 0 && dynamicentities[dyn_id].model_path[0])
+	{
+		/* spawn only if know model */
+		DynamicSpawn(ent, &dynamicentities[dyn_id]);
+
+		return;
+	}
+
+	/* SiN entity could have model path as model field */
+	if (ent->model && (ent->model[0] != '*') && (strlen(ent->model) > 4))
+	{
+		const char *ext;
+
+		ext = COM_FileExtension(ent->model);
+		if (!strcmp(ext, "def"))
 		{
-			/* found it */
-			s->spawn(ent);
-			return;
+			dynamicentity_t self = {0};
+
+			Q_strlcpy(self.classname, ent->classname, sizeof(self.classname));
+			snprintf(self.model_path, sizeof(self.model_path), "models/%s", ent->model);
+
+			if (gi.LoadFile(self.model_path, NULL) > 4)
+			{
+				/* Set default size */
+				VectorSet(self.mins, -16, -16, -16);
+				VectorSet(self.maxs, 16, 16, 16);
+
+				DynamicSpawnUpdate(ent, &self);
+				DynamicSpawn(ent, &self);
+				return;
+			}
 		}
 	}
 
@@ -510,10 +665,10 @@ ED_CallSpawn(edict_t *ent)
 }
 
 char *
-ED_NewString(const char *string)
+ED_NewString(const char *string, qboolean raw)
 {
-	char *newb, *new_p;
-	int i, l;
+	char *newb;
+	size_t l;
 
 	if (!string)
 	{
@@ -524,37 +679,97 @@ ED_NewString(const char *string)
 
 	newb = gi.TagMalloc(l, TAG_LEVEL);
 
-	new_p = newb;
-
-	for (i = 0; i < l; i++)
+	if (!raw)
 	{
-		if ((string[i] == '\\') && (i < l - 1))
-		{
-			i++;
+		char *new_p;
+		int i;
 
-			if (string[i] == 'n')
+		new_p = newb;
+
+		for (i = 0; i < l; i++)
+		{
+			if ((string[i] == '\\') && (i < l - 1))
 			{
-				*new_p++ = '\n';
+				i++;
+
+				if (string[i] == 'n')
+				{
+					*new_p++ = '\n';
+				}
+				else
+				{
+					*new_p++ = '\\';
+				}
 			}
 			else
 			{
-				*new_p++ = '\\';
+				*new_p++ = string[i];
 			}
 		}
-		else
-		{
-			*new_p++ = string[i];
-		}
+	}
+	else
+	{
+		/* just copy without convert */
+		memcpy(newb, string, l);
 	}
 
 	return newb;
+}
+
+static unsigned
+ED_ParseColorField(const char *value)
+{
+	/* space means rgba as values */
+	if (strchr(value, ' '))
+	{
+		float v[4] = { 0, 0, 0, 1.0f };
+		qboolean is_float = true;
+		char *color_buffer, *tmp;
+		int i;
+
+		color_buffer = strdup(value);
+		tmp = color_buffer;
+
+		for (i = 0; i < 4; i++)
+		{
+			v[i] = (float)strtod(COM_Parse(&tmp), (char **)NULL);
+
+			if (v[i] > 1.0f)
+			{
+				is_float = false;
+			}
+
+			if (!tmp)
+			{
+				break;
+			}
+		}
+		free(color_buffer);
+
+		/* convert to bytes */
+		if (is_float)
+		{
+			for (i = 0; i < 4; i++)
+			{
+				v[i] *= 255.f;
+			}
+		}
+
+		return ((byte)v[3]) |
+				(((byte)v[2]) << 8) |
+				(((byte)v[1]) << 16) |
+				(((byte)v[0]) << 24);
+	}
+
+	/* integral */
+	return atoi(value);
 }
 
 /*
  * Takes a key/value pair and sets
  * the binary values in an edict
  */
-void
+static void
 ED_ParseField(const char *key, const char *value, edict_t *ent)
 {
 	field_t *f;
@@ -583,10 +798,14 @@ ED_ParseField(const char *key, const char *value, edict_t *ent)
 
 			switch (f->type)
 			{
+				case F_LRAWSTRING:
+					*(char **)(b + f->ofs) = ED_NewString(value, true);
+					break;
 				case F_LSTRING:
-					*(char **)(b + f->ofs) = ED_NewString(value);
+					*(char **)(b + f->ofs) = ED_NewString(value, false);
 					break;
 				case F_VECTOR:
+					VectorClear(vec);
 					sscanf(value, "%f %f %f", &vec[0], &vec[1], &vec[2]);
 					((float *)(b + f->ofs))[0] = vec[0];
 					((float *)(b + f->ofs))[1] = vec[1];
@@ -604,6 +823,9 @@ ED_ParseField(const char *key, const char *value, edict_t *ent)
 					((float *)(b + f->ofs))[1] = v;
 					((float *)(b + f->ofs))[2] = 0;
 					break;
+				case F_RGBA:
+					*(unsigned *)(b + f->ofs) = ED_ParseColorField(value);
+					break;
 				case F_IGNORE:
 					break;
 				default:
@@ -614,7 +836,7 @@ ED_ParseField(const char *key, const char *value, edict_t *ent)
 		}
 	}
 
-	gi.dprintf("%s is not a field\n", key);
+	gi.dprintf("'%s' is not a field. Value is '%s'\n", key, value);
 }
 
 /*
@@ -622,12 +844,11 @@ ED_ParseField(const char *key, const char *value, edict_t *ent)
  * returning the new position. ed should be
  * a properly initialized empty edict.
  */
-char *
+static char *
 ED_ParseEdict(char *data, edict_t *ent)
 {
+	const char *ent_begin;
 	qboolean init;
-	char keyname[256];
-	const char *com_token;
 
 	if (!ent)
 	{
@@ -638,9 +859,14 @@ ED_ParseEdict(char *data, edict_t *ent)
 	memset(&st, 0, sizeof(st));
 	st.skyautorotate = 1;
 
+	ent_begin = data;
+
 	/* go through all the dictionary pairs */
 	while (1)
 	{
+		const char *com_token;
+		char keyname[256];
+
 		/* parse key */
 		com_token = COM_Parse(&data);
 
@@ -652,6 +878,7 @@ ED_ParseEdict(char *data, edict_t *ent)
 		if (!data)
 		{
 			gi.error("ED_ParseEntity: EOF without closing brace");
+			break;
 		}
 
 		Q_strlcpy(keyname, com_token, sizeof(keyname));
@@ -661,12 +888,14 @@ ED_ParseEdict(char *data, edict_t *ent)
 
 		if (!data)
 		{
-			gi.error("ED_ParseEntity: EOF without closing brace");
+			gi.error("%s: EOF without closing brace", __func__);
+			break;
 		}
 
 		if (com_token[0] == '}')
 		{
-			gi.error("ED_ParseEntity: closing brace without data");
+			gi.error("%s: closing brace without data", __func__);
+			break;
 		}
 
 		init = true;
@@ -680,11 +909,30 @@ ED_ParseEdict(char *data, edict_t *ent)
 		}
 
 		ED_ParseField(keyname, com_token, ent);
+
+		/* Enable brush model animation only if provided */
+		if (!strcmp(keyname, "bmodel_anim_start") ||
+			!strcmp(keyname, "bmodel_anim_end"))
+		{
+			ent->bmodel_anim.enabled = true;
+		}
 	}
 
 	if (!init)
 	{
 		memset(ent, 0, sizeof(*ent));
+	}
+	else
+	{
+		size_t ent_string_size;
+		char *ent_str;
+
+		ent_string_size = data - ent_begin;
+
+		ent_str = gi.TagMalloc(ent_string_size, TAG_LEVEL);
+		memcpy(ent_str, ent_begin, ent_string_size);
+		ent_str[ent_string_size - 1] = 0;
+		ent->ent_str = ent_str;
 	}
 
 	return data;
@@ -764,10 +1012,10 @@ G_FixTeams(void)
 		}
 	}
 
-	gi.dprintf("%i teams repaired\n", c);
+	gi.dprintf("%i teams repaired with %d entities\n", c, c2);
 }
 
-void
+static void
 G_FindTeams(void)
 {
 	edict_t *e, *e2, *chain;
@@ -832,6 +1080,27 @@ G_FindTeams(void)
 	gi.dprintf("%i teams with %i entities.\n", c, c2);
 }
 
+static int
+SpawnEntitiesCount(const char *entities)
+{
+	int num_ent;
+
+	/* little more space for dynamicly created monsters */
+	num_ent = 128;
+
+	while(*entities)
+	{
+		if (*entities == '{')
+		{
+			num_ent ++;
+		}
+
+		entities++;
+	}
+
+	return num_ent;
+}
+
 /*
  * Creates a server's entity / program execution context by
  * parsing textual entity definitions out of an ent file.
@@ -871,6 +1140,8 @@ SpawnEntities(const char *mapname, char *entities, const char *spawnpoint)
 
 	gi.FreeTags(TAG_LEVEL);
 
+	ReinitGameEntities(SpawnEntitiesCount(entities));
+
 	memset(&level, 0, sizeof(level));
 	memset(g_edicts, 0, game.maxentities * sizeof(g_edicts[0]));
 
@@ -899,7 +1170,8 @@ SpawnEntities(const char *mapname, char *entities, const char *spawnpoint)
 
 		if (com_token[0] != '{')
 		{
-			gi.error("ED_LoadFromFile: found %s when expecting {", com_token);
+			gi.error("%s: found %s when expecting {", __func__, com_token);
+			break;
 		}
 
 		if (!ent)
@@ -931,14 +1203,14 @@ SpawnEntities(const char *mapname, char *entities, const char *spawnpoint)
 
 		if (!Q_stricmp(level.mapname, "rhangar2") &&
 			!Q_stricmp(ent->classname, "trigger_always") &&
-		   	ent->target && !Q_stricmp(ent->target, "t265"))
+			ent->target && !Q_stricmp(ent->target, "t265"))
 		{
 			ent->spawnflags |= SPAWNFLAG_NOT_COOP;
 		}
 
 		if (!Q_stricmp(level.mapname, "rhangar2") &&
 			!Q_stricmp(ent->classname, "func_wall") &&
-		   	!Q_stricmp(ent->model, "*15"))
+			!Q_stricmp(ent->model, "*15"))
 		{
 			ent->spawnflags |= SPAWNFLAG_NOT_COOP;
 		}
@@ -1013,6 +1285,9 @@ SpawnEntities(const char *mapname, char *entities, const char *spawnpoint)
 		ent->s.renderfx |= RF_IR_VISIBLE;
 	}
 
+	/* in case the last entity in the entstring has spawntemp fields */
+	memset(&st, 0, sizeof(st));
+
 	gi.dprintf("%i entities inhibited.\n", inhibit);
 
 	G_FindTeams();
@@ -1043,6 +1318,11 @@ SpawnEntities(const char *mapname, char *entities, const char *spawnpoint)
 	{
 		CTFSpawn();
 	}
+
+	AI_NewMap();//JABot
+
+	/* setup server-side shadow lights */
+	setup_shadow_lights();
 }
 
 /* =================================================================== */
@@ -1184,6 +1464,71 @@ static char *dm_statusbar =
 	"endif "
 ;
 
+static char *roarke_statusbar =
+	"yb	-70 "
+
+/* health */
+	"xl	3 "
+	"pic 0 "
+	"yb	-68 "
+	"xl	35 "
+	"hnum "
+
+/* draw ammo value */
+	"yb	-35 "
+	"xl	3 "
+	"pic 8 "
+	"yb	-33 "
+	"xl	35 "
+	"num 3 9 "
+	"yt	5 "
+	"xr	-35 "
+	"pic 31 "
+
+/* selected item */
+	"if 6 "
+	"	yt	45 "
+	"	xr	-70 "
+	"	num	2	7 "
+	"	xr	-35 "
+	"	pic	6 "
+	"endif "
+
+/* chase camera */
+	"if 16 "
+	"	yb	-105 "
+	"	xr	-35 "
+	"	pic 16 "
+	"endif "
+
+/* ammo */
+	"if 2 "
+	"	yb	-70 "
+	"	xr	-87 "
+	"	anum "
+	"	yb	-68 "
+	"	xr	-35 "
+	"	pic 2 "
+	"endif "
+
+/* armor */
+	"if 4 "
+	"	yb	-35 "
+	"	xr	-87 "
+	"	rnum "
+	"	yb	-33 "
+	"	xr	-35 "
+	"	pic 4 "
+	"endif "
+
+/* selected item */
+	"if 12 "
+	"	xv	145 "
+	"	yt 5 "
+	"	pic 12 "
+	"endif"
+;
+
 /*
  * QUAKED worldspawn (0 0 0) ?
  *
@@ -1219,14 +1564,15 @@ SP_worldspawn(edict_t *ent)
 
 	if (st.nextmap)
 	{
-		strcpy(level.nextmap, st.nextmap);
+		Q_strlcpy(level.nextmap, st.nextmap, sizeof(level.nextmap));
 	}
 
 	/* make some data visible to the server */
 	if (ent->message && ent->message[0])
 	{
-		gi.configstring(CS_NAME, ent->message);
-		Q_strlcpy(level.level_name, ent->message, sizeof(level.level_name));
+		Q_strlcpy(level.level_name, gi.LocalizationMessage(ent->message, NULL),
+			sizeof(level.level_name));
+		gi.configstring(CS_NAME, level.level_name);
 	}
 	else
 	{
@@ -1247,7 +1593,14 @@ SP_worldspawn(edict_t *ent)
 	gi.configstring(CS_SKYAXIS, va("%f %f %f",
 				st.skyaxis[0], st.skyaxis[1], st.skyaxis[2]));
 
-	gi.configstring(CS_CDTRACK, va("%i", ent->sounds));
+	if (st.music && st.music[0])
+	{
+		gi.configstring(CS_CDTRACK, st.music);
+	}
+	else
+	{
+		gi.configstring(CS_CDTRACK, va("%i", ent->sounds));
+	}
 
 	gi.configstring(CS_MAXCLIENTS, va("%i", (int)(maxclients->value)));
 
@@ -1266,14 +1619,37 @@ SP_worldspawn(edict_t *ent)
 	}
 	else
 	{
-		gi.configstring(CS_STATUSBAR, single_statusbar);
+		if (!strcmp(g_game->string, "roarke")) /* DoD */
+		{
+			gi.configstring(CS_STATUSBAR, roarke_statusbar);
+		}
+		else
+		{
+			gi.configstring(CS_STATUSBAR, single_statusbar);
+		}
+	}
+
+	if (st.start_items && *st.start_items)
+	{
+		level.start_items = st.start_items;
+	}
+	else
+	{
+		level.start_items = NULL;
 	}
 
 	/* --------------- */
 
 	/* help icon for statusbar */
 	gi.imageindex("i_help");
-	level.pic_health = gi.imageindex("i_health");
+	if (!strcmp(g_game->string, "roarke")) /* DoD */
+	{
+		level.pic_health = gi.imageindex("i_life");
+	}
+	else
+	{
+		level.pic_health = gi.imageindex("i_health");
+	}
 	gi.imageindex("help");
 	gi.imageindex("field_3");
 
@@ -1321,31 +1697,28 @@ SP_worldspawn(edict_t *ent)
 	gi.soundindex("*pain100_2.wav");
 
 	/* sexed models: THIS ORDER MUST MATCH THE DEFINES IN g_local.h
-	   you can add more, max 19 (pete change)these models are only
-	   loaded in coop or deathmatch. not singleplayer. */
-	if (coop->value || deathmatch->value || ctf->value)
-	{
-		gi.modelindex("#w_blaster.md2");
-		gi.modelindex("#w_shotgun.md2");
-		gi.modelindex("#w_sshotgun.md2");
-		gi.modelindex("#w_machinegun.md2");
-		gi.modelindex("#w_chaingun.md2");
-		gi.modelindex("#a_grenades.md2");
-		gi.modelindex("#w_glauncher.md2");
-		gi.modelindex("#w_rlauncher.md2");
-		gi.modelindex("#w_hyperblaster.md2");
-		gi.modelindex("#w_railgun.md2");
-		gi.modelindex("#w_bfg.md2");
-		gi.modelindex("#w_grapple.md2");
-		gi.modelindex("#w_disrupt.md2");
-		gi.modelindex("#w_etfrifle.md2");
-		gi.modelindex("#w_plasma.md2");
-		gi.modelindex("#w_plauncher.md2");
-		gi.modelindex("#w_chainfist.md2");
-
-		gi.modelindex("#w_phalanx.md2");
-		gi.modelindex("#w_ripper.md2");
-	}
+	   you can add more. */
+	gi.modelindex("#w_blaster.md2");      /* WEAP_BLASTER */
+	gi.modelindex("#w_shotgun.md2");      /* WEAP_SHOTGUN */
+	gi.modelindex("#w_sshotgun.md2");     /* WEAP_SUPERSHOTGUN */
+	gi.modelindex("#w_machinegun.md2");   /* WEAP_MACHINEGUN */
+	gi.modelindex("#w_chaingun.md2");     /* WEAP_CHAINGUN */
+	gi.modelindex("#a_grenades.md2");     /* WEAP_GRENADES */
+	gi.modelindex("#w_glauncher.md2");    /* WEAP_GRENADELAUNCHER */
+	gi.modelindex("#w_rlauncher.md2");    /* WEAP_ROCKETLAUNCHER */
+	gi.modelindex("#w_hyperblaster.md2"); /* WEAP_HYPERBLASTER */
+	gi.modelindex("#w_railgun.md2");      /* WEAP_RAILGUN */
+	gi.modelindex("#w_bfg.md2");          /* WEAP_BFG */
+	gi.modelindex("#w_phalanx.md2");      /* WEAP_PHALANX */
+	gi.modelindex("#w_ripper.md2");       /* WEAP_BOOMER */
+	gi.modelindex("#w_disrupt.md2");      /* WEAP_DISRUPTOR */
+	gi.modelindex("#w_etfrifle.md2");     /* WEAP_ETFRIFLE */
+	gi.modelindex("#w_plasma.md2");       /* WEAP_PLASMA */
+	gi.modelindex("#w_plauncher.md2");    /* WEAP_PROXLAUNCH */
+	gi.modelindex("#w_chainfist.md2");    /* WEAP_CHAINFIST */
+	gi.modelindex("#w_grapple.md2");      /* WEAP_GRAPPLE */
+	gi.modelindex("#w_flareg.md2");       /* WEAP_FLAREGUN */
+	gi.modelindex("#w_disint.md2");       /* WEAP_BETA_DISRUPTOR */
 
 	/* ------------------- */
 
@@ -1438,7 +1811,7 @@ SP_worldspawn(edict_t *ent)
  *  CreateGroundMonster - this checks the volume and makes sure the floor under the volume is suitable
  */
 
-edict_t *
+static edict_t *
 CreateMonster(vec3_t origin, vec3_t angles, char *classname)
 {
 	edict_t *newEnt;
@@ -1452,7 +1825,7 @@ CreateMonster(vec3_t origin, vec3_t angles, char *classname)
 
 	VectorCopy(origin, newEnt->s.origin);
 	VectorCopy(angles, newEnt->s.angles);
-	newEnt->classname = ED_NewString(classname);
+	newEnt->classname = ED_NewString(classname, true);
 	newEnt->monsterinfo.aiflags |= AI_DO_NOT_COUNT;
 
 	VectorSet(newEnt->gravityVector, 0, 0, -1);
@@ -1460,6 +1833,38 @@ CreateMonster(vec3_t origin, vec3_t angles, char *classname)
 	newEnt->s.renderfx |= RF_IR_VISIBLE;
 
 	return newEnt;
+}
+
+static void
+DetermineBBox(char *classname, vec3_t mins, vec3_t maxs)
+{
+	edict_t *newEnt;
+
+	if (!classname)
+	{
+		return;
+	}
+
+	newEnt = G_Spawn();
+
+	VectorCopy(vec3_origin, newEnt->s.origin);
+	VectorCopy(vec3_origin, newEnt->s.angles);
+	newEnt->classname = ED_NewString(classname, true);
+	newEnt->monsterinfo.aiflags |= AI_DO_NOT_COUNT;
+
+	ED_CallSpawn(newEnt);
+
+	if (mins)
+	{
+		VectorCopy(newEnt->mins, mins);
+	}
+
+	if (maxs)
+	{
+		VectorCopy(newEnt->maxs, maxs);
+	}
+
+	G_FreeEdict(newEnt);
 }
 
 edict_t *
@@ -1600,7 +2005,6 @@ CheckGroundSpawnPoint(vec3_t origin, vec3_t entMins, vec3_t entMaxs,
 		return false;
 	}
 
-
 	VectorCopy(origin, stop);
 	stop[2] = origin[2] + entMins[2] - height;
 
@@ -1658,13 +2062,13 @@ CheckGroundSpawnPoint(vec3_t origin, vec3_t entMins, vec3_t entMaxs,
 		if (gravity < 0)
 		{
 			start[2] = mins[2];
-			stop[2] = start[2] - STEPSIZE - STEPSIZE;
+			stop[2] = start[2] - (STEPSIZE * 2);
 			mid = bottom = tr.endpos[2] + entMins[2];
 		}
 		else
 		{
 			start[2] = maxs[2];
-			stop[2] = start[2] + STEPSIZE + STEPSIZE;
+			stop[2] = start[2] + (STEPSIZE * 2);
 			mid = bottom = tr.endpos[2] - entMaxs[2];
 		}
 
@@ -1714,32 +2118,6 @@ CheckGroundSpawnPoint(vec3_t origin, vec3_t entMins, vec3_t entMaxs,
 }
 
 void
-DetermineBBox(char *classname, vec3_t mins, vec3_t maxs)
-{
-	edict_t *newEnt;
-
-	if (!classname)
-	{
-		return;
-	}
-
-	newEnt = G_Spawn();
-
-	VectorCopy(vec3_origin, newEnt->s.origin);
-	VectorCopy(vec3_origin, newEnt->s.angles);
-	newEnt->classname = ED_NewString(classname);
-	newEnt->monsterinfo.aiflags |= AI_DO_NOT_COUNT;
-
-	ED_CallSpawn(newEnt);
-
-	VectorCopy(newEnt->mins, mins);
-	VectorCopy(newEnt->maxs, maxs);
-
-	G_FreeEdict(newEnt);
-}
-
-
-void
 spawngrow_think(edict_t *self)
 {
 	int i;
@@ -1751,9 +2129,9 @@ spawngrow_think(edict_t *self)
 
 	for (i = 0; i < 2; i++)
 	{
-		self->s.angles[0] = rand() % 360;
-		self->s.angles[1] = rand() % 360;
-		self->s.angles[2] = rand() % 360;
+		self->s.angles[PITCH] = rand() % 360;
+		self->s.angles[YAW] = rand() % 360;
+		self->s.angles[ROLL] = rand() % 360;
 	}
 
 	if ((level.time < self->wait) && (self->s.frame < 2))
@@ -1794,9 +2172,9 @@ SpawnGrow_Spawn(vec3_t startpos, int size)
 
 	for (i = 0; i < 2; i++)
 	{
-		ent->s.angles[0] = rand() % 360;
-		ent->s.angles[1] = rand() % 360;
-		ent->s.angles[2] = rand() % 360;
+		ent->s.angles[PITCH] = rand() % 360;
+		ent->s.angles[YAW] = rand() % 360;
+		ent->s.angles[ROLL] = rand() % 360;
 	}
 
 	ent->solid = SOLID_NOT;
@@ -1948,4 +2326,564 @@ Widowlegs_Spawn(vec3_t startpos, vec3_t angles)
 
 	ent->nextthink = level.time + FRAMETIME;
 	gi.linkentity(ent);
+}
+
+static char *
+DynamicStringParse(char *line, char *field, int size, char separator)
+{
+	char *next_section, *current_section;
+
+	/* search line end */
+	current_section = line;
+	next_section = strchr(line, separator);
+	if (next_section)
+	{
+		*next_section = 0;
+		line = next_section + 1;
+	}
+
+	/* copy current line state */
+	Q_strlcpy(field, current_section, size);
+
+	return line;
+}
+
+static char *
+DynamicIntParse(char *line, int *field, char separator)
+{
+	char *next_section;
+
+	next_section = strchr(line, separator);
+	if (next_section)
+	{
+		*next_section = 0;
+		*field = (int)strtol(line, (char **)NULL, 10);
+		line = next_section + 1;
+	}
+
+	return line;
+}
+
+static char *
+DynamicFloatParse(char *line, float *field, int size, char separator)
+{
+	int i;
+
+	for (i = 0; i < size; i++)
+	{
+		char *next_section, *current_section;
+
+		current_section = line;
+		next_section = strchr(line, separator);
+		if (next_section)
+		{
+			*next_section = 0;
+			line = next_section + 1;
+		}
+		field[i] = (float)strtod(current_section, (char **)NULL);
+	}
+	return line;
+}
+
+static char *
+DynamicSkipParse(char *line, int size, char separator)
+{
+	int i;
+
+	for (i = 0; i < size; i++)
+	{
+		char *next_section;
+
+		next_section = strchr(line, separator);
+		if (next_section)
+		{
+			*next_section = 0;
+			line = next_section + 1;
+		}
+	}
+	return line;
+}
+
+static int
+DynamicSort(const void *p1, const void *p2)
+{
+	dynamicentity_t *ent1, *ent2;
+
+	ent1 = (dynamicentity_t*)p1;
+	ent2 = (dynamicentity_t*)p2;
+	return Q_stricmp(ent1->classname, ent2->classname);
+}
+
+static void
+DynamicSpawnInit(void)
+{
+	char *buf_ent, *buf_ai, *raw;
+	int len_ent, len_ai, curr_pos;
+
+	buf_ent = NULL;
+	len_ent = 0;
+	buf_ai = NULL;
+	len_ai = 0;
+
+	dynamicentities = NULL;
+	ndynamicentities = 0;
+
+	/* load the aidata file */
+	len_ai = gi.LoadFile("aidata.vsc", (void **)&raw);
+	if (len_ai > 1)
+	{
+		if (len_ai > 4 && !strncmp(raw, "CVSC", 4))
+		{
+			int i;
+
+			len_ai -= 4;
+			buf_ai = malloc(len_ai + 1);
+			if (buf_ai)
+			{
+				memcpy(buf_ai, raw + 4, len_ai);
+				for (i = 0; i < len_ai; i++)
+				{
+					buf_ai[i] = buf_ai[i] ^ 0x96;
+				}
+				buf_ai[len_ai] = 0;
+			}
+		}
+		gi.FreeFile(raw);
+	}
+
+	/* load the file */
+	len_ent = gi.LoadFile("models/entity.dat", (void **)&raw);
+	if (len_ent > 1)
+	{
+		buf_ent = malloc(len_ent + 1);
+		if (!buf_ent)
+		{
+			gi.dprintf("%s: cant allocate buffer for entities list\n", __func__);
+		}
+		else
+		{
+			memcpy(buf_ent, raw, len_ent);
+			buf_ent[len_ent] = 0;
+		}
+
+		gi.FreeFile(raw);
+	}
+
+	/* aidata definition lines count */
+	if (buf_ai)
+	{
+		char *curr;
+
+		/* get lines count */
+		curr = buf_ai;
+		while (*curr)
+		{
+			size_t linesize = 0;
+
+			linesize = strcspn(curr, "\n\r");
+			if (*curr &&  *curr != '\n' && *curr != '\r' && *curr != ',')
+			{
+				ndynamicentities ++;
+			}
+
+			curr += linesize;
+			if (curr >= (buf_ai + len_ai))
+			{
+				break;
+			}
+			/* skip our endline */
+			curr++;
+		}
+	}
+
+	/* entitiyty definition lines count */
+	if (buf_ent)
+	{
+		char *curr;
+
+		/* get lines count */
+		curr = buf_ent;
+		while (*curr)
+		{
+			size_t linesize = 0;
+
+			linesize = strcspn(curr, "\n\r");
+			if (*curr && strncmp(curr, "//", 2) &&
+				*curr != '\n' && *curr != '\r' && *curr != ';')
+			{
+				ndynamicentities ++;
+			}
+			curr += linesize;
+			if (curr >= (buf_ent + len_ent))
+			{
+				break;
+			}
+			/* skip our endline */
+			curr++;
+		}
+	}
+
+	if (ndynamicentities)
+	{
+		dynamicentities = malloc(ndynamicentities * sizeof(*dynamicentities));
+		if (!dynamicentities)
+		{
+			ndynamicentities = 0;
+			free(buf_ent);
+			free(buf_ai);
+			gi.error("%s: Can't allocate memory for dynamicentities\n");
+			return;
+		}
+
+		memset(dynamicentities, 0, ndynamicentities * sizeof(*dynamicentities));
+	}
+	curr_pos = 0;
+
+	if (buf_ai)
+	{
+		char *curr;
+
+		/* get lines count */
+		curr = buf_ai;
+		while (*curr)
+		{
+			size_t linesize = 0;
+
+			if (curr_pos >= ndynamicentities)
+			{
+				break;
+			}
+
+			/* skip empty */
+			linesize = strspn(curr, "\n\r\t ");
+			curr += linesize;
+
+			/* mark end line */
+			linesize = strcspn(curr, "\n\r");
+			curr[linesize] = 0;
+
+			if (*curr &&  *curr != '\n' && *curr != '\r' && *curr != ',')
+			{
+				char *line, scale[MAX_QPATH];
+
+				line = curr;
+				line = DynamicStringParse(line, dynamicentities[curr_pos].classname, MAX_QPATH, ',');
+				line = DynamicStringParse(line, dynamicentities[curr_pos].model_path,
+					sizeof(dynamicentities[curr_pos].model_path), ',');
+				/* Skipped: audio file definition */
+				line = DynamicSkipParse(line, 1, ',');
+				line = DynamicIntParse(line, &dynamicentities[curr_pos].health, ',');
+				/*
+				 * Skipped:
+					 * basehealth
+					 * elasticity
+				*/
+				line = DynamicSkipParse(line, 2, ',');
+				line = DynamicIntParse(line, &dynamicentities[curr_pos].mass, ',');
+				/* Skipped: angle speed */
+				line = DynamicSkipParse(line, 1, ',');
+				line = DynamicFloatParse(line, dynamicentities[curr_pos].mins, 3, ',');
+				line = DynamicFloatParse(line, dynamicentities[curr_pos].maxs, 3, ',');
+				line = DynamicStringParse(line, scale, MAX_QPATH, ',');
+				/* parse to 3 floats */
+				DynamicFloatParse(scale, dynamicentities[curr_pos].scale, 3, ' ');
+				/*
+				 * Ignored fields:
+					* active distance
+					* attack distance
+					* jump attack distance
+					* upward velocity
+				*/
+				line = DynamicSkipParse(line, 4, ',');
+				line = DynamicFloatParse(line, &dynamicentities[curr_pos].run_speed, 1, ',');
+				line = DynamicFloatParse(line, &dynamicentities[curr_pos].walk_speed, 1, ',');
+				/*
+				 * Ignored fields:
+					* attack speed
+					* fov
+				 */
+				line = DynamicSkipParse(line, 2, ',');
+				line = DynamicFloatParse(line, dynamicentities[curr_pos].damage_aim, 3, ',');
+				line = DynamicIntParse(line, &dynamicentities[curr_pos].damage, ',');
+				line = DynamicIntParse(line, &dynamicentities[curr_pos].damage_range, ',');
+				/*
+				 * Ignored fields:
+					* spread x
+					* spread z
+					* speed
+					* distance
+					* X weapon2Offset
+					* Y weapon2Offset
+					* Z weapon2Offset
+					* base damage
+					* random damage
+					* spread x
+					* spread z
+					* speed
+					* distance
+					* X weapon3Offset
+					* Y weapon3Offset
+					* Z weapon3Offset
+					* base damage
+					* random damage
+					* spread x
+					* spread z
+					* speed
+					* distance
+					* min attenuation
+					* max attenuation
+				 */
+
+				/* Fix path */
+				Q_replacebackslash(dynamicentities[curr_pos].model_path);
+
+				/* go to next row */
+				curr_pos ++;
+			}
+
+			curr += linesize;
+			if (curr >= (buf_ai + len_ai))
+			{
+				break;
+			}
+
+			/* skip our endline */
+			curr++;
+		}
+		free(buf_ai);
+	}
+
+	/* load definitons count */
+	if (buf_ent)
+	{
+		char *curr;
+
+		/* get lines count */
+		curr = buf_ent;
+		while (*curr)
+		{
+			size_t linesize = 0;
+
+			if (curr_pos >= ndynamicentities)
+			{
+				break;
+			}
+
+			/* skip empty */
+			linesize = strspn(curr, "\n\r\t ");
+			curr += linesize;
+
+			/* mark end line */
+			linesize = strcspn(curr, "\n\r");
+			curr[linesize] = 0;
+
+			if (*curr && strncmp(curr, "//", 2) &&
+				*curr != '\n' && *curr != '\r' && *curr != ';')
+			{
+				char *line;
+				char gib_type[MAX_QPATH] = {0};
+
+				line = curr;
+				line = DynamicStringParse(line, dynamicentities[curr_pos].classname, MAX_QPATH, '|');
+				line = DynamicStringParse(line, dynamicentities[curr_pos].model_path,
+					sizeof(dynamicentities[curr_pos].model_path), '|');
+				line = DynamicFloatParse(line, dynamicentities[curr_pos].scale, 3, '|');
+				line = DynamicStringParse(line, dynamicentities[curr_pos].entity_type, MAX_QPATH, '|');
+				line = DynamicFloatParse(line, dynamicentities[curr_pos].mins, 3, '|');
+				line = DynamicFloatParse(line, dynamicentities[curr_pos].maxs, 3, '|');
+				line = DynamicStringParse(line, dynamicentities[curr_pos].noshadow, MAX_QPATH, '|');
+				line = DynamicIntParse(line, &dynamicentities[curr_pos].solidflag, '|');
+				line = DynamicFloatParse(line, &dynamicentities[curr_pos].walk_speed, 1, '|');
+				line = DynamicFloatParse(line, &dynamicentities[curr_pos].run_speed, 1, '|');
+				line = DynamicIntParse(line, &dynamicentities[curr_pos].speed, '|');
+				line = DynamicIntParse(line, &dynamicentities[curr_pos].lighting, '|');
+				line = DynamicIntParse(line, &dynamicentities[curr_pos].blending, '|');
+				line = DynamicStringParse(line, dynamicentities[curr_pos].target_sequence, MAX_QPATH, '|');
+				line = DynamicIntParse(line, &dynamicentities[curr_pos].misc_value, '|');
+				line = DynamicIntParse(line, &dynamicentities[curr_pos].no_mip, '|');
+				line = DynamicStringParse(line, dynamicentities[curr_pos].spawn_sequence, MAX_QPATH, '|');
+				line = DynamicStringParse(line, dynamicentities[curr_pos].description, MAX_QPATH, '|');
+				/* Additional field for cover for color from QUAKED */
+				line = DynamicFloatParse(line, dynamicentities[curr_pos].color, 3, '|');
+				line = DynamicIntParse(line, &dynamicentities[curr_pos].health, '|');
+				line = DynamicIntParse(line, &dynamicentities[curr_pos].mass, '|');
+				line = DynamicIntParse(line, &dynamicentities[curr_pos].damage, '|');
+				line = DynamicIntParse(line, &dynamicentities[curr_pos].damage_range, '|');
+				line = DynamicFloatParse(line, dynamicentities[curr_pos].damage_aim, 3, '|');
+				line = DynamicStringParse(line, gib_type, MAX_QPATH, '|');
+				line = DynamicIntParse(line, &dynamicentities[curr_pos].gib_health, '|');
+
+				dynamicentities[curr_pos].gib = DynamicSpawnGibFromName(gib_type);
+
+				/* Fix path */
+				Q_replacebackslash(dynamicentities[curr_pos].model_path);
+
+				/* go to next row */
+				curr_pos ++;
+			}
+			curr += linesize;
+			if (curr >= (buf_ent + len_ent))
+			{
+				break;
+			}
+			/* skip our endline */
+			curr++;
+		}
+
+		free(buf_ent);
+	}
+
+	/* save last used position */
+	ndynamicentities = curr_pos;
+
+	if (!curr_pos)
+	{
+		return;
+	}
+
+	gi.dprintf("Found %d dynamic definitions\n", ndynamicentities);
+
+	/* sort definitions */
+	qsort(dynamicentities, ndynamicentities, sizeof(dynamicentity_t), DynamicSort);
+}
+
+gitem_t *
+GetDynamicItems(int *count)
+{
+	size_t i, itemcount;
+	gitem_t *items;
+
+	*count = 0;
+
+	if (!ndynamicentities || !dynamicentities)
+	{
+		return NULL;
+	}
+
+	itemcount = 0;
+
+	for (i = 0; i < ndynamicentities; i++)
+	{
+		if (!strncmp(dynamicentities[i].classname, "item_", 5) ||
+			!strncmp(dynamicentities[i].classname, "weapon_", 7) ||
+			!strncmp(dynamicentities[i].classname, "key_", 4) ||
+			!strncmp(dynamicentities[i].classname, "ammo_", 5))
+		{
+			itemcount++;
+		}
+	}
+
+	if (!itemcount)
+	{
+		return NULL;
+	}
+
+	/* allocate */
+	items = calloc(itemcount, sizeof(*items));
+	if (!items)
+	{
+		gi.error("Can't allocate dynamic %d items\n", itemcount);
+		return NULL;
+	}
+
+	itemcount = 0;
+
+	for (i = 0; i < ndynamicentities; i++)
+	{
+		char* classname;
+
+		if (strncmp(dynamicentities[i].classname, "item_", 5) &&
+			strncmp(dynamicentities[i].classname, "weapon_", 7) &&
+			strncmp(dynamicentities[i].classname, "key_", 4) &&
+			strncmp(dynamicentities[i].classname, "ammo_", 5))
+		{
+			/* looks as not item */
+			continue;
+		}
+
+		if (!dynamicentities[i].model_path[0])
+		{
+			/* skip without model */
+			continue;
+		}
+
+		if (StaticSpawnSearch(dynamicentities[i].classname))
+		{
+			/* has static spawn function */
+			continue;
+		}
+
+		classname = dynamicentities[i].classname;
+
+		/* Fix class names to sync with ED_CallSpawn */
+		if (!strcmp(classname, "weapon_nailgun"))
+		{
+			classname = "weapon_etf_rifle";
+		}
+		else if (!strcmp(classname, "ammo_nails"))
+		{
+			classname = "ammo_flechettes";
+		}
+		else if (!strcmp(classname, "weapon_heatbeam"))
+		{
+			classname = "weapon_plasmabeam";
+		}
+
+		/* Could be dynamic item */
+		items[itemcount].classname = classname;
+		items[itemcount].world_model = dynamicentities[i].model_path;
+		items[itemcount].pickup_name = dynamicentities[i].description;
+		itemcount++;
+	}
+
+	*count = itemcount;
+	return items;
+}
+
+static int
+StaticSort(const void *p1, const void *p2)
+{
+	spawn_t *ent1, *ent2;
+
+	ent1 = (spawn_t*)p1;
+	ent2 = (spawn_t*)p2;
+	return Q_stricmp(ent1->name, ent2->name);
+}
+
+static void
+StaticSpawnInit(void)
+{
+	const spawn_t *s;
+
+	/* check count of spawn functions */
+	for (s = spawns; s->name; s++)
+	{
+	}
+
+	nstaticentities = s - spawns;
+
+	gi.dprintf("Found %d static definitions\n", nstaticentities);
+
+	/* sort definitions */
+	qsort(spawns, nstaticentities, sizeof(spawn_t), StaticSort);
+}
+
+void
+SpawnInit(void)
+{
+	StaticSpawnInit();
+	DynamicSpawnInit();
+}
+
+void
+SpawnFree(void)
+{
+	if (dynamicentities || ndynamicentities)
+	{
+		gi.dprintf("Free %d dynamic definitions\n", ndynamicentities);
+		free(dynamicentities);
+	}
+
+	dynamicentities = NULL;
+	ndynamicentities = 0;
 }

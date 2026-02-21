@@ -37,16 +37,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
+#include <stdbool.h>
 
-#ifdef true
- #undef true
-#endif
-
-#ifdef false
- #undef false
-#endif
-
-typedef enum {false, true}  qboolean;
+typedef int qboolean;
 typedef unsigned char byte;
 
 #ifndef NULL
@@ -63,19 +56,23 @@ typedef unsigned char byte;
   #if defined(__GNUC__)
 	#define YQ2_ATTR_MALLOC         __attribute__ ((__malloc__))
 	#define YQ2_ATTR_INLINE         __attribute__((always_inline)) inline
+	#define YQ2_ATTR_RETURNS_NONNULL __attribute__ ((returns_nonnull))
   #elif defined(_MSC_VER)
 	#define YQ2_ATTR_MALLOC         __declspec(restrict)
 	#define YQ2_ATTR_INLINE         __forceinline
+	#define YQ2_ATTR_RETURNS_NONNULL
   #else
 	// no equivalent per see
 	#define YQ2_ATTR_MALLOC
 	#define YQ2_ATTR_INLINE         inline
+	#define YQ2_ATTR_RETURNS_NONNULL
   #endif
 #elif defined(__GNUC__) // GCC and clang should support this attribute
 	#define YQ2_ALIGNAS_SIZE(SIZE)  __attribute__(( __aligned__(SIZE) ))
 	#define YQ2_ALIGNAS_TYPE(TYPE)  __attribute__(( __aligned__(__alignof__(TYPE)) ))
 	// must be used as prefix (YQ2_ATTR_NORETURN void bla();)!
 	#define YQ2_ATTR_NORETURN       __attribute__ ((noreturn))
+	#define YQ2_ATTR_RETURNS_NONNULL __attribute__ ((returns_nonnull))
 	#define YQ2_ATTR_MALLOC         __attribute__ ((__malloc__))
 	#define YQ2_ATTR_INLINE         __attribute__((always_inline)) inline
 	// GCC supports this extension since 4.6
@@ -96,6 +93,7 @@ typedef unsigned char byte;
 
 	// must be used as prefix (YQ2_ATTR_NORETURN void bla();)!
 	#define YQ2_ATTR_NORETURN       __declspec(noreturn)
+	#define YQ2_ATTR_RETURNS_NONNULL
 	#define YQ2_ATTR_MALLOC         __declspec(restrict)
 	#define YQ2_ATTR_INLINE         __forceinline
 	#define YQ2_STATIC_ASSERT(C, M) assert((C) && M)
@@ -104,6 +102,7 @@ typedef unsigned char byte;
 	#define YQ2_ALIGNAS_SIZE(SIZE)
 	#define YQ2_ALIGNAS_TYPE(TYPE)
 	#define YQ2_ATTR_NORETURN
+	#define YQ2_ATTR_RETURNS_NONNULL
 	#define YQ2_ATTR_MALLOC
 	#define YQ2_ATTR_INLINE         inline
 	#define YQ2_STATIC_ASSERT(C, M) assert((C) && M)
@@ -119,6 +118,16 @@ typedef unsigned char byte;
 	#define YQ2_ATTR_NORETURN_FUNCPTR  /* nothing */
 #endif
 
+/* Calculate length of a static array
+ * Example: for (i = 0; i < ARRLEN(arr); i++)
+ */
+#define ARRLEN(a) (sizeof(a) / sizeof(*a))
+
+/* Calculate a pointer to the end of a static array
+ * Example: for (i = arr; i < ARREND(arr); i++)
+ */
+#define ARREND(a) &a[ARRLEN(a)]
+
 /* angle indexes */
 #define PITCH 0                     /* up / down */
 #define YAW 1                       /* left / right */
@@ -126,6 +135,9 @@ typedef unsigned char byte;
 
 #define Q_min(a, b) (((a) < (b)) ? (a) : (b))
 #define Q_max(a, b) (((a) > (b)) ? (a) : (b))
+#define Q_clamp(x, l, u) ((l) > (x) ? (l) : (x) > (u) ? (u) : (x))
+#define Q_lerp(a, b, t) ((a) + (t) * ((b) - (a)))
+#define Q_signf(x) ((x) < 0.0f ? -1.0f : 1.0f)
 
 #define MAX_STRING_CHARS 2048       /* max length of a string passed to Cmd_TokenizeString */
 #define MAX_STRING_TOKENS 80        /* max tokens resulting from Cmd_TokenizeString */
@@ -171,13 +183,15 @@ typedef unsigned char byte;
 
 /* per-level limits */
 #define MAX_CLIENTS 256             /* absolute limit */
-#define MAX_EDICTS 1024             /* must change protocol to increase more */
+#define MAX_EDICTS 2048             /* must change protocol to increase more */
 #define MAX_LIGHTSTYLES 256
-#define MAX_MODELS 256              /* these are sent over the net as bytes */
-#define MAX_SOUNDS 256              /* so they cannot be blindly increased */
+#define MAX_MODELS 512              /* these are sent over the net as bytes */
+#define MAX_SOUNDS 512              /* so they cannot be blindly increased */
 #define MAX_IMAGES 256
 #define MAX_ITEMS 256
 #define MAX_GENERAL (MAX_CLIENTS * 2)       /* general config strings */
+#define MAX_SHADOW_LIGHTS 256
+#define CUSTOM_PLAYER_MODEL (MAX_MODELS - 1)
 
 /* game print flags */
 #define PRINT_LOW 0                 /* pickup messages */
@@ -218,6 +232,7 @@ typedef vec_t vec2_t[2];
 typedef vec_t vec3_t[3];
 typedef vec_t vec4_t[4];
 typedef vec_t vec5_t[5];
+typedef float quat_t[4]; // x, y, z, w
 
 typedef int fixed4_t;
 typedef int fixed8_t;
@@ -260,13 +275,24 @@ void _VectorCopy(const vec3_t in, vec3_t out);
 
 void ClearBounds(vec3_t mins, vec3_t maxs);
 void AddPointToBounds(const vec3_t v, vec3_t mins, vec3_t maxs);
+void ClosestPointOnBounds(const vec3_t p, const vec3_t amin, const vec3_t amax, vec3_t out);
+qboolean IsZeroVector(vec3_t v);
 int VectorCompare(const vec3_t v1, const vec3_t v2);
+vec_t VectorLengthSquared(vec3_t v);
 vec_t VectorLength(const vec3_t v);
 void CrossProduct(const vec3_t v1, const vec3_t v2, vec3_t cross);
 vec_t VectorNormalize(vec3_t v); /* returns vector length */
 vec_t VectorNormalize2(const vec3_t v, vec3_t out);
 void VectorInverse(vec3_t v);
-void VectorScale(const vec3_t in, vec_t scale, vec3_t out);
+void VectorInverse2(const vec3_t v, vec3_t out);
+void VectorScale(const vec3_t in, const vec_t scale, vec3_t out);
+void VectorLerp(const vec3_t v1, const vec3_t v2, const vec_t factor, vec3_t out);
+void VectorToQuat(const vec3_t v, quat_t out);
+void QuatInverse(const quat_t q, quat_t out);
+void QuatMultiply(const quat_t q1, const quat_t q2, quat_t out);
+void QuatAngleAxis(const vec3_t v, float angle, quat_t out);
+void RotateVectorByUnitQuat(vec3_t v, quat_t q_unit);
+float Q_magnitude(float x, float y);
 int Q_log2(int val);
 
 void R_ConcatRotations(const float in1[3][3], const float in2[3][3], float out[3][3]);
@@ -307,12 +333,12 @@ void RotatePointAroundVector(vec3_t dst,
 
 const char *COM_SkipPath(const char *pathname);
 void COM_StripExtension(const char *in, char *out);
-const char *COM_FileExtension(const char *in);
+YQ2_ATTR_RETURNS_NONNULL const char *COM_FileExtension(const char *in);
 void COM_FileBase(const char *in, char *out);
 void COM_FilePath(const char *in, char *out);
 void COM_DefaultExtension(char *path, const char *extension);
 
-const char *COM_Parse(char **data_p);
+YQ2_ATTR_RETURNS_NONNULL const char *COM_Parse(char **data_p);
 
 /* data is an in/out parm, returns a parsed out token */
 void Com_sprintf(char *dest, int size, const char *fmt, ...);
@@ -325,6 +351,7 @@ void Com_PageInMemory(const byte *buffer, int size);
 int Q_stricmp(const char *s1, const char *s2);
 int Q_strcasecmp(const char *s1, const char *s2);
 int Q_strncasecmp(const char *s1, const char *s2, int n);
+char *Q_strcasestr(const char *s1, const char *s2);
 
 /* portable string lowercase */
 char *Q_strlwr(char *s);
@@ -332,6 +359,36 @@ char *Q_strlwr(char *s);
 /* portable safe string copy/concatenate */
 int Q_strlcpy(char *dst, const char *src, int size);
 int Q_strlcat(char *dst, const char *src, int size);
+
+/* Copies only ASCII chars > 31 && < 127 from s to d, up to n - 1
+ * Returns space needed to fully copy s to d (minus null char)
+ * Does not modify d at all if n is 0
+ * Example: needed = Q_strlcpy_ascii(d, "b\robby", 3)
+ *          needed is 5 and d contains "bo\0"
+ */
+size_t Q_strlcpy_ascii(char *d, const char *s, size_t n);
+
+/* Delete n characters from s starting at index i */
+void Q_strdel(char *s, size_t i, size_t n);
+
+/* Insert src into dest starting at index i, total, n is the total size of the buffer */
+/* Returns length of src on success, 0 if there is not enough space in dest for src */
+size_t Q_strins(char *dest, const char *src, size_t i, size_t n);
+qboolean Q_strisnum(const char *s);
+
+/* fix backslashes in path */
+void Q_replacebackslash(char *curr);
+
+/* A strchr that can search for multiple characters
+ * chrs is a string of characters to search for
+ * If found, returns a pointer to that char inside s, NULL otherwise
+ */
+char *Q_strchrs(const char *s, const char *chrs);
+
+/* Returns a pointer to c in s if found
+ * Otherwise returns a pointer to the null-terminator at the end of s
+ */
+char *Q_strchr0(const char *s, char c);
 
 /* ============================================= */
 
@@ -361,9 +418,10 @@ char *va(const char *format, ...)  PRINTF_ATTR(1, 2);
 /* key / value info strings */
 #define MAX_INFO_KEY 64
 #define MAX_INFO_VALUE 64
+#define MAX_INFO_KEYVAL ((MAX_INFO_KEY - 1) + (MAX_INFO_VALUE - 1) + 3) /* 3 for 2 backslashes and null char */
 #define MAX_INFO_STRING 512
 
-char *Info_ValueForKey(char *s, const char *key);
+char *Info_ValueForKey(const char *s, const char *key);
 void Info_RemoveKey(char *s, const char *key);
 void Info_SetValueForKey(char *s, const char *key, const char *value);
 qboolean Info_Validate(const char *s);
@@ -397,7 +455,7 @@ qboolean Sys_IsFile(const char *path);
 /* large block stack allocation routines */
 YQ2_ATTR_MALLOC void *Hunk_Begin(int maxsize);
 YQ2_ATTR_MALLOC void *Hunk_Alloc(int size);
-void Hunk_Free(void *buf);
+void Hunk_Free(void *base);
 int Hunk_End(void);
 
 /* directory searching */
@@ -408,8 +466,8 @@ int Hunk_End(void);
 #define SFF_SYSTEM 0x10
 
 /* pass in an attribute mask of things you wish to REJECT */
-char *Sys_FindFirst(const char *path, unsigned musthave, unsigned canthave);
-char *Sys_FindNext(unsigned musthave, unsigned canthave);
+char *Sys_FindFirst(const char *path, unsigned musthave, unsigned canhave);
+char *Sys_FindNext(unsigned musthave, unsigned canhave);
 void Sys_FindClose(void);
 
 /* this is only here so the functions in shared source files can link */
@@ -502,8 +560,14 @@ typedef struct cvar_s
 #define SURF_FLOWING 0x40       /* scroll towards angle */
 #define SURF_NODRAW 0x80        /* don't bother referencing the texture */
 #define SURF_ALPHATEST 0x02000000 /* KMQUAKE2 Alpha test flag */
+#define SURF_N64_UV 0x10000000    /* ReRelease Stretches texture UVs. */
+#define SURF_N64_SCROLL_X 0x20000000 /* ReRelease Texture scroll X-axis. */
+#define SURF_N64_SCROLL_Y 0x40000000 /* ReRelease Texture scroll Y-axis. */
+#define SURF_N64_SCROLL_FLIP 0x80000000 /* ReRelease Flip direction of texture scroll. */
 /* Transparnet but not explicitly warp */
 #define SURF_TRANSPARENT (SURF_TRANS33 | SURF_TRANS66 | SURF_ALPHATEST)
+/* Different flowing settings */
+#define SURF_SCROLL (SURF_FLOWING | SURF_N64_SCROLL_X | SURF_N64_SCROLL_Y)
 
 /* content masks */
 #define MASK_ALL (-1)
@@ -561,7 +625,7 @@ typedef struct csurface_s
 {
 	char name[16];
 	int flags; /* SURF_* */
-	int value; /* unused */
+	char material[16]; /* Material properties */
 } csurface_t;
 
 typedef struct mapsurface_s  /* used internally due to name len probs */
@@ -674,6 +738,7 @@ typedef struct
  * it has a zero index model. */
 #define EF_ROTATE 0x00000001                /* rotate (bonus items) */
 #define EF_GIB 0x00000002                   /* leave a trail */
+#define EF_BOB 0x00000004                   /* ReRelease BoB effect */
 #define EF_BLASTER 0x00000008               /* redlight + trail */
 #define EF_ROCKET 0x00000010                /* redlight + trail */
 #define EF_GRENADE 0x00000020
@@ -704,6 +769,10 @@ typedef struct
 #define EF_HALF_DAMAGE 0x40000000
 #define EF_TRACKERTRAIL 0x80000000
 
+/* entity_state_t->rr_effects
+ * ReRelease flags, values are different to quake 2 RR code */
+#define EF_FLASHLIGHT 0x00000001         /* project flashlight, only for players */
+
 /* entity_state_t->renderfx flags */
 #define RF_MINLIGHT 1               /* allways have some light (viewmodel) */
 #define RF_VIEWERMODEL 2            /* don't draw through eyes, only mirrors */
@@ -723,6 +792,12 @@ typedef struct
 #define RF_SHELL_DOUBLE 0x00010000          /* 65536 */
 #define RF_SHELL_HALF_DAM 0x00020000
 #define RF_USE_DISGUISE 0x00040000
+
+/* ReRelease flags */
+#define RF_CUSTOM_LIGHT 0x00100000
+#define RF_FLARE 0x00200000
+#define RF_CASTSHADOW 0x00400000 /* entity casts shadows */
+#define RF_FLARE_LOCK_ANGLE RF_MINLIGHT
 
 /* player_state_t->refdef flags */
 #define RDF_UNDERWATER 1            /* warp the screen as apropriate */
@@ -750,9 +825,12 @@ typedef struct
 #define MZ_IONRIPPER 16
 #define MZ_BLUEHYPERBLASTER 17
 #define MZ_PHALANX 18
+#define MZ_BFG2 19
+#define MZ_PHALANX2 20
 #define MZ_SILENCED 128             /* bit flag ORed with one of the above numbers */
 #define MZ_ETF_RIFLE 30
 #define MZ_UNUSED 31
+#define MZ_PROX 31
 #define MZ_SHOTGUN2 32
 #define MZ_HEATBEAM 33
 #define MZ_BLASTER2 34
@@ -988,6 +1066,85 @@ typedef struct
 #define MZ2_WIDOW2_BEAM_SWEEP_9 208
 #define MZ2_WIDOW2_BEAM_SWEEP_10 209
 #define MZ2_WIDOW2_BEAM_SWEEP_11 210
+#define MZ2_SOLDIER_RIPPER_1 211
+#define MZ2_SOLDIER_RIPPER_2 212
+#define MZ2_SOLDIER_RIPPER_3 213
+#define MZ2_SOLDIER_RIPPER_4 214
+#define MZ2_SOLDIER_RIPPER_5 215
+#define MZ2_SOLDIER_RIPPER_6 216
+#define MZ2_SOLDIER_RIPPER_7 217
+#define MZ2_SOLDIER_RIPPER_8 218
+#define MZ2_SOLDIER_HYPERGUN_1 219
+#define MZ2_SOLDIER_HYPERGUN_2 220
+#define MZ2_SOLDIER_HYPERGUN_3 221
+#define MZ2_SOLDIER_HYPERGUN_4 222
+#define MZ2_SOLDIER_HYPERGUN_5 223
+#define MZ2_SOLDIER_HYPERGUN_6 224
+#define MZ2_SOLDIER_HYPERGUN_7 225
+#define MZ2_SOLDIER_HYPERGUN_8 226
+#define MZ2_GUARDIAN_BLASTER 227
+#define MZ2_ARACHNID_RAIL1 228
+#define MZ2_ARACHNID_RAIL2 229
+#define MZ2_ARACHNID_RAIL_UP1 230
+#define MZ2_ARACHNID_RAIL_UP2 231
+#define MZ2_INFANTRY_MACHINEGUN_14 232
+#define MZ2_INFANTRY_MACHINEGUN_15 233
+#define MZ2_INFANTRY_MACHINEGUN_16 234
+#define MZ2_INFANTRY_MACHINEGUN_17 235
+#define MZ2_INFANTRY_MACHINEGUN_18 236
+#define MZ2_INFANTRY_MACHINEGUN_19 237
+#define MZ2_INFANTRY_MACHINEGUN_20 238
+#define MZ2_INFANTRY_MACHINEGUN_21 239
+#define MZ2_GUNCMDR_CHAINGUN_1 240
+#define MZ2_GUNCMDR_CHAINGUN_2 241
+#define MZ2_GUNCMDR_GRENADE_MORTAR_1 242
+#define MZ2_GUNCMDR_GRENADE_MORTAR_2 244
+#define MZ2_GUNCMDR_GRENADE_MORTAR_3 245
+#define MZ2_GUNCMDR_GRENADE_FRONT_1 246
+#define MZ2_GUNCMDR_GRENADE_FRONT_2 247
+#define MZ2_GUNCMDR_GRENADE_FRONT_3 248
+#define MZ2_GUNCMDR_GRENADE_CROUCH_1 249
+#define MZ2_GUNCMDR_GRENADE_CROUCH_2 250
+#define MZ2_GUNCMDR_GRENADE_CROUCH_3 251
+#define MZ2_SOLDIER_BLASTER_9 252
+#define MZ2_SOLDIER_SHOTGUN_9 253
+#define MZ2_SOLDIER_MACHINEGUN_9 254
+#define MZ2_SOLDIER_RIPPER_9 255
+#define MZ2_SOLDIER_HYPERGUN_9 256
+#define MZ2_GUNNER_GRENADE2_1 257
+#define MZ2_GUNNER_GRENADE2_2 258
+#define MZ2_GUNNER_GRENADE2_3 259
+#define MZ2_GUNNER_GRENADE2_4 260
+#define MZ2_INFANTRY_MACHINEGUN_22 261
+#define MZ2_SUPERTANK_GRENADE_1 262
+#define MZ2_SUPERTANK_GRENADE_2 263
+#define MZ2_HOVER_BLASTER_2 264
+#define MZ2_DAEDALUS_BLASTER_2 265
+#define MZ2_MEDIC_HYPERBLASTER1_1 266
+#define MZ2_MEDIC_HYPERBLASTER1_2 267
+#define MZ2_MEDIC_HYPERBLASTER1_3 268
+#define MZ2_MEDIC_HYPERBLASTER1_4 269
+#define MZ2_MEDIC_HYPERBLASTER1_5 270
+#define MZ2_MEDIC_HYPERBLASTER1_6 271
+#define MZ2_MEDIC_HYPERBLASTER1_7 272
+#define MZ2_MEDIC_HYPERBLASTER1_8 273
+#define MZ2_MEDIC_HYPERBLASTER1_9 274
+#define MZ2_MEDIC_HYPERBLASTER1_10 275
+#define MZ2_MEDIC_HYPERBLASTER1_11 276
+#define MZ2_MEDIC_HYPERBLASTER1_12 277
+#define MZ2_MEDIC_HYPERBLASTER2_1 278
+#define MZ2_MEDIC_HYPERBLASTER2_2 279
+#define MZ2_MEDIC_HYPERBLASTER2_3 280
+#define MZ2_MEDIC_HYPERBLASTER2_4 281
+#define MZ2_MEDIC_HYPERBLASTER2_5 282
+#define MZ2_MEDIC_HYPERBLASTER2_6 283
+#define MZ2_MEDIC_HYPERBLASTER2_7 284
+#define MZ2_MEDIC_HYPERBLASTER2_8 285
+#define MZ2_MEDIC_HYPERBLASTER2_9 286
+#define MZ2_MEDIC_HYPERBLASTER2_10 287
+#define MZ2_MEDIC_HYPERBLASTER2_11 288
+#define MZ2_MEDIC_HYPERBLASTER2_12 289
+#define MZ2_EFFECT_MAX MZ2_MEDIC_HYPERBLASTER2_12
 
 extern vec3_t monster_flash_offset[];
 
@@ -1052,7 +1209,9 @@ typedef enum
 	TE_WIDOWSPLASH,
 	TE_EXPLOSION1_BIG,
 	TE_EXPLOSION1_NP,
-	TE_FLECHETTE
+	TE_FLECHETTE,
+	/* Quake 2 RTX */
+	TE_FLARE,
 } temp_event_t;
 
 #define SPLASH_UNKNOWN 0
@@ -1149,19 +1308,26 @@ typedef enum
 #define CS_SKYAXIS 3                /* %f %f %f format */
 #define CS_SKYROTATE 4
 #define CS_STATUSBAR 5              /* display program string */
+#define CS_STATUSBAR_END 29
+#define CS_STATUSBAR_SPACE(i) ((CS_STATUSBAR_END - (i)) * MAX_QPATH)
 
 #define CS_AIRACCEL 29              /* air acceleration control */
 #define CS_MAXCLIENTS 30
 #define CS_MAPCHECKSUM 31           /* for catching cheater maps */
+#define CS_SKIP 32                  /* Skip config string */
 
-#define CS_MODELS 32
+#define CS_MODELS 33
 #define CS_SOUNDS (CS_MODELS + MAX_MODELS)
 #define CS_IMAGES (CS_SOUNDS + MAX_SOUNDS)
 #define CS_LIGHTS (CS_IMAGES + MAX_IMAGES)
-#define CS_ITEMS (CS_LIGHTS + MAX_LIGHTSTYLES)
+#define CS_SHADOWLIGHTS (CS_LIGHTS + MAX_LIGHTSTYLES)
+#define CS_ITEMS (CS_SHADOWLIGHTS + MAX_SHADOW_LIGHTS)
 #define CS_PLAYERSKINS (CS_ITEMS + MAX_ITEMS)
 #define CS_GENERAL (CS_PLAYERSKINS + MAX_CLIENTS)
 #define MAX_CONFIGSTRINGS (CS_GENERAL + MAX_GENERAL)
+
+/* Originally was 64 as MAX_QPATH */
+#define MAX_CONFIGSTRING 128
 
 /* ============================================== */
 
@@ -1206,6 +1372,52 @@ typedef struct entity_state_s
 							/* are automatically cleared each frame */
 } entity_state_t;
 
+/* ReRelease states */
+typedef struct entity_rrstate_s
+{
+	/* New protocol fields */
+	vec3_t scale; /* model scale */
+	unsigned int effects;
+	unsigned int mesh;
+} entity_rrstate_t;
+
+typedef struct entity_xstate_s
+{
+	/* keep it insync with entity_state_t */
+	int number;             /* edict index */
+
+	vec3_t origin;
+	vec3_t angles;
+	vec3_t old_origin;      /* for lerping */
+	int modelindex;
+	int modelindex2, modelindex3, modelindex4;      /* weapons, CTF flags, etc */
+	int frame;
+	int skinnum;
+	unsigned int effects;
+	int renderfx;
+	int solid;              /* for client side prediction, 8*(bits 0-4) is x/y radius */
+							/* 8*(bits 5-9) is z down distance, 8(bits10-15) is z up */
+							/* gi.linkentity sets this properly */
+	int sound;              /* for looping sounds, to guarantee shutoff */
+	int event;              /* impulse events -- muzzle flashes, footsteps, etc */
+							/* events only go out for a single frame, they */
+							/* are automatically cleared each frame */
+
+	/* New protocol fields, sync with entity_rrstate_t */
+	vec3_t scale; /* model scale */
+	unsigned int rr_effects;
+	unsigned int rr_mesh;
+} entity_xstate_t;
+
+typedef struct
+{
+	char name[16];  /* frame group name from grabbing */
+	int ofs;        /* first frame in group */
+	int num;        /* number of frames */
+	vec3_t mins;
+	vec3_t maxs;
+} dmdxframegroup_t;
+
 /* ============================================== */
 
 /* player_state_t is the information needed in addition to pmove_state_t
@@ -1233,7 +1445,88 @@ typedef struct
 	short stats[MAX_STATS];     /* fast status bar updates */
 } player_state_t;
 
+/* Fog */
+
+/* Bit flag definitions */
+#define FOGBIT_DENSITY              (1 << 0)
+#define FOGBIT_R                    (1 << 1)
+#define FOGBIT_G                    (1 << 2)
+#define FOGBIT_B                    (1 << 3)
+#define FOGBIT_TIME                 (1 << 4)
+
+#define FOGBIT_HEIGHTFOG_FALLOFF    (1 << 5)
+#define FOGBIT_HEIGHTFOG_DENSITY    (1 << 6)
+#define FOGBIT_MORE_BITS            (1 << 7)
+#define FOGBIT_HEIGHTFOG_START_R    (1 << 8)
+#define FOGBIT_HEIGHTFOG_START_G    (1 << 9)
+#define FOGBIT_HEIGHTFOG_START_B    (1 << 10)
+#define FOGBIT_HEIGHTFOG_START_DIST (1 << 11)
+#define FOGBIT_HEIGHTFOG_END_R      (1 << 12)
+#define FOGBIT_HEIGHTFOG_END_G      (1 << 13)
+#define FOGBIT_HEIGHTFOG_END_B      (1 << 14)
+#define FOGBIT_HEIGHTFOG_END_DIST   (1 << 15)
+
+/* Data structure for svc_fog */
+typedef struct
+{
+	/* Global fog */
+	float density;      // FOGBIT_DENSITY
+	byte skyfactor;     // FOGBIT_DENSITY
+	byte red;           // FOGBIT_R
+	byte green;         // FOGBIT_G
+	byte blue;          // FOGBIT_B
+	unsigned short time;         // FOGBIT_TIME
+
+	/* Height fog */
+	float hf_falloff;   // FOGBIT_HEIGHTFOG_FALLOFF
+	float hf_density;   // FOGBIT_HEIGHTFOG_DENSITY
+	byte hf_start_r;    // FOGBIT_MORE_BITS | FOGBIT_HEIGHTFOG_START_R
+	byte hf_start_g;    // FOGBIT_MORE_BITS | FOGBIT_HEIGHTFOG_START_G
+	byte hf_start_b;    // FOGBIT_MORE_BITS | FOGBIT_HEIGHTFOG_START_B
+	int hf_start_dist;  // FOGBIT_MORE_BITS | FOGBIT_HEIGHTFOG_START_DIST
+	byte hf_end_r;      // FOGBIT_MORE_BITS | FOGBIT_HEIGHTFOG_END_R
+	byte hf_end_g;      // FOGBIT_MORE_BITS | FOGBIT_HEIGHTFOG_END_G
+	byte hf_end_b;      // FOGBIT_MORE_BITS | FOGBIT_HEIGHTFOG_END_B
+	int hf_end_dist;    // FOGBIT_MORE_BITS | FOGBIT_HEIGHTFOG_END_DIST
+} svc_fog_data_t;
+
 size_t verify_fread(void *, size_t, size_t, FILE *);
 size_t verify_fwrite(void *, size_t, size_t, FILE *);
+
+/* Returns the next power of 2 value greater-than-or-equal to i
+ * Examples:
+ *   NextPow2(733) == 1024
+ *   NextPow2(2048) == 2048
+ * Returns 1 if i == 0 and 0 if i == (1 << 31)
+ */
+unsigned int NextPow2(unsigned int i);
+
+/* Returns the next power of 2 value greater than i
+ * Examples:
+ *   NextPow2gt(733) == 1024
+ *   NextPow2gt(2048) == 4096
+ * Returns 1 if i == 0 and 0 if i == (1 << 31)
+ */
+unsigned int NextPow2gt(unsigned int i);
+
+/* Bitlist
+ * API for using arrays of bits with maximum space efficiency
+*/
+
+/* number of bits per array index */
+typedef char bitlist_t;
+#define BITLIST_BPU (sizeof(bitlist_t) * 8)
+
+/* calculate length of array given number of bits n
+ * Example: bitlist_t mybits[BITLIST_SIZE(512)];
+*/
+#define BITLIST_SIZE(n) (1 + (((n) - 1) / BITLIST_BPU))
+
+/* Set bit i to 1 or clear it to 0 */
+#define BITLIST_SET(l, i) l[(i) / BITLIST_BPU] |= 1 << ((i) % BITLIST_BPU)
+#define BITLIST_CLEAR(l, i) l[(i) / BITLIST_BPU] &= ~(1 << ((i) % BITLIST_BPU))
+
+/* test the value of bit i */
+#define BITLIST_ISSET(l, i) (l[(i) / BITLIST_BPU] & (1 << ((i) % BITLIST_BPU))) != 0
 
 #endif /* COMMON_SHARED_H */

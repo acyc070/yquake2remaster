@@ -18,7 +18,6 @@
 #define VENGEANCE_LIFESPAN 30
 #define MINIMUM_FLY_TIME 15
 
-extern char *ED_NewString(const char *string);
 void LookAtKiller(edict_t *self, edict_t *inflictor, edict_t *attacker);
 
 void defender_think(edict_t *self);
@@ -121,6 +120,11 @@ sphere_chase(edict_t *self, int stupidChase)
 		(self->enemy && (self->enemy->health < 1)))
 	{
 		sphere_think_explode(self);
+		return;
+	}
+
+	if (!self->enemy)
+	{
 		return;
 	}
 
@@ -392,7 +396,7 @@ body_gib(edict_t *self)
 
 	for (n = 0; n < 4; n++)
 	{
-		ThrowGib(self, "models/objects/gibs/sm_meat/tris.md2", 50, GIB_ORGANIC);
+		ThrowGib(self, NULL, 50, GIB_ORGANIC);
 	}
 
 	ThrowGib(self, "models/objects/gibs/skull/tris.md2", 50, GIB_ORGANIC);

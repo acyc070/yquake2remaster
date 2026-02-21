@@ -29,7 +29,6 @@
 #include "boss31.h"
 
 extern void SP_monster_makron(edict_t *self);
-qboolean visible(edict_t *self, edict_t *other);
 void BossExplode(edict_t *self);
 void MakronToss(edict_t *self);
 void MakronPrecache(void);
@@ -556,7 +555,7 @@ jorg_attack1(edict_t *self)
 
 void
 jorg_pain(edict_t *self, edict_t *other /* unused */,
-	   	float kick /* unused */, int damage)
+		float kick /* unused */, int damage)
 {
 	if (!self)
 	{
@@ -920,7 +919,7 @@ SP_monster_jorg(edict_t *self)
 	VectorSet(self->mins, -80, -80, 0);
 	VectorSet(self->maxs, 80, 80, 140);
 
-	self->health = 3000;
+	self->health = 3000 * st.health_multiplier;
 	self->gib_health = -2000;
 	self->mass = 1000;
 

@@ -53,7 +53,7 @@
 		static int show=1; \
 		if(show) { \
 			show = 0; \
-			R_Printf(PRINT_ALL, "STUB: %s() %s\n", __FUNCTION__, msg); \
+			Com_Printf("STUB: %s() %s\n", __FUNCTION__, msg); \
 		} \
 	} while(0);
 #else // .. so make this a no-op in released code
@@ -148,14 +148,15 @@ typedef struct
 	hmm_mat4 transProjViewMat4; // gl4state.projMat3D * gl4state.viewMat3D - so we don't have to do this in the shader
 	hmm_mat4 transModelMat4;
 
-	GLfloat scroll; // for SURF_FLOWING
+	GLfloat sscroll; // for SURF_FLOWING
+	GLfloat tscroll; // for SURF_FLOWING
 	GLfloat time; // for warping surfaces like water & possibly other things
 	GLfloat alpha; // for translucent surfaces (water, glass, ..)
 	GLfloat overbrightbits; // gl4_overbrightbits, applied to lightmaps (and elsewhere to models)
 	GLfloat particleFadeFactor; // gl4_particle_fade_factor, higher => less fading out towards edges
 
 	GLfloat lightScaleForTurb; // surfaces with SURF_DRAWTURB (water, lava) don't have lightmaps, use this instead
-		GLfloat _padding[2]; // again, some padding to ensure this has right size
+	GLfloat _padding; // again, some padding to ensure this has right size, round up to 16 bytes?
 } gl4Uni3D_t;
 
 extern const hmm_mat4 gl4_identityMat4;
@@ -179,8 +180,8 @@ enum {
 	// width and height used to be 128, so now we should be able to get the same lightmap data
 	// that used 32 lightmaps before into one, so 4 lightmaps should be enough
 	BLOCK_WIDTH = 1024,
-	BLOCK_HEIGHT = 512,
-	MAX_LIGHTMAPS = 4,
+	BLOCK_HEIGHT = 1024,
+	MAX_LIGHTMAPS = 16,
 	MAX_LIGHTMAPS_PER_SURFACE = MAXLIGHTMAPS // 4
 };
 
@@ -223,7 +224,7 @@ typedef struct
 	gl4ShaderInfo_t si2DpostProcessWater; // shader to apply water-warp postprocess effect
 
 	gl4ShaderInfo_t si3Dlm;        // a regular opaque face (e.g. from brush) with lightmap
-	// TODO: lm-only variants for gl_lightmap 1
+	// TODO: lm-only variants for r_lightmap 1
 	gl4ShaderInfo_t si3Dtrans;     // transparent is always w/o lightmap
 	gl4ShaderInfo_t si3DcolorOnly; // used for beams - no lightmaps
 	gl4ShaderInfo_t si3Dturb;      // for water etc - always without lightmap
@@ -265,10 +266,6 @@ typedef struct
 extern gl4config_t gl4config;
 extern gl4state_t gl4state;
 
-extern viddef_t vid;
-
-extern refdef_t gl4_newrefdef;
-
 extern int gl4_visframecount; /* bumped when going to a new PVS */
 extern int gl4_framecount; /* used for dlight push checking */
 
@@ -300,8 +297,6 @@ typedef struct image_s
 	qboolean is_lava; // DG: added for lava brightness hack
 
 } gl4image_t;
-
-enum {MAX_GL4TEXTURES = 1024};
 
 // include this down here so it can use gl4image_t
 #include "model.h"
@@ -385,6 +380,7 @@ extern qboolean GL4_IsVsyncActive(void);
 extern void GL4_EndFrame(void);
 extern void GL4_SetVsync(void);
 extern void GL4_ShutdownContext(void);
+extern int GL4_GetSDLVersion(void);
 
 // gl4_misc.c
 extern void GL4_InitParticleTexture(void);
@@ -407,9 +403,10 @@ extern void GL4_Draw_ShutdownLocal(void);
 extern gl4image_t * GL4_Draw_FindPic(const char *name);
 extern void GL4_Draw_GetPicSize(int *w, int *h, const char *pic);
 
-extern void GL4_Draw_PicScaled(int x, int y, const char *pic, float factor);
+extern void GL4_Draw_PicScaled(int x, int y, const char *pic, float factor, const char *alttext);
 extern void GL4_Draw_StretchPic(int x, int y, int w, int h, const char *pic);
 extern void GL4_Draw_CharScaled(int x, int y, int num, float scale);
+extern void GL4_Draw_StringScaled(int x, int y, float scale, qboolean alt, const char *message);
 extern void GL4_Draw_TileClear(int x, int y, int w, int h, const char *pic);
 extern void GL4_DrawFrameBufferObject(int x, int y, int w, int h, GLuint fboTexture, const float v_blend[4]);
 extern void GL4_Draw_Fill(int x, int y, int w, int h, int c);
@@ -453,8 +450,7 @@ extern void GL4_BuildLightMap(msurface_t *surf, int offsetInLMbuf, int stride);
 extern void LM_InitBlock(void);
 extern void LM_UploadBlock(void);
 extern qboolean LM_AllocBlock(int w, int h, int *x, int *y);
-extern void LM_BuildPolygonFromSurface(gl4model_t *currentmodel, msurface_t *fa);
-extern void LM_CreateSurfaceLightmap(msurface_t *surf);
+extern void LM_CreateLightmapsPoligon(gl4model_t *currentmodel, msurface_t *fa);
 extern void LM_BeginBuildingLightmaps(gl4model_t *m);
 extern void LM_EndBuildingLightmaps(void);
 
@@ -479,7 +475,7 @@ extern void GL4_DrawWorld(void);
 extern void GL4_MarkLeaves(void);
 
 // gl4_mesh.c
-extern void GL4_DrawAliasModel(entity_t *e);
+extern void GL4_DrawAliasModel(entity_t *currententity);
 extern void GL4_ResetShadowAliasModels(void);
 extern void GL4_DrawAliasShadows(void);
 extern void GL4_ShutdownMeshes(void);
@@ -496,53 +492,17 @@ extern void GL4_UpdateUBOLights(void);
 
 // ############ Cvars ###########
 
-extern cvar_t *gl_msaa_samples;
-extern cvar_t *r_vsync;
-extern cvar_t *r_retexturing;
-extern cvar_t *r_scale8bittextures;
-extern cvar_t *vid_fullscreen;
-extern cvar_t *r_mode;
-extern cvar_t *r_customwidth;
-extern cvar_t *r_customheight;
-
-extern cvar_t *r_2D_unfiltered;
-extern cvar_t *r_videos_unfiltered;
-extern cvar_t *r_nolerp_list;
-extern cvar_t *r_lerp_list;
+extern cvar_t *gl_version_override;
 extern cvar_t *gl_nobind;
-extern cvar_t *r_lockpvs;
-extern cvar_t *r_novis;
-
-extern cvar_t *r_cull;
 extern cvar_t *gl_zfix;
-extern cvar_t *r_fullbright;
-
-extern cvar_t *r_norefresh;
-extern cvar_t *gl_lefthand;
-extern cvar_t *r_gunfov;
-extern cvar_t *r_farsee;
-extern cvar_t *r_drawworld;
-
-extern cvar_t *vid_gamma;
 extern cvar_t *gl4_intensity;
 extern cvar_t *gl4_intensity_2D;
-extern cvar_t *gl_anisotropic;
 extern cvar_t *gl_texturemode;
-
-extern cvar_t *r_lightlevel;
 extern cvar_t *gl4_overbrightbits;
 extern cvar_t *gl4_particle_fade_factor;
 extern cvar_t *gl4_particle_square;
 extern cvar_t *gl4_colorlight;
 extern cvar_t *gl_polyblend;
-
-extern cvar_t *r_modulate;
-extern cvar_t *gl_lightmap;
-extern cvar_t *gl_shadows;
-extern cvar_t *r_fixsurfsky;
-extern cvar_t *r_palettedtexture;
-extern cvar_t *r_validation;
-
 extern cvar_t *gl4_debugcontext;
 
 #endif /* SRC_CLIENT_REFRESH_GL4_HEADER_LOCAL_H_ */

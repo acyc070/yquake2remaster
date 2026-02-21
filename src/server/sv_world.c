@@ -152,10 +152,7 @@ SV_LinkEdict(edict_t *ent)
 	areanode_t *node;
 	int leafs[MAX_TOTAL_ENT_LEAFS];
 	int clusters[MAX_TOTAL_ENT_LEAFS];
-	int num_leafs;
-	int i, j, k;
-	int area;
-	int topnode;
+	int num_leafs, topnode, i;
 
 	if (ent->area.prev)
 	{
@@ -178,6 +175,8 @@ SV_LinkEdict(edict_t *ent)
 	/* encode the size into the entity_state for client prediction */
 	if ((ent->solid == SOLID_BBOX) && !(ent->svflags & SVF_DEADMONSTER))
 	{
+		int j, k;
+
 		/* assume that x/y are equal and symetric */
 		i = (int)ent->maxs[0] / 8;
 
@@ -230,17 +229,17 @@ SV_LinkEdict(edict_t *ent)
 
 	/* set the abs box */
 	if ((ent->solid == SOLID_BSP) &&
-		(ent->s.angles[0] || ent->s.angles[1] ||
-		 ent->s.angles[2]))
+		(ent->s.angles[PITCH] || ent->s.angles[YAW] ||
+		 ent->s.angles[ROLL]))
 	{
 		/* expand for rotation */
-		float max, v;
-		int i;
+		float max;
 
 		max = 0;
 
 		for (i = 0; i < 3; i++)
 		{
+			float v;
 			v = (float)fabs(ent->mins[i]);
 
 			if (v > max)
@@ -290,6 +289,8 @@ SV_LinkEdict(edict_t *ent)
 	/* set areas */
 	for (i = 0; i < num_leafs; i++)
 	{
+		int area;
+
 		clusters[i] = CM_LeafCluster(leafs[i]);
 		area = CM_LeafArea(leafs[i]);
 
@@ -323,6 +324,8 @@ SV_LinkEdict(edict_t *ent)
 	}
 	else
 	{
+		int j;
+
 		ent->num_clusters = 0;
 
 		for (i = 0; i < num_leafs; i++)
@@ -491,10 +494,8 @@ SV_AreaEdicts(vec3_t mins, vec3_t maxs, edict_t **list,
 int
 SV_PointContents(vec3_t p)
 {
-	edict_t *touch[MAX_EDICTS], *hit;
-	int i, num;
-	int contents, c2;
-	int headnode;
+	edict_t *touch[MAX_EDICTS];
+	int i, num, contents;
 
 	/* get base contents from world */
 	contents = CM_PointContents(p, sv.models[1]->headnode);
@@ -504,6 +505,9 @@ SV_PointContents(vec3_t p)
 
 	for (i = 0; i < num; i++)
 	{
+		edict_t *hit;
+		int headnode, c2;
+
 		hit = touch[i];
 
 		/* might intersect, so do an exact clip */
@@ -520,11 +524,11 @@ SV_PointContents(vec3_t p)
 typedef struct
 {
 	vec3_t boxmins, boxmaxs; /* enclose the test object along entire move */
-	float *mins, *maxs; /* size of the moving object */
+	const float *mins, *maxs; /* size of the moving object */
 	vec3_t mins2, maxs2; /* size when clipping against mosnters */
-	float *start, *end;
+	const float *start, *end;
 	trace_t trace;
-	edict_t *passedict;
+	const edict_t *passedict;
 	int contentmask;
 } moveclip_t;
 
@@ -548,6 +552,7 @@ SV_HullForEntity(edict_t *ent)
 		if (!model)
 		{
 			Com_Error(ERR_FATAL, "MOVETYPE_PUSH with a non bsp model");
+			return 0;
 		}
 
 		return model->headnode;
@@ -650,8 +655,8 @@ SV_ClipMoveToEntities(moveclip_t *clip)
 }
 
 static void
-SV_TraceBounds(vec3_t start, vec3_t mins, vec3_t maxs,
-		vec3_t end, vec3_t boxmins, vec3_t boxmaxs)
+SV_TraceBounds(const vec3_t start, const vec3_t mins, const vec3_t maxs,
+		const vec3_t end, vec3_t boxmins, vec3_t boxmaxs)
 {
 	int i;
 
@@ -675,8 +680,8 @@ SV_TraceBounds(vec3_t start, vec3_t mins, vec3_t maxs,
  * Passedict and edicts owned by passedict are explicitly not checked.
  */
 trace_t
-SV_Trace(vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end,
-		edict_t *passedict, int contentmask)
+SV_Trace(const vec3_t start, const vec3_t mins, const vec3_t maxs, const vec3_t end,
+		const edict_t *passedict, int contentmask)
 {
 	moveclip_t clip;
 

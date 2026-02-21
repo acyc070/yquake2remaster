@@ -21,7 +21,7 @@
 
 #include "header/local.h"
 
-// internal helper
+/* internal helper */
 static const char *presentModeString(VkPresentModeKHR presentMode)
 {
 #define PMSTR(r) case VK_ ##r: return "VK_"#r
@@ -34,10 +34,9 @@ static const char *presentModeString(VkPresentModeKHR presentMode)
 		default: return "<unknown>";
 	}
 #undef PMSTR
-	return "UNKNOWN PRESENT MODE";
 }
 
-// internal helper
+/* internal helper */
 static VkSurfaceFormatKHR getSwapSurfaceFormat(const VkSurfaceFormatKHR *surfaceFormats, uint32_t formatCount)
 {
 	VkSurfaceFormatKHR swapSurfaceFormat;
@@ -64,7 +63,7 @@ static VkSurfaceFormatKHR getSwapSurfaceFormat(const VkSurfaceFormatKHR *surface
 	return swapSurfaceFormat;
 }
 
-// internal helper
+/* internal helper */
 // look to https://www.khronos.org/registry/vulkan/specs/1.2-extensions/man/html/VkPresentModeKHR.html for more information
 static VkPresentModeKHR getSwapPresentMode(const VkPresentModeKHR *presentModes, uint32_t presentModesCount, VkPresentModeKHR desiredMode)
 {
@@ -83,7 +82,7 @@ static VkPresentModeKHR getSwapPresentMode(const VkPresentModeKHR *presentModes,
 		if (presentModes[i] == desiredMode)
 		{
 			vk_config.present_mode = presentModeString(desiredMode);
-			R_Printf(PRINT_ALL, "...using present mode: %s\n", vk_config.present_mode);
+			Com_Printf("...using present mode: %s\n", vk_config.present_mode);
 			return desiredMode;
 		}
 	}
@@ -105,7 +104,7 @@ static VkPresentModeKHR getSwapPresentMode(const VkPresentModeKHR *presentModes,
 	}
 
 	vk_config.present_mode = presentModeString(usedPresentMode);
-	R_Printf(PRINT_ALL, "...present mode %s not supported, using present mode: %s\n", presentModeString(desiredMode), vk_config.present_mode);
+	Com_Printf("...present mode %s not supported, using present mode: %s\n", presentModeString(desiredMode), vk_config.present_mode);
 	return usedPresentMode;
 }
 
@@ -116,7 +115,7 @@ static const VkCompositeAlphaFlagBitsKHR compositeAlphaFlags[] = {
 	VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR
 };
 
-// internal helper
+/* internal helper */
 static VkCompositeAlphaFlagBitsKHR getSupportedCompositeAlpha(VkCompositeAlphaFlagsKHR supportedFlags)
 {
 	for (int i = 0; i < 4; ++i)
@@ -147,6 +146,8 @@ VkResult QVk_CreateSwapchain()
 	VkSurfaceFormatKHR *surfaceFormats = NULL;
 	VkPresentModeKHR *presentModes = NULL;
 	uint32_t formatCount, presentModesCount;
+	VkImage *tmp;
+
 	VK_VERIFY(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_device.physical, vk_surface, &surfaceCaps));
 	VK_VERIFY(vkGetPhysicalDeviceSurfaceFormatsKHR(vk_device.physical, vk_surface, &formatCount, NULL));
 	VK_VERIFY(vkGetPhysicalDeviceSurfacePresentModesKHR(vk_device.physical, vk_surface, &presentModesCount, NULL));
@@ -162,13 +163,13 @@ VkResult QVk_CreateSwapchain()
 		presentModes = (VkPresentModeKHR *)malloc(presentModesCount * sizeof(VkPresentModeKHR));
 		VK_VERIFY(vkGetPhysicalDeviceSurfacePresentModesKHR(vk_device.physical, vk_surface, &presentModesCount, presentModes));
 
-		R_Printf(PRINT_ALL, "Supported present modes: ");
+		Com_Printf("Supported present modes: ");
 		for (int i = 0; i < presentModesCount; i++)
 		{
-			R_Printf(PRINT_ALL, "%s ", presentModeString(presentModes[i]));
+			Com_Printf("%s ", presentModeString(presentModes[i]));
 			vk_config.supported_present_modes[i] = presentModeString(presentModes[i]);
 		}
-		R_Printf(PRINT_ALL, "\n");
+		Com_Printf("\n");
 	}
 
 	VkSurfaceFormatKHR swapSurfaceFormat = getSwapSurfaceFormat(surfaceFormats, formatCount);
@@ -236,15 +237,26 @@ VkResult QVk_CreateSwapchain()
 
 	vk_swapchain.format = swapSurfaceFormat.format;
 	vk_swapchain.extent = extent;
-	R_Printf(PRINT_ALL, "...trying swapchain extent: %dx%d\n", vk_swapchain.extent.width, vk_swapchain.extent.height);
-	R_Printf(PRINT_ALL, "...trying swapchain image format: %d\n", vk_swapchain.format);
+	Com_Printf("...trying swapchain extent: %dx%d\n", vk_swapchain.extent.width, vk_swapchain.extent.height);
+	Com_Printf("...trying swapchain image format: %d\n", vk_swapchain.format);
 
 	VkResult res = vkCreateSwapchainKHR(vk_device.logical, &scCreateInfo, NULL, &vk_swapchain.sc);
 	if (res != VK_SUCCESS)
+	{
 		return res;
+	}
 
 	VK_VERIFY(vkGetSwapchainImagesKHR(vk_device.logical, vk_swapchain.sc, &imageCount, NULL));
-	vk_swapchain.images = (VkImage *)realloc(vk_swapchain.images, imageCount * sizeof(VkImage));
+	tmp = (VkImage *)realloc(vk_swapchain.images, imageCount * sizeof(VkImage));
+	YQ2_COM_CHECK_OOM(tmp, "realloc()",
+		imageCount * sizeof(VkImage))
+	if (!tmp)
+	{
+		/* unaware about YQ2_ATTR_NORETURN_FUNCPTR? */
+		return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+	}
+
+	vk_swapchain.images = tmp;
 	vk_swapchain.imageCount = imageCount;
 	res = vkGetSwapchainImagesKHR(vk_device.logical, vk_swapchain.sc, &imageCount, vk_swapchain.images);
 

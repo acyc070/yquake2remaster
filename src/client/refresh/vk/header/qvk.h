@@ -213,6 +213,10 @@ typedef enum
 // Vulkan constants: command and dynamic buffer count
 #define NUM_CMDBUFFERS 2
 #define NUM_DYNBUFFERS 2
+// Vulkan constants: number of image semaphores (introduced with VulkanSDK 1.3.275)
+#define NUM_IMG_SEMAPHORES (NUM_CMDBUFFERS * 2)
+#define PUSH_CONSTANT_VERTEX_SIZE 17
+#define PUSH_CONSTANT_FRAGMENT_SIZE 11
 
 // Vulkan instance
 extern VkInstance vk_instance;
@@ -291,8 +295,6 @@ qboolean	QVk_Init(void);
 void		QVk_PostInit(void);
 void		QVk_GetDrawableSize(int *width, int *height);
 void		QVk_WaitAndShutdownAll(void);
-void		QVk_Shutdown(void);
-void		QVk_Restart(void);
 void		QVk_CreateValidationLayers(void);
 void		QVk_DestroyValidationLayers(void);
 qboolean	QVk_CreateDevice(int preferredDeviceIdx);
@@ -317,7 +319,6 @@ VkResult	QVk_EndFrame(qboolean force);
 void		QVk_BeginRenderpass(qvkrenderpasstype_t rpType);
 qboolean	QVk_RecreateSwapchain();
 void		QVk_FreeStagingBuffer(qvkstagingbuffer_t *buffer);
-VkResult	QVk_CreateBuffer(VkDeviceSize size, qvkbuffer_t *dstBuffer, const qvkbufferopts_t options);
 void		QVk_FreeBuffer(qvkbuffer_t *buffer);
 VkResult	QVk_CreateStagingBuffer(VkDeviceSize size, qvkstagingbuffer_t *dstBuffer, VkMemoryPropertyFlags reqMemFlags, VkMemoryPropertyFlags prefMemFlags);
 VkResult	QVk_CreateUniformBuffer(VkDeviceSize size, qvkbuffer_t *dstBuffer, VkMemoryPropertyFlags reqMemFlags, VkMemoryPropertyFlags prefMemFlags);
@@ -329,13 +330,14 @@ void		QVk_DestroyPipeline(qvkpipeline_t *pipeline);
 uint8_t*	QVk_GetVertexBuffer(VkDeviceSize size, VkBuffer *dstBuffer, VkDeviceSize *dstOffset);
 uint8_t*	QVk_GetUniformBuffer(VkDeviceSize size, uint32_t *dstOffset, VkDescriptorSet *dstUboDescriptorSet);
 uint8_t*	QVk_GetStagingBuffer(VkDeviceSize size, int alignment, VkCommandBuffer *cmdBuffer, VkBuffer *buffer, uint32_t *dstOffset);
-VkBuffer	QVk_GetTriangleFanIbo(VkDeviceSize indexCount);
-VkBuffer	QVk_GetTriangleStripIbo(VkDeviceSize indexCount);
-void		QVk_DrawColorRect(float *ubo, VkDeviceSize uboSize, qvkrenderpasstype_t rpType);
-void		QVk_DrawTexRect(const float *ubo, VkDeviceSize uboSize, qvktexture_t *texture);
+VkBuffer*	UpdateIndexBuffer(const uint16_t *data, VkDeviceSize bufferSize, VkDeviceSize *dstOffset);
+void		QVk_Draw2DCallsRender(void);
+void		QVk_DrawColorRect(float x, float y, float w, float h,
+				float r, float g, float b, float a, qvkrenderpasstype_t rpType);
+void		QVk_DrawTexRect(float x, float y, float w, float h,
+				float u, float v, float us, float vs, const qvktexture_t *texture);
 void		QVk_BindPipeline(qvkpipeline_t *pipeline);
 void		QVk_SubmitStagingBuffers(void);
-void		Qvk_MemoryBarrier(VkCommandBuffer cmdBuffer, VkPipelineStageFlags srcStageMask, VkPipelineStageFlags dstStageMask, VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask);
 qboolean	QVk_CheckExtent(void);
 
 // debug label related functions

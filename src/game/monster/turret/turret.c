@@ -43,8 +43,6 @@ extern qboolean FindTarget(edict_t *self);
 
 void turret_run(edict_t *self);
 void TurretAim(edict_t *self);
-void turret_sight(edict_t *self, edict_t *other);
-void turret_search(edict_t *self);
 void turret_stand(edict_t *self);
 void turret_wake(edict_t *self);
 void turret_ready_gun(edict_t *self);
@@ -357,28 +355,6 @@ TurretAim(edict_t *self)
 }
 
 void
-turret_sight(edict_t *self, edict_t *other)
-{
-}
-
-void
-turret_search(edict_t *self)
-{
-}
-
-static mframe_t turret_frames_stand[] = {
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL}
-};
-
-mmove_t turret_move_stand = {
-	FRAME_stand01,
-	FRAME_stand02,
-	turret_frames_stand,
-	NULL
-};
-
-void
 turret_stand(edict_t *self)
 {
 	if (!self)
@@ -386,7 +362,9 @@ turret_stand(edict_t *self)
 		return;
 	}
 
-	self->monsterinfo.currentmove = &turret_move_stand;
+	self->monsterinfo.firstframe = FRAME_stand01;
+	self->monsterinfo.numframes = FRAME_stand02 - FRAME_stand01 + 1;
+	monster_dynamic_stand(self);
 }
 
 static mframe_t turret_frames_ready_gun[] = {
@@ -760,12 +738,6 @@ turret_attack(edict_t *self)
 }
 
 void
-turret_pain(edict_t *self, edict_t *other, float kick, int damage)
-{
-	return;
-}
-
-void
 turret_die(edict_t *self, edict_t *inflictor /* unused */, edict_t *attacker /* unused */,
 		int damage /* unused */, vec3_t point /* unused */)
 {
@@ -830,13 +802,13 @@ turret_wall_spawn(edict_t *turret)
 	VectorCopy(turret->s.origin, ent->s.origin);
 	VectorCopy(turret->s.angles, ent->s.angles);
 
-	angle = ent->s.angles[1];
+	angle = ent->s.angles[YAW];
 
-	if (ent->s.angles[0] == 90)
+	if (ent->s.angles[PITCH] == 90)
 	{
 		angle = -1;
 	}
-	else if (ent->s.angles[0] == 270)
+	else if (ent->s.angles[PITCH] == 270)
 	{
 		angle = -2;
 	}
@@ -904,9 +876,9 @@ turret_wake(edict_t *self)
 	self->monsterinfo.dodge = NULL;
 	self->monsterinfo.attack = turret_attack;
 	self->monsterinfo.melee = NULL;
-	self->monsterinfo.sight = turret_sight;
-	self->monsterinfo.search = turret_search;
-	self->monsterinfo.currentmove = &turret_move_stand;
+	self->monsterinfo.sight = monster_dynamic_sight;
+	self->monsterinfo.search = monster_dynamic_search;
+	turret_stand(self);
 
 	self->takedamage = DAMAGE_AIM;
 	self->movetype = MOVETYPE_NONE;
@@ -957,27 +929,27 @@ turret_activate(edict_t *self, edict_t *other, edict_t *activator)
 	self->moveinfo.accel = self->speed;
 	self->moveinfo.decel = self->speed;
 
-	if (self->s.angles[0] == 270)
+	if (self->s.angles[PITCH] == 270)
 	{
 		VectorSet(forward, 0, 0, 1);
 	}
-	else if (self->s.angles[0] == 90)
+	else if (self->s.angles[PITCH] == 90)
 	{
 		VectorSet(forward, 0, 0, -1);
 	}
-	else if (self->s.angles[1] == 0)
+	else if (self->s.angles[YAW] == 0)
 	{
 		VectorSet(forward, 1, 0, 0);
 	}
-	else if (self->s.angles[1] == 90)
+	else if (self->s.angles[YAW] == 90)
 	{
 		VectorSet(forward, 0, 1, 0);
 	}
-	else if (self->s.angles[1] == 180)
+	else if (self->s.angles[YAW] == 180)
 	{
 		VectorSet(forward, -1, 0, 0);
 	}
-	else if (self->s.angles[1] == 270)
+	else if (self->s.angles[YAW] == 270)
 	{
 		VectorSet(forward, 0, -1, 0);
 	}
@@ -1153,14 +1125,14 @@ SP_monster_turret(edict_t *self)
 	self->movetype = MOVETYPE_NONE;
 	self->solid = SOLID_BBOX;
 
-	self->health = 240;
+	self->health = 240 * st.health_multiplier;
 	self->gib_health = -100;
 	self->mass = 250;
 	self->yaw_speed = 45;
 
 	self->flags |= FL_MECHANICAL;
 
-	self->pain = turret_pain;
+	self->pain = monster_dynamic_pain_noanim;
 	self->die = turret_die;
 
 	/* map designer didn't specify weapon type. set it now. */
@@ -1183,9 +1155,9 @@ SP_monster_turret(edict_t *self)
 		self->monsterinfo.dodge = NULL;
 		self->monsterinfo.attack = turret_attack;
 		self->monsterinfo.melee = NULL;
-		self->monsterinfo.sight = turret_sight;
-		self->monsterinfo.search = turret_search;
-		self->monsterinfo.currentmove = &turret_move_stand;
+		self->monsterinfo.sight = monster_dynamic_sight;
+		self->monsterinfo.search = monster_dynamic_search;
+		turret_stand(self);
 	}
 
 	/* PMM */
@@ -1196,18 +1168,18 @@ SP_monster_turret(edict_t *self)
 	self->gravity = 0;
 
 	VectorCopy(self->s.angles, self->offset);
-	angle = (int)self->s.angles[1];
+	angle = (int)self->s.angles[YAW];
 
 	switch (angle)
 	{
 		case -1:                    /* up */
-			self->s.angles[0] = 270;
-			self->s.angles[1] = 0;
+			self->s.angles[PITCH] = 270;
+			self->s.angles[YAW] = 0;
 			self->s.origin[2] += 2;
 			break;
 		case -2:                    /* down */
-			self->s.angles[0] = 90;
-			self->s.angles[1] = 0;
+			self->s.angles[PITCH] = 90;
+			self->s.angles[YAW] = 0;
 			self->s.origin[2] -= 2;
 			break;
 		case 0:

@@ -1415,7 +1415,7 @@ gekk_pain(edict_t *self, edict_t *other /* unused */,
 
 	if (self->waterlevel)
 	{
-		if ((!self->flags) & FL_SWIM)
+		if (!(self->flags & FL_SWIM))
 		{
 			self->flags |= FL_SWIM;
 		}
@@ -1454,10 +1454,7 @@ gekk_dead(edict_t *self)
 	{
 		VectorSet(self->mins, -16, -16, -24);
 		VectorSet(self->maxs, 16, 16, -8);
-		self->movetype = MOVETYPE_TOSS;
-		self->svflags |= SVF_DEADMONSTER;
-		self->nextthink = 0;
-		gi.linkentity(self);
+		monster_dynamic_dead(self);
 	}
 }
 
@@ -1968,7 +1965,7 @@ SP_monster_gekk(edict_t *self)
 	gi.modelindex("models/objects/gekkgib/leg/tris.md2");
 	gi.modelindex("models/objects/gekkgib/head/tris.md2");
 
-	self->health = 125;
+	self->health = 125 * st.health_multiplier;
 	self->gib_health = -30;
 	self->mass = 300;
 

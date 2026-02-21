@@ -49,7 +49,6 @@ static float sweep_angles[] = {
 
 extern vec3_t stalker_mins, stalker_maxs;
 
-qboolean infront(edict_t *self, edict_t *other);
 void WidowCalcSlots(edict_t *self);
 void WidowPowerups(edict_t *self);
 
@@ -75,11 +74,11 @@ void gib_die(edict_t *self, edict_t *inflictor, edict_t *attacker,
 		int damage, vec3_t point);
 void gib_touch(edict_t *self, edict_t *other, cplane_t *plane,
 		csurface_t *surf);
-void ThrowWidowGibReal(edict_t *self, char *gibname, int damage, int type,
+void ThrowWidowGibReal(edict_t *self, char *gibname, int damage, gibtype_t type,
 		vec3_t startpos, qboolean large, int hitsound, qboolean fade);
-void ThrowWidowGibSized(edict_t *self, char *gibname, int damage, int type,
+void ThrowWidowGibSized(edict_t *self, char *gibname, int damage, gibtype_t type,
 		vec3_t startpos, int hitsound, qboolean fade);
-void ThrowWidowGibLoc(edict_t *self, char *gibname, int damage, int type,
+static void ThrowWidowGibLoc(edict_t *self, char *gibname, int damage, gibtype_t type,
 		vec3_t startpos, qboolean fade);
 void WidowExplosion1(edict_t *self);
 void WidowExplosion2(edict_t *self);
@@ -92,7 +91,6 @@ void WidowExplosionLeg(edict_t *self);
 void ThrowArm1(edict_t *self);
 void ThrowArm2(edict_t *self);
 void ClipGibVelocity(edict_t *ent);
-void showme(edict_t *self);
 
 /* these offsets used by the tongue */
 static vec3_t offsets[] = {
@@ -563,7 +561,7 @@ mmove_t widow2_move_spawn = {
 	NULL
 };
 
-qboolean
+static qboolean
 widow2_tongue_attack_ok(vec3_t start, vec3_t end, float range)
 {
 	vec3_t dir, angles;
@@ -1284,7 +1282,7 @@ widow2_die(edict_t *self, edict_t *inflictor /* unused */, edict_t *attacker /* 
 		}
 
 		ThrowGib(self, "models/objects/gibs/chest/tris.md2", clipped, GIB_ORGANIC);
-		ThrowHead(self, "models/objects/gibs/head2/tris.md2", clipped, GIB_ORGANIC);
+		ThrowHead(self, NULL, clipped, GIB_ORGANIC);
 		self->deadflag = DEAD_DEAD;
 		return;
 	}
@@ -1436,7 +1434,7 @@ Widow2_CheckAttack(edict_t *self)
 	return false;
 }
 
-void
+static void
 Widow2Precache(void)
 {
 	/* cache in all of the stalker stuff, widow stuff, spawngro stuff, gibs */
@@ -1498,7 +1496,7 @@ SP_monster_widow2(edict_t *self)
 	VectorSet(self->mins, -70, -70, 0);
 	VectorSet(self->maxs, 70, 70, 144);
 
-	self->health = 2000 + 800 + 1000 * (skill->value);
+	self->health = 2000 + 800 + 1000 * (skill->value) * st.health_multiplier;
 
 	if (coop->value)
 	{
@@ -1539,7 +1537,7 @@ SP_monster_widow2(edict_t *self)
 	walkmonster_start(self);
 }
 
-void
+static void
 WidowVelocityForDamage(int damage, vec3_t v)
 {
 	v[0] = damage * crandom();
@@ -1579,9 +1577,9 @@ ThrowWidowGib(edict_t *self, char *gibname, int damage, int type)
 	ThrowWidowGibReal(self, gibname, damage, type, NULL, false, 0, true);
 }
 
-void
+static void
 ThrowWidowGibLoc(edict_t *self, char *gibname, int damage,
-		int type, vec3_t startpos, qboolean fade)
+		gibtype_t type, vec3_t startpos, qboolean fade)
 {
 	if (!self || !gibname)
 	{
@@ -1592,7 +1590,7 @@ ThrowWidowGibLoc(edict_t *self, char *gibname, int damage,
 }
 
 void
-ThrowWidowGibSized(edict_t *self, char *gibname, int damage, int type,
+ThrowWidowGibSized(edict_t *self, char *gibname, int damage, gibtype_t type,
 		vec3_t startpos, int hitsound, qboolean fade)
 {
 	if (!self || !gibname)
@@ -1605,7 +1603,7 @@ ThrowWidowGibSized(edict_t *self, char *gibname, int damage, int type,
 }
 
 void
-ThrowWidowGibReal(edict_t *self, char *gibname, int damage, int type,
+ThrowWidowGibReal(edict_t *self, char *gibname, int damage, gibtype_t type,
 		vec3_t startpos, qboolean sized, int hitsound, qboolean fade)
 {
 	edict_t *gib;
@@ -1754,7 +1752,7 @@ ThrowSmallStuff(edict_t *self, vec3_t point)
 			100, GIB_METALLIC, point, false);
 }
 
-void
+static void
 ThrowMoreStuff(edict_t *self, vec3_t point)
 {
 	int n;

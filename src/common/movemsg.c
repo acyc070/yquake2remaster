@@ -25,6 +25,7 @@
  */
 
 #include "header/common.h"
+#include <limits.h>
 
 vec3_t bytedirs[NUMVERTEXNORMALS] = {
 	{-0.525731, 0.000000, 0.850651},
@@ -191,6 +192,417 @@ vec3_t bytedirs[NUMVERTEXNORMALS] = {
 	{-0.688191, -0.587785, -0.425325}
 };
 
+static const entity_xstate_t es_nullstate = {0};
+
+size_t
+MSG_ConfigString_Size(const char *s)
+{
+	return strlen(s) + 4; /* string length + null char + message type + index */
+}
+
+static int
+DeltaEntityBits(const entity_xstate_t *from,
+		const entity_xstate_t *to,
+		qboolean newentity,
+		int protocol)
+{
+	int bits = 0;
+
+	if (to->number >= 256)
+	{
+		bits |= U_NUMBER16; /* number8 is implicit otherwise */
+	}
+
+	if (to->origin[0] != from->origin[0])
+	{
+		bits |= U_ORIGIN1;
+	}
+
+	if (to->origin[1] != from->origin[1])
+	{
+		bits |= U_ORIGIN2;
+	}
+
+	if (to->origin[2] != from->origin[2])
+	{
+		bits |= U_ORIGIN3;
+	}
+
+	if (to->angles[0] != from->angles[0])
+	{
+		bits |= U_ANGLE1;
+	}
+
+	if (to->angles[1] != from->angles[1])
+	{
+		bits |= U_ANGLE2;
+	}
+
+	if (to->angles[2] != from->angles[2])
+	{
+		bits |= U_ANGLE3;
+	}
+
+	if (to->skinnum != from->skinnum)
+	{
+		if ((unsigned)to->skinnum < 256)
+		{
+			bits |= U_SKIN8;
+		}
+
+		else if ((unsigned)to->skinnum < 0x10000)
+		{
+			bits |= U_SKIN16;
+		}
+
+		else
+		{
+			bits |= (U_SKIN8 | U_SKIN16);
+		}
+	}
+
+	/* Scale with skins if force or different */
+	if ((protocol == PROTOCOL_VERSION) &&
+		((to->scale[0] != from->scale[0]) ||
+		 (to->scale[1] != from->scale[1]) ||
+		 (to->scale[2] != from->scale[2])))
+	{
+		bits |= (U_SKIN8 | U_SKIN16);
+	}
+
+	if (to->frame != from->frame)
+	{
+		if (to->frame < 256)
+		{
+			bits |= U_FRAME8;
+		}
+
+		else
+		{
+			bits |= U_FRAME16;
+		}
+	}
+
+	if (to->effects != from->effects)
+	{
+		if (to->effects < 256)
+		{
+			bits |= U_EFFECTS8;
+		}
+
+		else if (to->effects < 0x8000)
+		{
+			bits |= U_EFFECTS16;
+		}
+
+		else
+		{
+			bits |= U_EFFECTS8 | U_EFFECTS16;
+		}
+	}
+
+	if (to->rr_effects != from->rr_effects || to->rr_mesh != from->rr_mesh)
+	{
+		bits |= U_EFFECTS8 | U_EFFECTS16;
+	}
+
+	if (to->renderfx != from->renderfx)
+	{
+		if (to->renderfx < 256)
+		{
+			bits |= U_RENDERFX8;
+		}
+
+		else if (to->renderfx < 0x8000)
+		{
+			bits |= U_RENDERFX16;
+		}
+
+		else
+		{
+			bits |= U_RENDERFX8 | U_RENDERFX16;
+		}
+	}
+
+	if (to->solid != from->solid)
+	{
+		bits |= U_SOLID;
+	}
+
+	/* event is not delta compressed, just 0 compressed */
+	if (to->event)
+	{
+		bits |= U_EVENT;
+	}
+
+	if (to->modelindex != from->modelindex)
+	{
+		bits |= U_MODEL;
+	}
+
+	if (to->modelindex2 != from->modelindex2)
+	{
+		bits |= U_MODEL2;
+	}
+
+	if (to->modelindex3 != from->modelindex3)
+	{
+		bits |= U_MODEL3;
+	}
+
+	if (to->modelindex4 != from->modelindex4)
+	{
+		bits |= U_MODEL4;
+	}
+
+	if (to->sound != from->sound)
+	{
+		bits |= U_SOUND;
+	}
+
+	if (newentity || (to->renderfx & RF_BEAM))
+	{
+		bits |= U_OLDORIGIN;
+	}
+
+	if (bits & 0xff000000)
+	{
+		bits |= U_MOREBITS3 | U_MOREBITS2 | U_MOREBITS1;
+	}
+
+	else if (bits & 0x00ff0000)
+	{
+		bits |= U_MOREBITS2 | U_MOREBITS1;
+	}
+
+	else if (bits & 0x0000ff00)
+	{
+		bits |= U_MOREBITS1;
+	}
+
+	return bits;
+}
+
+size_t
+MSG_DeltaEntity_Size(const entity_xstate_t *from, const entity_xstate_t *to,
+	qboolean force, qboolean newentity, int protocol)
+{
+	size_t sz;
+	int bits;
+
+	if (!from)
+	{
+		from = &es_nullstate;
+	}
+
+	if (!to)
+	{
+		to = &es_nullstate;
+	}
+
+	bits = DeltaEntityBits(from, to, newentity, protocol);
+
+	if (!bits && !force)
+	{
+		return 0;
+	}
+
+	sz = 1;
+
+	if (bits & 0xff000000)
+	{
+		sz += 3;
+	}
+	else if (bits & 0x00ff0000)
+	{
+		sz += 2;
+	}
+	else if (bits & 0x0000ff00)
+	{
+		sz++;
+	}
+
+	if (bits & U_NUMBER16)
+	{
+		sz += 2;
+	}
+	else
+	{
+		sz++;
+	}
+
+	if (IS_QII97_PROTOCOL(protocol))
+	{
+		if (bits & U_MODEL)
+		{
+			sz++;
+		}
+
+		if (bits & U_MODEL2)
+		{
+			sz++;
+		}
+
+		if (bits & U_MODEL3)
+		{
+			sz++;
+		}
+
+		if (bits & U_MODEL4)
+		{
+			sz++;
+		}
+	}
+	else
+	{
+		if (bits & U_MODEL)
+		{
+			sz += 2;
+		}
+
+		if (bits & U_MODEL2)
+		{
+			sz += 2;
+		}
+
+		if (bits & U_MODEL3)
+		{
+			sz += 2;
+		}
+
+		if (bits & U_MODEL4)
+		{
+			sz += 2;
+		}
+	}
+
+	if (bits & U_FRAME8)
+	{
+		sz++;
+	}
+
+	if (bits & U_FRAME16)
+	{
+		sz += 2;
+	}
+
+	if ((bits & U_SKIN8) && (bits & U_SKIN16)) /*used for laser colors */
+	{
+		sz += 4;
+
+		if (!IS_QII97_PROTOCOL(protocol))
+		{
+			/* 3 float for scale */
+			sz += 12;
+		}
+	}
+	else if (bits & U_SKIN8)
+	{
+		sz++;
+	}
+	else if (bits & U_SKIN16)
+	{
+		sz += 2;
+	}
+
+	if ((bits & (U_EFFECTS8 | U_EFFECTS16)) == (U_EFFECTS8 | U_EFFECTS16))
+	{
+		sz += 4;
+	}
+	else if (bits & U_EFFECTS8)
+	{
+		sz++;
+	}
+	else if (bits & U_EFFECTS16)
+	{
+		sz += 2;
+	}
+
+	if ((bits & (U_RENDERFX8 | U_RENDERFX16)) == (U_RENDERFX8 | U_RENDERFX16))
+	{
+		sz += 4;
+	}
+	else if (bits & U_RENDERFX8)
+	{
+		sz++;
+	}
+	else if (bits & U_RENDERFX16)
+	{
+		sz += 2;
+	}
+
+	/* ReRelease effects */
+	if (protocol == PROTOCOL_VERSION)
+	{
+		if ((bits & (U_EFFECTS8 | U_EFFECTS16)) == (U_EFFECTS8 | U_EFFECTS16))
+		{
+			sz += 8;
+		}
+
+		else if (bits & U_EFFECTS8)
+		{
+			sz += 2;
+		}
+
+		else if (bits & U_EFFECTS16)
+		{
+			sz += 4;
+		}
+	}
+
+	if (bits & U_ORIGIN1)
+	{
+		sz += IS_QII97_PROTOCOL(protocol) ? 2 : 4;
+	}
+
+	if (bits & U_ORIGIN2)
+	{
+		sz += IS_QII97_PROTOCOL(protocol) ? 2 : 4;
+	}
+
+	if (bits & U_ORIGIN3)
+	{
+		sz += IS_QII97_PROTOCOL(protocol) ? 2 : 4;
+	}
+
+	if (bits & U_ANGLE1)
+	{
+		sz++;
+	}
+
+	if (bits & U_ANGLE2)
+	{
+		sz++;
+	}
+
+	if (bits & U_ANGLE3)
+	{
+		sz++;
+	}
+
+	if (bits & U_OLDORIGIN)
+	{
+		sz += IS_QII97_PROTOCOL(protocol) ? 6 : 12;
+	}
+
+	if (bits & U_SOUND)
+	{
+		sz++;
+	}
+
+	if (bits & U_EVENT)
+	{
+		sz++;
+	}
+
+	if (bits & U_SOLID)
+	{
+		sz += 2;
+	}
+
+	return sz;
+}
+
 void
 MSG_WriteChar(sizebuf_t *sb, int c)
 {
@@ -261,17 +673,24 @@ MSG_WriteString(sizebuf_t *sb, const char *s)
 }
 
 void
-MSG_WriteCoord(sizebuf_t *sb, float f)
+MSG_WriteCoord(sizebuf_t *sb, float f, int protocol)
 {
-	MSG_WriteShort(sb, (int)(f * 8));
+	if (IS_QII97_PROTOCOL(protocol))
+	{
+		MSG_WriteShort(sb, (int)(f * 8));
+	}
+	else
+	{
+		MSG_WriteFloat(sb, f);
+	}
 }
 
 void
-MSG_WritePos(sizebuf_t *sb, vec3_t pos)
+MSG_WritePos(sizebuf_t *sb, const vec3_t pos, int protocol)
 {
-	MSG_WriteShort(sb, (int)(pos[0] * 8));
-	MSG_WriteShort(sb, (int)(pos[1] * 8));
-	MSG_WriteShort(sb, (int)(pos[2] * 8));
+	MSG_WriteCoord(sb, pos[0], protocol);
+	MSG_WriteCoord(sb, pos[1], protocol);
+	MSG_WriteCoord(sb, pos[2], protocol);
 }
 
 void
@@ -287,7 +706,14 @@ MSG_WriteAngle16(sizebuf_t *sb, float f)
 }
 
 void
-MSG_WriteDeltaUsercmd(sizebuf_t *buf, usercmd_t *from, usercmd_t *cmd)
+MSG_WriteConfigString(sizebuf_t *buf, short index, const char *s)
+{
+	MSG_WriteShort(buf, index);
+	MSG_WriteString(buf, s);
+}
+
+void
+MSG_WriteDeltaUsercmd(sizebuf_t *buf, const usercmd_t *from, const usercmd_t *cmd)
 {
 	int bits;
 
@@ -381,7 +807,7 @@ MSG_WriteDeltaUsercmd(sizebuf_t *buf, usercmd_t *from, usercmd_t *cmd)
 }
 
 void
-MSG_WriteDir(sizebuf_t *sb, vec3_t dir)
+MSG_WriteDir(sizebuf_t *sb, const vec3_t dir)
 {
 	int i, best;
 	float d, bestd;
@@ -415,10 +841,16 @@ MSG_ReadDir(sizebuf_t *sb, vec3_t dir)
 	int b;
 
 	b = MSG_ReadByte(sb);
+	if (b < 0)
+	{
+		Com_Error(ERR_DROP, "%s: unexpected message end", __func__);
+		return;
+	}
 
 	if (b >= NUMVERTEXNORMALS)
 	{
-		Com_Error(ERR_DROP, "MSF_ReadDir: out of range");
+		Com_Error(ERR_DROP, "%s: out of range", __func__);
+		return;
 	}
 
 	VectorCopy(bytedirs[b], dir);
@@ -429,189 +861,37 @@ MSG_ReadDir(sizebuf_t *sb, vec3_t dir)
  * Can delta from either a baseline or a previous packet_entity
  */
 void
-MSG_WriteDeltaEntity(entity_state_t *from,
-		entity_state_t *to,
+MSG_WriteDeltaEntity(const entity_xstate_t *from,
+		const entity_xstate_t *to,
 		sizebuf_t *msg,
 		qboolean force,
-		qboolean newentity)
+		qboolean newentity,
+		int protocol)
 {
 	int bits;
 
-	if (!to->number)
+	if (!from)
 	{
-		Com_Error(ERR_FATAL, "Unset entity number");
+		from = &es_nullstate;
 	}
 
-	if (to->number >= MAX_EDICTS)
+	if (!to)
 	{
-		Com_Error(ERR_FATAL, "Entity number >= MAX_EDICTS");
+		to = &es_nullstate;
+	}
+
+	/* entnums are sent in 16-bit form */
+	if (to->number > SHRT_MAX)
+	{
+		return;
 	}
 
 	/* send an update */
-	bits = 0;
+	bits = DeltaEntityBits(from, to, newentity, protocol);
 
-	if (to->number >= 256)
-	{
-		bits |= U_NUMBER16; /* number8 is implicit otherwise */
-	}
-
-	if (to->origin[0] != from->origin[0])
-	{
-		bits |= U_ORIGIN1;
-	}
-
-	if (to->origin[1] != from->origin[1])
-	{
-		bits |= U_ORIGIN2;
-	}
-
-	if (to->origin[2] != from->origin[2])
-	{
-		bits |= U_ORIGIN3;
-	}
-
-	if (to->angles[0] != from->angles[0])
-	{
-		bits |= U_ANGLE1;
-	}
-
-	if (to->angles[1] != from->angles[1])
-	{
-		bits |= U_ANGLE2;
-	}
-
-	if (to->angles[2] != from->angles[2])
-	{
-		bits |= U_ANGLE3;
-	}
-
-	if (to->skinnum != from->skinnum)
-	{
-		if ((unsigned)to->skinnum < 256)
-		{
-			bits |= U_SKIN8;
-		}
-
-		else if ((unsigned)to->skinnum < 0x10000)
-		{
-			bits |= U_SKIN16;
-		}
-
-		else
-		{
-			bits |= (U_SKIN8 | U_SKIN16);
-		}
-	}
-
-	if (to->frame != from->frame)
-	{
-		if (to->frame < 256)
-		{
-			bits |= U_FRAME8;
-		}
-
-		else
-		{
-			bits |= U_FRAME16;
-		}
-	}
-
-	if (to->effects != from->effects)
-	{
-		if (to->effects < 256)
-		{
-			bits |= U_EFFECTS8;
-		}
-
-		else if (to->effects < 0x8000)
-		{
-			bits |= U_EFFECTS16;
-		}
-
-		else
-		{
-			bits |= U_EFFECTS8 | U_EFFECTS16;
-		}
-	}
-
-	if (to->renderfx != from->renderfx)
-	{
-		if (to->renderfx < 256)
-		{
-			bits |= U_RENDERFX8;
-		}
-
-		else if (to->renderfx < 0x8000)
-		{
-			bits |= U_RENDERFX16;
-		}
-
-		else
-		{
-			bits |= U_RENDERFX8 | U_RENDERFX16;
-		}
-	}
-
-	if (to->solid != from->solid)
-	{
-		bits |= U_SOLID;
-	}
-
-	/* event is not delta compressed, just 0 compressed */
-	if (to->event)
-	{
-		bits |= U_EVENT;
-	}
-
-	if (to->modelindex != from->modelindex)
-	{
-		bits |= U_MODEL;
-	}
-
-	if (to->modelindex2 != from->modelindex2)
-	{
-		bits |= U_MODEL2;
-	}
-
-	if (to->modelindex3 != from->modelindex3)
-	{
-		bits |= U_MODEL3;
-	}
-
-	if (to->modelindex4 != from->modelindex4)
-	{
-		bits |= U_MODEL4;
-	}
-
-	if (to->sound != from->sound)
-	{
-		bits |= U_SOUND;
-	}
-
-	if (newentity || (to->renderfx & RF_BEAM))
-	{
-		bits |= U_OLDORIGIN;
-	}
-
-	/* write the message */
 	if (!bits && !force)
 	{
 		return; /* nothing to send! */
-	}
-
-	if (bits & 0xff000000)
-	{
-		bits |= U_MOREBITS3 | U_MOREBITS2 | U_MOREBITS1;
-	}
-
-	else if (bits & 0x00ff0000)
-	{
-		bits |= U_MOREBITS2 | U_MOREBITS1;
-	}
-
-	else if (bits & 0x0000ff00)
-	{
-		bits |= U_MOREBITS1;
 	}
 
 	MSG_WriteByte(msg, bits & 255);
@@ -644,24 +924,65 @@ MSG_WriteDeltaEntity(entity_state_t *from,
 		MSG_WriteByte(msg, to->number);
 	}
 
-	if (bits & U_MODEL)
+	if (IS_QII97_PROTOCOL(protocol))
 	{
-		MSG_WriteByte(msg, to->modelindex);
-	}
+		if (bits & U_MODEL)
+		{
+			int modelindex = to->modelindex;
 
-	if (bits & U_MODEL2)
-	{
-		MSG_WriteByte(msg, to->modelindex2);
-	}
+			/* New protocol use 16 bit for model id, and custom player model
+			 * id is different to old one, converty back */
+			if (modelindex == CUSTOM_PLAYER_MODEL)
+			{
+				modelindex = QII97_PLAYER_MODEL;
+			}
+			MSG_WriteByte(msg, modelindex);
+		}
 
-	if (bits & U_MODEL3)
-	{
-		MSG_WriteByte(msg, to->modelindex3);
-	}
+		if (bits & U_MODEL2)
+		{
+			int modelindex = to->modelindex2;
 
-	if (bits & U_MODEL4)
+			/* New protocol use 16 bit for model id, and custom player model
+			 * id is different to old one, converty back */
+			if (modelindex == CUSTOM_PLAYER_MODEL)
+			{
+				modelindex = QII97_PLAYER_MODEL;
+			}
+			MSG_WriteByte(msg, modelindex);
+		}
+
+		if (bits & U_MODEL3)
+		{
+			MSG_WriteByte(msg, to->modelindex3);
+		}
+
+		if (bits & U_MODEL4)
+		{
+			MSG_WriteByte(msg, to->modelindex4);
+		}
+	}
+	else
 	{
-		MSG_WriteByte(msg, to->modelindex4);
+		if (bits & U_MODEL)
+		{
+			MSG_WriteShort(msg, to->modelindex);
+		}
+
+		if (bits & U_MODEL2)
+		{
+			MSG_WriteShort(msg, to->modelindex2);
+		}
+
+		if (bits & U_MODEL3)
+		{
+			MSG_WriteShort(msg, to->modelindex3);
+		}
+
+		if (bits & U_MODEL4)
+		{
+			MSG_WriteShort(msg, to->modelindex4);
+		}
 	}
 
 	if (bits & U_FRAME8)
@@ -677,6 +998,17 @@ MSG_WriteDeltaEntity(entity_state_t *from,
 	if ((bits & U_SKIN8) && (bits & U_SKIN16)) /*used for laser colors */
 	{
 		MSG_WriteLong(msg, to->skinnum);
+
+		/* Send scale */
+		if (protocol == PROTOCOL_VERSION)
+		{
+			int i;
+
+			for (i = 0; i < 3; i++)
+			{
+				MSG_WriteFloat(msg, to->scale[i]);
+			}
+		}
 	}
 
 	else if (bits & U_SKIN8)
@@ -704,6 +1036,28 @@ MSG_WriteDeltaEntity(entity_state_t *from,
 		MSG_WriteShort(msg, to->effects);
 	}
 
+	/* ReRelease effects */
+	if (protocol == PROTOCOL_VERSION)
+	{
+		if ((bits & (U_EFFECTS8 | U_EFFECTS16)) == (U_EFFECTS8 | U_EFFECTS16))
+		{
+			MSG_WriteLong(msg, to->rr_effects);
+			MSG_WriteLong(msg, to->rr_mesh);
+		}
+
+		else if (bits & U_EFFECTS8)
+		{
+			MSG_WriteByte(msg, to->rr_effects);
+			MSG_WriteByte(msg, to->rr_mesh);
+		}
+
+		else if (bits & U_EFFECTS16)
+		{
+			MSG_WriteShort(msg, to->rr_effects);
+			MSG_WriteShort(msg, to->rr_mesh);
+		}
+	}
+
 	if ((bits & (U_RENDERFX8 | U_RENDERFX16)) == (U_RENDERFX8 | U_RENDERFX16))
 	{
 		MSG_WriteLong(msg, to->renderfx);
@@ -721,17 +1075,17 @@ MSG_WriteDeltaEntity(entity_state_t *from,
 
 	if (bits & U_ORIGIN1)
 	{
-		MSG_WriteCoord(msg, to->origin[0]);
+		MSG_WriteCoord(msg, to->origin[0], protocol);
 	}
 
 	if (bits & U_ORIGIN2)
 	{
-		MSG_WriteCoord(msg, to->origin[1]);
+		MSG_WriteCoord(msg, to->origin[1], protocol);
 	}
 
 	if (bits & U_ORIGIN3)
 	{
-		MSG_WriteCoord(msg, to->origin[2]);
+		MSG_WriteCoord(msg, to->origin[2], protocol);
 	}
 
 	if (bits & U_ANGLE1)
@@ -751,9 +1105,7 @@ MSG_WriteDeltaEntity(entity_state_t *from,
 
 	if (bits & U_OLDORIGIN)
 	{
-		MSG_WriteCoord(msg, to->old_origin[0]);
-		MSG_WriteCoord(msg, to->old_origin[1]);
-		MSG_WriteCoord(msg, to->old_origin[2]);
+		MSG_WritePos(msg, to->old_origin, protocol);
 	}
 
 	if (bits & U_SOUND)
@@ -947,17 +1299,24 @@ MSG_ReadStringLine(sizebuf_t *msg_read)
 }
 
 float
-MSG_ReadCoord(sizebuf_t *msg_read)
+MSG_ReadCoord(sizebuf_t *msg_read, int protocol)
 {
-	return MSG_ReadShort(msg_read) * (0.125f);
+	if (IS_QII97_PROTOCOL(protocol))
+	{
+		return MSG_ReadShort(msg_read) * (0.125f);
+	}
+	else
+	{
+		return MSG_ReadFloat(msg_read);
+	}
 }
 
 void
-MSG_ReadPos(sizebuf_t *msg_read, vec3_t pos)
+MSG_ReadPos(sizebuf_t *msg_read, vec3_t pos, int protocol)
 {
-	pos[0] = MSG_ReadShort(msg_read) * (0.125f);
-	pos[1] = MSG_ReadShort(msg_read) * (0.125f);
-	pos[2] = MSG_ReadShort(msg_read) * (0.125f);
+	pos[0] = MSG_ReadCoord(msg_read, protocol);
+	pos[1] = MSG_ReadCoord(msg_read, protocol);
+	pos[2] = MSG_ReadCoord(msg_read, protocol);
 }
 
 float

@@ -54,8 +54,20 @@ void QVk_CreatePipeline(const VkDescriptorSetLayout *descriptorLayout,
 	qvkpipeline_t *pipeline, const qvkrenderpass_t *renderpass,
 	const qvkshader_t *shaders, uint32_t shaderCount)
 {
-	VkPipelineShaderStageCreateInfo *ssCreateInfos = (VkPipelineShaderStageCreateInfo *)malloc(shaderCount * sizeof(VkPipelineShaderStageCreateInfo));
-	for (int i = 0; i < shaderCount; i++)
+	VkPipelineShaderStageCreateInfo *ssCreateInfos;
+	size_t i;
+
+	ssCreateInfos = (VkPipelineShaderStageCreateInfo *)
+		malloc(shaderCount * sizeof(VkPipelineShaderStageCreateInfo));
+	YQ2_COM_CHECK_OOM(ssCreateInfos, "malloc()",
+		shaderCount * sizeof(VkPipelineShaderStageCreateInfo))
+	if (!ssCreateInfos)
+	{
+		/* unaware about YQ2_ATTR_NORETURN_FUNCPTR? */
+		return;
+	}
+
+	for (i = 0; i < shaderCount; i++)
 	{
 		ssCreateInfos[i] = shaders[i].createInfo;
 	}
@@ -164,12 +176,12 @@ void QVk_CreatePipeline(const VkDescriptorSetLayout *descriptorLayout,
 		{
 			.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
 			.offset = 0,
-			.size = 17 * sizeof(float)
+			.size = PUSH_CONSTANT_VERTEX_SIZE * sizeof(float)
 		},
 		{
 			.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-			.offset = 17 * sizeof(float),
-			.size = 11 * sizeof(float)
+			.offset = PUSH_CONSTANT_VERTEX_SIZE * sizeof(float),
+			.size = PUSH_CONSTANT_FRAGMENT_SIZE * sizeof(float)
 	}};
 
 	VkPipelineLayoutCreateInfo plCreateInfo = {

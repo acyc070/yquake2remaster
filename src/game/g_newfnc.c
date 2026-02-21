@@ -228,7 +228,15 @@ secret_touch(edict_t *self, edict_t *other, cplane_t *plane /* unused */, csurfa
 
 	if (self->message)
 	{
-		gi.centerprintf(other, self->message);
+		int sound_index;
+
+		sound_index = 0;
+		gi.centerprintf(other, gi.LocalizationMessage(self->message, &sound_index));
+
+		if (sound_index)
+		{
+			gi.sound(other, CHAN_AUTO, sound_index, 1, ATTN_NORM, 0);
+		}
 	}
 }
 
@@ -374,7 +382,7 @@ force_wall_think(edict_t *self)
 
 void
 force_wall_use(edict_t *self, edict_t *other /* activator */,
-	   	edict_t *activator /* activator */)
+		edict_t *activator /* activator */)
 {
 	if (!self)
 	{

@@ -27,8 +27,6 @@
 
 #include "header/local.h"
 
-void M_SetEffects(edict_t *self);
-
 /*
  * clean up heal targets for medic
  */
@@ -252,7 +250,7 @@ Killed(edict_t *targ, edict_t *inflictor, edict_t *attacker,
 	targ->die(targ, inflictor, attacker, damage, point);
 }
 
-void
+static void
 SpawnDamage(int type, vec3_t origin, vec3_t normal)
 {
 	gi.WriteByte(svc_temp_entity);
@@ -282,7 +280,7 @@ SpawnDamage(int type, vec3_t origin, vec3_t normal)
  *      DAMAGE_BULLET			damage is from a bullet (used for ricochets)
  *      DAMAGE_NO_PROTECTION	kills godmode, armor, everything
  */
-int
+static int
 CheckPowerArmor(edict_t *ent, vec3_t point, vec3_t normal,
 		int damage, int dflags)
 {
@@ -425,7 +423,7 @@ CheckPowerArmor(edict_t *ent, vec3_t point, vec3_t normal,
 	return save;
 }
 
-int
+static int
 CheckArmor(edict_t *ent, vec3_t point, vec3_t normal, int damage,
 		int te_sparks, int dflags)
 {
@@ -1197,59 +1195,6 @@ T_RadiusNukeDamage(edict_t *inflictor, edict_t *attacker, float damage,
 		else
 		{
 			ent = NULL;
-		}
-	}
-}
-
-/*
- * Like T_RadiusDamage, but ignores
- * anything with classname=ignoreClass
- */
-void
-T_RadiusClassDamage(edict_t *inflictor, edict_t *attacker, float damage,
-		char *ignoreClass, float radius, int mod)
-{
-	float points;
-	edict_t *ent = NULL;
-	vec3_t v;
-	vec3_t dir;
-
-	if (!inflictor || !attacker || !ignoreClass)
-	{
-		return;
-	}
-
-	while ((ent = findradius(ent, inflictor->s.origin, radius)) != NULL)
-	{
-		if (ent->classname && !strcmp(ent->classname, ignoreClass))
-		{
-			continue;
-		}
-
-		if (!ent->takedamage)
-		{
-			continue;
-		}
-
-		VectorAdd(ent->mins, ent->maxs, v);
-		VectorMA(ent->s.origin, 0.5, v, v);
-		VectorSubtract(inflictor->s.origin, v, v);
-		points = damage - 0.5 * VectorLength(v);
-
-		if (ent == attacker)
-		{
-			points = points * 0.5;
-		}
-
-		if (points > 0)
-		{
-			if (CanDamage(ent, inflictor))
-			{
-				VectorSubtract(ent->s.origin, inflictor->s.origin, dir);
-				T_Damage(ent, inflictor, attacker, dir, inflictor->s.origin,
-						vec3_origin, (int)points, (int)points, DAMAGE_RADIUS,
-						mod);
-			}
 		}
 	}
 }

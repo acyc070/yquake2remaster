@@ -28,7 +28,6 @@
 #include "../../header/local.h"
 #include "hover.h"
 
-qboolean visible(edict_t *self, edict_t *other);
 void hover_run(edict_t *self);
 void hover_stand(edict_t *self);
 void hover_dead(edict_t *self);
@@ -104,47 +103,6 @@ hover_search(edict_t *self)
 		}
 	}
 }
-
-static mframe_t hover_frames_stand[] = {
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL},
-	{ai_stand, 0, NULL}
-};
-
-mmove_t hover_move_stand =
-{
-	FRAME_stand01,
-	FRAME_stand30,
-	hover_frames_stand,
-	NULL
-};
 
 static mframe_t hover_frames_stop1[] = {
 	{ai_move, 0, NULL},
@@ -667,13 +625,13 @@ hover_fire_blaster(edict_t *self)
 
 	if (self->mass < 200)
 	{
-		monster_fire_blaster(self, start, dir, 1,
-				1000, MZ2_HOVER_BLASTER_1, effect);
+		monster_fire_blaster(self, start, dir, 1, 1000,
+				(self->s.frame & 1) ? MZ2_HOVER_BLASTER_2 : MZ2_HOVER_BLASTER_1, effect);
 	}
 	else
 	{
 		monster_fire_blaster2(self, start, dir, 1, 1000,
-				MZ2_DAEDALUS_BLASTER, EF_BLASTER);
+				(self->s.frame & 1) ? MZ2_DAEDALUS_BLASTER_2 : MZ2_DAEDALUS_BLASTER, EF_BLASTER);
 	}
 }
 
@@ -685,7 +643,9 @@ hover_stand(edict_t *self)
 		return;
 	}
 
-	self->monsterinfo.currentmove = &hover_move_stand;
+	self->monsterinfo.firstframe = FRAME_stand01;
+	self->monsterinfo.numframes = FRAME_stand30 - FRAME_stand01 + 1;
+	monster_dynamic_stand(self);
 }
 
 void
@@ -698,7 +658,7 @@ hover_run(edict_t *self)
 
 	if (self->monsterinfo.aiflags & AI_STAND_GROUND)
 	{
-		self->monsterinfo.currentmove = &hover_move_stand;
+		hover_stand(self);
 	}
 	else
 	{
@@ -924,10 +884,7 @@ hover_die(edict_t *self, edict_t *inflictor /* unused */,
 
 		for (n = 0; n < 2; n++)
 		{
-			ThrowGib(self,
-					"models/objects/gibs/sm_meat/tris.md2",
-					damage,
-					GIB_ORGANIC);
+			ThrowGib(self, NULL, damage, GIB_ORGANIC);
 		}
 
 		ThrowHead(self,
@@ -1017,7 +974,7 @@ SP_monster_hover(edict_t *self)
 	VectorSet(self->mins, -24, -24, -24);
 	VectorSet(self->maxs, 24, 24, 32);
 
-	self->health = 240;
+	self->health = 240 * st.health_multiplier;
 	self->gib_health = -100;
 	self->mass = 150;
 
@@ -1034,7 +991,7 @@ SP_monster_hover(edict_t *self)
 
 	if (strcmp(self->classname, "monster_daedalus") == 0)
 	{
-		self->health = 450;
+		self->health = 450 * st.health_multiplier;
 		self->mass = 225;
 		self->yaw_speed = 25;
 		self->monsterinfo.power_armor_type = POWER_ARMOR_SCREEN;
@@ -1065,7 +1022,7 @@ SP_monster_hover(edict_t *self)
 
 	gi.linkentity(self);
 
-	self->monsterinfo.currentmove = &hover_move_stand;
+	hover_stand(self);
 	self->monsterinfo.scale = MODEL_SCALE;
 
 	flymonster_start(self);

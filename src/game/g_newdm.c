@@ -23,7 +23,6 @@ extern qboolean Pickup_Adrenaline(edict_t *ent, edict_t *other);
 extern qboolean Pickup_Armor(edict_t *ent, edict_t *other);
 extern qboolean Pickup_PowerArmor(edict_t *ent, edict_t *other);
 extern edict_t *Sphere_Spawn(edict_t *owner, int spawnflags);
-extern void ED_CallSpawn(edict_t *ent);
 void fire_doppleganger(edict_t *ent, vec3_t start, vec3_t aimdir);
 
 void
@@ -51,6 +50,16 @@ InitGameRules(void)
 				DMGame.ChangeDamage = Tag_ChangeDamage;
 				break;
 
+			case RDM_DEATHBALL:
+				DMGame.GameInit = DBall_GameInit;
+				DMGame.ChangeKnockback = DBall_ChangeKnockback;
+				DMGame.ChangeDamage = DBall_ChangeDamage;
+				DMGame.ClientBegin = DBall_ClientBegin;
+				DMGame.SelectSpawnPoint = DBall_SelectSpawnPoint;
+				DMGame.PostInitSetup = DBall_PostInitSetup;
+				DMGame.CheckDMRules = DBall_CheckDMRules;
+				break;
+
 			/* reset gamerules if it's not a valid number */
 			default:
 				gamerules->value = 0;
@@ -65,7 +74,7 @@ InitGameRules(void)
 	}
 }
 
-char *
+static char *
 FindSubstituteItem(edict_t *ent)
 {
 	int i;
@@ -345,12 +354,22 @@ doppleganger_die(edict_t *self, edict_t *inflictor /* unused */, edict_t *attack
 void
 doppleganger_pain(edict_t *self, edict_t *other, float kick, int damage)
 {
+	if (!self)
+	{
+		return;
+	}
+
 	self->enemy = other;
 }
 
 void
 doppleganger_timeout(edict_t *self)
 {
+	if (!self)
+	{
+		return;
+	}
+
 	if (self->teamchain)
 	{
 		BecomeExplosion1(self->teamchain);
@@ -362,6 +381,7 @@ doppleganger_timeout(edict_t *self)
 void
 body_think(edict_t *self)
 {
+	int firstframe = FRAME_stand01, lastframe = FRAME_stand40;
 	float r;
 
 	if (fabsf(self->ideal_yaw - anglemod(self->s.angles[YAW])) < 2)
@@ -382,11 +402,15 @@ body_think(edict_t *self)
 		M_ChangeYaw(self);
 	}
 
+	lastframe -= firstframe;
+	M_SetAnimGroupFrameValues(self, "stand", &firstframe, &lastframe, 0);
+	lastframe += firstframe;
+
 	self->s.frame++;
 
-	if (self->s.frame > FRAME_stand40)
+	if (self->s.frame > lastframe)
 	{
-		self->s.frame = FRAME_stand01;
+		self->s.frame = firstframe;
 	}
 
 	self->nextthink = level.time + 0.1;

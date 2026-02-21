@@ -26,6 +26,10 @@
 
 #include <ctype.h>
 
+#ifndef _MSC_VER
+#include <strings.h>
+#endif
+
 #include "../header/shared.h"
 
 #define DEG2RAD(a) (a * M_PI) / 180.0F
@@ -490,6 +494,34 @@ AddPointToBounds(const vec3_t v, vec3_t mins, vec3_t maxs)
 	}
 }
 
+void
+ClosestPointOnBounds(const vec3_t p, const vec3_t amin, const vec3_t amax, vec3_t out)
+{
+	int i;
+
+	for (i = 0; i < 3; i++)
+	{
+		if (amin[i] > p[i])
+		{
+			out[i] = amin[i];
+		}
+		else if (amax[i] < p[i])
+		{
+			out[i] = amax[i];
+		}
+		else
+		{
+			out[i] = p[i];
+		}
+	}
+}
+
+qboolean
+IsZeroVector(vec3_t v)
+{
+	return (v[0] == 0.0f && v[1] == 0.0f && v[2] == 0.0f);
+}
+
 int
 VectorCompare(const vec3_t v1, const vec3_t v2)
 {
@@ -576,24 +608,21 @@ CrossProduct(const vec3_t v1, const vec3_t v2, vec3_t cross)
 	cross[2] = v1[0] * v2[1] - v1[1] * v2[0];
 }
 
+vec_t
+VectorLengthSquared(vec3_t v)
+{
+	return (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+}
+
 double sqrt(double x);
 
 vec_t
 VectorLength(const vec3_t v)
 {
-	int i;
-	float length;
-
-	length = 0;
-
-	for (i = 0; i < 3; i++)
-	{
-		length += v[i] * v[i];
-	}
-
-	length = (float)sqrt(length);
-
-	return length;
+	return sqrtf(
+		(v[0] * v[0]) +
+		(v[1] * v[1]) +
+		(v[2] * v[2]));
 }
 
 void
@@ -605,11 +634,89 @@ VectorInverse(vec3_t v)
 }
 
 void
+VectorInverse2(const vec3_t v, vec3_t out)
+{
+	VectorCopy(v, out);
+	VectorInverse(out);
+}
+
+void
 VectorScale(const vec3_t in, vec_t scale, vec3_t out)
 {
 	out[0] = in[0] * scale;
 	out[1] = in[1] * scale;
 	out[2] = in[2] * scale;
+}
+
+void
+VectorLerp(const vec3_t v1, const vec3_t v2, const vec_t factor, vec3_t out)
+{
+	VectorSubtract(v2, v1, out);
+	VectorScale(out, factor, out);
+	VectorAdd(out, v1, out);
+}
+
+void
+VectorToQuat(const vec3_t v, quat_t out)
+{
+	out[0] = v[0];
+	out[1] = v[1];
+	out[2] = v[2];
+	out[3] = 0.0f;
+}
+
+void
+QuatInverse(const quat_t q, quat_t out)
+{
+	out[0] = -q[0];
+	out[1] = -q[1];
+	out[2] = -q[2];
+	out[3] = q[3];
+}
+
+void
+QuatMultiply(const quat_t q1, const quat_t q2, quat_t out)
+{
+	out[0] = q1[3] * q2[0] + q1[0] * q2[3] + q1[1] * q2[2] - q1[2] * q2[1];
+	out[1] = q1[3] * q2[1] - q1[0] * q2[2] + q1[1] * q2[3] + q1[2] * q2[0];
+	out[2] = q1[3] * q2[2] + q1[0] * q2[1] - q1[1] * q2[0] + q1[2] * q2[3];
+	out[3] = q1[3] * q2[3] - q1[0] * q2[0] - q1[1] * q2[1] - q1[2] * q2[2];
+}
+
+void
+QuatAngleAxis(const vec3_t v, float angle, quat_t out)
+{
+	const vec_t scale = sinf(angle * 0.5f);
+	vec3_t v_out;
+
+	VectorNormalize2(v, v_out);
+	VectorScale(v_out, scale, v_out);
+
+	out[0] = v_out[0];
+	out[1] = v_out[1];
+	out[2] = v_out[2];
+	out[3] = cosf(angle * 0.5f);
+}
+
+void
+RotateVectorByUnitQuat(vec3_t v, quat_t q_unit)
+{
+	quat_t q_vec, q_inv, q_out;
+
+	VectorToQuat(v, q_vec);
+	QuatInverse(q_unit, q_inv);
+	QuatMultiply(q_unit, q_vec, q_out);
+	QuatMultiply(q_out, q_inv, q_out);
+
+	v[0] = q_out[0];
+	v[1] = q_out[1];
+	v[2] = q_out[2];
+}
+
+float
+Q_magnitude(float x, float y)
+{
+	return sqrtf(x * x + y * y);
 }
 
 int
@@ -1074,10 +1181,37 @@ Q_strncasecmp(const char *s1, const char *s2, int n)
 	return 0; /* strings are equal */
 }
 
+char *Q_strcasestr(const char *haystack, const char *needle)
+{
+	size_t len = strlen(needle);
+
+	for (; *haystack; haystack++)
+	{
+		if (!Q_strncasecmp(haystack, needle, len))
+		{
+			return (char *)haystack;
+		}
+	}
+	return 0;
+}
+
 int
 Q_strcasecmp(const char *s1, const char *s2)
 {
 	return Q_strncasecmp(s1, s2, 99999);
+}
+
+void
+Q_replacebackslash(char *curr)
+{
+	while (*curr)
+	{
+		if (*curr == '\\')
+		{
+			*curr = '/';
+		}
+		curr++;
+	}
 }
 
 void
@@ -1092,7 +1226,7 @@ Com_sprintf(char *dest, int size, const char *fmt, ...)
 
 	if (len >= size)
 	{
-		Com_Printf("Com_sprintf: overflow\n");
+		Com_Printf("%s: overflow\n", __func__);
 	}
 }
 
@@ -1132,6 +1266,44 @@ Q_strlcpy(char *dst, const char *src, int size)
 	return s - src;
 }
 
+size_t
+Q_strlcpy_ascii(char *d, const char *s, size_t n)
+{
+	size_t ns = 0;
+	char c;
+	int dzero = n == 0;
+
+	if (!dzero)
+	{
+		n--;
+	}
+
+	for (; *s != '\0'; s++)
+	{
+		c = *s;
+		c &= 127;
+
+		if ((c >= 32) && (c < 127))
+		{
+			if (n)
+			{
+				*d = c;
+				d++;
+				n--;
+			}
+
+			ns++;
+		}
+	}
+
+	if (!dzero)
+	{
+		*d = '\0';
+	}
+
+	return ns;
+}
+
 int
 Q_strlcat(char *dst, const char *src, int size)
 {
@@ -1144,6 +1316,94 @@ Q_strlcat(char *dst, const char *src, int size)
 	}
 
 	return (d - dst) + Q_strlcpy(d, src, size);
+}
+
+void
+Q_strdel(char *s, size_t i, size_t n)
+{
+	size_t len;
+
+	if (!n)
+	{
+		return;
+	}
+
+	len = strlen(s);
+
+	if (i >= len || n > (len - i))
+	{
+		return;
+	}
+
+	memmove(s + i, s + i + n, len - i);
+	s[len - n] = '\0';
+}
+
+size_t
+Q_strins(char *dest, const char *src, size_t i, size_t n)
+{
+	size_t dlen;
+	size_t slen;
+
+	if (!src || *src == '\0')
+	{
+		return 0;
+	}
+
+	slen = strlen(src);
+	dlen = strlen(dest);
+
+	if (i > dlen || (dlen + slen + 1) > n)
+	{
+		return 0;
+	}
+
+	memmove(dest + i + slen, dest + i, dlen - i + 1);
+	memcpy(dest + i, src, slen);
+
+	return slen;
+}
+
+qboolean
+Q_strisnum(const char *s)
+{
+	for (; *s != '\0'; s++)
+	{
+		if (!isdigit(*s))
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
+char *
+Q_strchrs(const char *s, const char *chrs)
+{
+	char *hit;
+
+	for (; *chrs != '\0'; chrs++)
+	{
+		hit = strchr(s, *chrs);
+		if (hit)
+		{
+			return hit;
+		}
+	}
+
+	return NULL;
+}
+
+char *
+Q_strchr0(const char *s, char c)
+{
+	while (*s != c && *s != '\0')
+	{
+		s++;
+	}
+
+	return (char *)s;
 }
 
 /*
@@ -1220,74 +1480,78 @@ Q_sort_strcomp(const void *s1, const void *s2)
  * or an empty string.
  */
 char *
-Info_ValueForKey(char *s, const char *key)
+Info_ValueForKey(const char *s, const char *key)
 {
-	char pkey[512];
-	static char value[2][512]; /* use two buffers so compares
-							     work without stomping on each other */
-	static int valueindex;
-	char *o;
+	/* use two buffers so compares
+	   work without stomping on each other
+	*/
+	static char value[2][MAX_INFO_VALUE];
+	static int valueindex = 0;
+
+	const char *kstart, *vstart;
+	char *v;
+	size_t klen, vlen;
 
 	valueindex ^= 1;
+	v = value[valueindex];
+	*v = '\0';
 
-	if (*s == '\\')
+	klen = strlen(key);
+
+	while (*s != '\0')
 	{
-		s++;
-	}
-
-	while (1)
-	{
-		o = pkey;
-
-		while (*s != '\\')
+		if (*s == '\\')
 		{
-			if (!*s)
+			s++;
+		}
+
+		kstart = s;
+		s = Q_strchr0(s, '\\');
+
+		if (*s == '\0')
+		{
+			break;
+		}
+
+		vstart = s + 1;
+		s = Q_strchr0(vstart, '\\');
+
+		if (!strncmp(kstart, key, klen) &&
+			kstart[klen] == '\\')
+		{
+			vlen = s - vstart;
+
+			if (vlen > 0)
 			{
-				return "";
+				vlen++; /* Q_strlcpy accounts for null char */
+
+				Q_strlcpy(v, vstart,
+					(vlen < MAX_INFO_VALUE) ? vlen : MAX_INFO_VALUE);
 			}
 
-			*o++ = *s++;
+			break;
 		}
-
-		*o = 0;
-		s++;
-
-		o = value[valueindex];
-
-		while (*s != '\\' && *s)
-		{
-			*o++ = *s++;
-		}
-
-		*o = 0;
-
-		if (!strcmp(key, pkey))
-		{
-			return value[valueindex];
-		}
-
-		if (!*s)
-		{
-			return "";
-		}
-
-		s++;
 	}
+
+	return v;
 }
 
 void
 Info_RemoveKey(char *s, const char *key)
 {
-	char pkey[512], value[512];
+	char *kstart;
+	size_t klen;
 
-	if (strstr(key, "\\"))
+	if (strchr(key, '\\'))
 	{
 		return;
 	}
 
-	while (1)
+	klen = strlen(key);
+
+	while (*s != '\0')
 	{
-		char *start, *o;
+		char *start;
 
 		start = s;
 
@@ -1296,38 +1560,20 @@ Info_RemoveKey(char *s, const char *key)
 			s++;
 		}
 
-		o = pkey;
+		/* key segment */
+		kstart = s;
+		s = Q_strchr0(s, '\\');
 
-		while (*s != '\\')
+		if (*s != '\0')
 		{
-			if (!*s)
-			{
-				return;
-			}
-
-			*o++ = *s++;
+			/* value segment */
+			s = Q_strchr0(s + 1, '\\');
 		}
 
-		*o = 0;
-		s++;
-
-		o = value;
-
-		while (*s != '\\' && *s)
+		if (!strncmp(kstart, key, klen) &&
+			(kstart[klen] == '\\' || kstart[klen] == '\0'))
 		{
-			*o++ = *s++;
-		}
-
-		*o = 0;
-
-		if (!strcmp(key, pkey))
-		{
-			memmove(start, s, strlen(s) + 1); /* remove this part */
-			return;
-		}
-
-		if (!*s)
-		{
+			memmove(start, s, strlen(s) + 1);
 			return;
 		}
 	}
@@ -1340,13 +1586,35 @@ Info_RemoveKey(char *s, const char *key)
 qboolean
 Info_Validate(const char *s)
 {
-	if (strstr(s, "\""))
+	return (Q_strchrs(s, "\";") == NULL) ? true : false;
+}
+
+static qboolean
+Info_ValidateKeyValue(const char *key, const char *value)
+{
+	const char *hit;
+
+	hit = Q_strchrs(key, "\"\\;");
+	if (hit)
 	{
+		Com_Printf("Can't use keys with a '%c'\n", *hit);
 		return false;
 	}
 
-	if (strstr(s, ";"))
+	if (value)
 	{
+		hit = Q_strchrs(value, "\"\\");
+		if (hit)
+		{
+			Com_Printf("Can't use values with a '%c'\n", *hit);
+			return false;
+		}
+	}
+
+	if ((strlen(key) > MAX_INFO_KEY - 1) ||
+		(value && (strlen(value) > MAX_INFO_VALUE - 1)))
+	{
+		Com_Printf("Keys and values must be < %i characters.\n", MAX_INFO_KEY);
 		return false;
 	}
 
@@ -1356,70 +1624,66 @@ Info_Validate(const char *s)
 void
 Info_SetValueForKey(char *s, const char *key, const char *value)
 {
-	int maxsize = MAX_INFO_STRING;
-	char newi[MAX_INFO_STRING];
-	const char *v;
+	char newi[MAX_INFO_KEYVAL];
+	size_t slen, needed;
+	char *dest;
 
 	if (!key)
 	{
 		return;
 	}
 
-	if (strstr(key, "\\") || (value && strstr(value, "\\")))
+	if (!Info_ValidateKeyValue(key, value))
 	{
-		Com_Printf("Can't use keys or values with a \\\n");
-		return;
-	}
-
-	if (strstr(key, ";"))
-	{
-		Com_Printf("Can't use keys with a semicolon\n");
-		return;
-	}
-
-	if (strstr(key, "\"") || (value && strstr(value, "\"")))
-	{
-		Com_Printf("Can't use keys or values with a \"\n");
-		return;
-	}
-
-	if ((strlen(key) > MAX_INFO_KEY - 1) || (value && (strlen(value) > MAX_INFO_KEY - 1)))
-	{
-		Com_Printf("Keys and values must be < 64 characters.\n");
 		return;
 	}
 
 	Info_RemoveKey(s, key);
 
-	if (!value || !strlen(value))
+	if (!value || *value == '\0')
 	{
 		return;
 	}
 
 	Com_sprintf(newi, sizeof(newi), "\\%s\\%s", key, value);
 
-	if (strlen(newi) + strlen(s) >= maxsize)
+	slen = strlen(s);
+	dest = s + slen;
+
+	needed = Q_strlcpy_ascii(dest, newi, MAX_INFO_STRING - slen);
+	if (needed > (MAX_INFO_STRING - slen - 1))
 	{
 		Com_Printf("Info string length exceeded\n");
-		return;
+		*dest = '\0';
 	}
+}
 
-	/* only copy ascii values */
-	s += strlen(s);
-	v = newi;
-
-	while (*v)
+unsigned int
+NextPow2(unsigned int i)
+{
+	if (!i)
 	{
-		int c;
-
-		c = *v++;
-		c &= 127; /* strip high bits */
-
-		if ((c >= 32) && (c < 127))
-		{
-			*s++ = c;
-		}
+		return 1U;
 	}
 
-	*s = 0;
+	i--;
+
+	if (i & (1U << 31U))
+	{
+		return 0U;
+	}
+
+	i |= i >> 1U;
+	i |= i >> 2U;
+	i |= i >> 4U;
+	i |= i >> 8U;
+	i |= i >> 16U;
+
+	return i + 1U;
+}
+
+unsigned int
+NextPow2gt(unsigned int i)
+{
+	return NextPow2(i + 1U);
 }

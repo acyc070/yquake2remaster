@@ -43,10 +43,6 @@ gl4state_t gl4state;
 
 unsigned gl4_rawpalette[256];
 
-/* screen size info */
-refdef_t gl4_newrefdef;
-
-viddef_t vid;
 gl4model_t *gl4_worldmodel;
 
 float gl4depthmin=0.0f, gl4depthmax=1.0f;
@@ -75,59 +71,25 @@ const hmm_mat4 gl4_identityMat4 = {{
 		{0, 0, 0, 1},
 }};
 
-cvar_t *gl_msaa_samples;
-cvar_t *r_vsync;
-cvar_t *r_retexturing;
-cvar_t *r_scale8bittextures;
-cvar_t *vid_fullscreen;
-cvar_t *r_mode;
-cvar_t *r_customwidth;
-cvar_t *r_customheight;
-cvar_t *vid_gamma;
-cvar_t *gl_anisotropic;
+cvar_t *gl_version_override;
 cvar_t *gl_texturemode;
 cvar_t *gl_drawbuffer;
-cvar_t *r_clear;
 cvar_t *gl4_particle_size;
 cvar_t *gl4_particle_fade_factor;
 cvar_t *gl4_particle_square;
 cvar_t *gl4_colorlight;
 cvar_t *gl_polyblend;
-
-cvar_t *gl_lefthand;
-cvar_t *r_gunfov;
-cvar_t *r_farsee;
-
 cvar_t *gl4_intensity;
 cvar_t *gl4_intensity_2D;
-cvar_t *r_lightlevel;
 cvar_t *gl4_overbrightbits;
-
-cvar_t *r_norefresh;
-cvar_t *r_drawentities;
-cvar_t *r_drawworld;
-cvar_t *r_nolerp_list;
-cvar_t *r_lerp_list;
-cvar_t *r_2D_unfiltered;
-cvar_t *r_videos_unfiltered;
 cvar_t *gl_nobind;
-cvar_t *r_lockpvs;
-cvar_t *r_novis;
-cvar_t *r_speeds;
 cvar_t *gl_finish;
-
-cvar_t *r_cull;
 cvar_t *gl_zfix;
-cvar_t *r_fullbright;
-cvar_t *r_modulate;
-cvar_t *gl_lightmap;
-cvar_t *gl_shadows;
 cvar_t *gl4_debugcontext;
 cvar_t *gl4_usebigvbo;
-cvar_t *r_fixsurfsky;
-cvar_t *r_palettedtexture;
-cvar_t *r_validation;
 cvar_t *gl4_usefbo;
+
+static cvar_t *gl_znear;
 
 // Yaw-Pitch-Roll
 // equivalent to R_z * R_y * R_x where R_x is the trans matrix for rotating around X axis for aroundXdeg
@@ -164,7 +126,7 @@ GL4_RotateForEntity(entity_t *e)
 	// rot matrices to be multiplied in order Z, Y, X (yaw, pitch, roll)
 	hmm_mat4 transMat = rotAroundAxisZYX(e->angles[1], -e->angles[0], -e->angles[2]);
 
-	for(int i=0; i<3; ++i)
+	for (int i=0; i<3; ++i)
 	{
 		transMat.Elements[3][i] = e->origin[i]; // set translation
 	}
@@ -179,37 +141,29 @@ static void
 GL4_Strings(void)
 {
 	GLint i, numExtensions;
-	R_Printf(PRINT_ALL, "GL_VENDOR: %s\n", gl4config.vendor_string);
-	R_Printf(PRINT_ALL, "GL_RENDERER: %s\n", gl4config.renderer_string);
-	R_Printf(PRINT_ALL, "GL_VERSION: %s\n", gl4config.version_string);
-	R_Printf(PRINT_ALL, "GL_SHADING_LANGUAGE_VERSION: %s\n", gl4config.glsl_version_string);
+	Com_Printf("GL_VENDOR: %s\n", gl4config.vendor_string);
+	Com_Printf("GL_RENDERER: %s\n", gl4config.renderer_string);
+	Com_Printf("GL_VERSION: %s\n", gl4config.version_string);
+	Com_Printf("GL_SHADING_LANGUAGE_VERSION: %s\n", gl4config.glsl_version_string);
 
 	glGetIntegerv(GL_NUM_EXTENSIONS, &numExtensions);
 
-	R_Printf(PRINT_ALL, "GL_EXTENSIONS:");
-	for(i = 0; i < numExtensions; i++)
+	Com_Printf("GL_EXTENSIONS:");
+	for (i = 0; i < numExtensions; i++)
 	{
-		R_Printf(PRINT_ALL, " %s", (const char*)glGetStringi(GL_EXTENSIONS, i));
+		Com_Printf(" %s", (const char*)glGetStringi(GL_EXTENSIONS, i));
 	}
-	R_Printf(PRINT_ALL, "\n");
+	Com_Printf("\n");
 }
 
 static void
 GL4_Register(void)
 {
-	gl_lefthand = ri.Cvar_Get("hand", "0", CVAR_USERINFO | CVAR_ARCHIVE);
-	r_gunfov = ri.Cvar_Get("r_gunfov", "80", CVAR_ARCHIVE);
-	r_farsee = ri.Cvar_Get("r_farsee", "0", CVAR_LATCH | CVAR_ARCHIVE);
+	R_InitCvar();
 
 	gl_drawbuffer = ri.Cvar_Get("gl_drawbuffer", "GL_BACK", 0);
-	r_vsync = ri.Cvar_Get("r_vsync", "1", CVAR_ARCHIVE);
-	gl_msaa_samples = ri.Cvar_Get ( "r_msaa_samples", "0", CVAR_ARCHIVE );
-	r_retexturing = ri.Cvar_Get("r_retexturing", "1", CVAR_ARCHIVE);
-	r_scale8bittextures = ri.Cvar_Get("r_scale8bittextures", "0", CVAR_ARCHIVE);
+	gl_version_override = ri.Cvar_Get("gl_version_override", "0", CVAR_ARCHIVE );
 	gl4_debugcontext = ri.Cvar_Get("gl4_debugcontext", "0", 0);
-	r_mode = ri.Cvar_Get("r_mode", "4", CVAR_ARCHIVE);
-	r_customwidth = ri.Cvar_Get("r_customwidth", "1024", CVAR_ARCHIVE);
-	r_customheight = ri.Cvar_Get("r_customheight", "768", CVAR_ARCHIVE);
 	gl4_particle_size = ri.Cvar_Get("gl4_particle_size", "40", CVAR_ARCHIVE);
 	gl4_particle_fade_factor = ri.Cvar_Get("gl4_particle_fade_factor", "1.2", CVAR_ARCHIVE);
 	gl4_particle_square = ri.Cvar_Get("gl4_particle_square", "0", CVAR_ARCHIVE);
@@ -221,62 +175,23 @@ GL4_Register(void)
 	//  1: reduce calls to glBufferData() with one big VBO (see GL4_BufferAndDraw3D())
 	// -1: auto (let yq2 choose to enable/disable this based on detected driver)
 	gl4_usebigvbo = ri.Cvar_Get("gl4_usebigvbo", "-1", CVAR_ARCHIVE);
-
-	r_norefresh = ri.Cvar_Get("r_norefresh", "0", 0);
-	r_drawentities = ri.Cvar_Get("r_drawentities", "1", 0);
-	r_drawworld = ri.Cvar_Get("r_drawworld", "1", 0);
-	r_fullbright = ri.Cvar_Get("r_fullbright", "0", 0);
-	r_fixsurfsky = ri.Cvar_Get("r_fixsurfsky", "0", CVAR_ARCHIVE);
-	r_palettedtexture = ri.Cvar_Get("r_palettedtexture", "0", 0);
-	r_validation = ri.Cvar_Get("r_validation", "0", CVAR_ARCHIVE);
-
-	/* don't bilerp characters and crosshairs */
-	r_nolerp_list = ri.Cvar_Get("r_nolerp_list", "pics/conchars.pcx pics/ch1.pcx pics/ch2.pcx pics/ch3.pcx", CVAR_ARCHIVE);
-	/* textures that should always be filtered, even if r_2D_unfiltered or an unfiltered gl mode is used */
-	r_lerp_list = ri.Cvar_Get("r_lerp_list", "", CVAR_ARCHIVE);
-	/* don't bilerp any 2D elements */
-	r_2D_unfiltered = ri.Cvar_Get("r_2D_unfiltered", "0", CVAR_ARCHIVE);
-	/* don't bilerp videos */
-	r_videos_unfiltered = ri.Cvar_Get("r_videos_unfiltered", "0", CVAR_ARCHIVE);
 	gl_nobind = ri.Cvar_Get("gl_nobind", "0", 0);
 
 	gl_texturemode = ri.Cvar_Get("gl_texturemode", "GL_LINEAR_MIPMAP_NEAREST", CVAR_ARCHIVE);
-	gl_anisotropic = ri.Cvar_Get("r_anisotropic", "0", CVAR_ARCHIVE);
 
-	vid_fullscreen = ri.Cvar_Get("vid_fullscreen", "0", CVAR_ARCHIVE);
-	vid_gamma = ri.Cvar_Get("vid_gamma", "1.2", CVAR_ARCHIVE);
 	gl4_intensity = ri.Cvar_Get("gl4_intensity", "1.5", CVAR_ARCHIVE);
 	gl4_intensity_2D = ri.Cvar_Get("gl4_intensity_2D", "1.5", CVAR_ARCHIVE);
 
-	r_lightlevel = ri.Cvar_Get("r_lightlevel", "0", 0);
 	gl4_overbrightbits = ri.Cvar_Get("gl4_overbrightbits", "1.3", CVAR_ARCHIVE);
 
-	gl_lightmap = ri.Cvar_Get("r_lightmap", "0", 0);
-	gl_shadows = ri.Cvar_Get("r_shadows", "0", CVAR_ARCHIVE);
-
-	r_modulate = ri.Cvar_Get("r_modulate", "1", CVAR_ARCHIVE);
 	gl_zfix = ri.Cvar_Get("gl_zfix", "0", 0);
-	r_clear = ri.Cvar_Get("r_clear", "0", 0);
-	r_cull = ri.Cvar_Get("r_cull", "1", 0);
-	r_lockpvs = ri.Cvar_Get("r_lockpvs", "0", 0);
-	r_novis = ri.Cvar_Get("r_novis", "0", 0);
-	r_speeds = ri.Cvar_Get("r_speeds", "0", 0);
 	gl_finish = ri.Cvar_Get("gl_finish", "0", CVAR_ARCHIVE);
+	gl_znear = ri.Cvar_Get("gl_znear", "4", CVAR_ARCHIVE);
 
 	gl4_usefbo = ri.Cvar_Get("gl4_usefbo", "1", CVAR_ARCHIVE); // use framebuffer object for postprocess effects (water)
 
 #if 0 // TODO!
-	//gl_lefthand = ri.Cvar_Get("hand", "0", CVAR_USERINFO | CVAR_ARCHIVE);
 	//gl_farsee = ri.Cvar_Get("gl_farsee", "0", CVAR_LATCH | CVAR_ARCHIVE);
-	//r_norefresh = ri.Cvar_Get("r_norefresh", "0", 0);
-	//r_fullbright = ri.Cvar_Get("r_fullbright", "0", 0);
-	//r_drawentities = ri.Cvar_Get("r_drawentities", "1", 0);
-	//r_drawworld = ri.Cvar_Get("r_drawworld", "1", 0);
-	//r_novis = ri.Cvar_Get("r_novis", "0", 0);
-	//r_lerpmodels = ri.Cvar_Get("r_lerpmodels", "1", 0); NOTE: screw this, it looks horrible without
-	//r_speeds = ri.Cvar_Get("r_speeds", "0", 0);
-
-	//r_lightlevel = ri.Cvar_Get("r_lightlevel", "0", 0);
 	//gl_overbrightbits = ri.Cvar_Get("gl_overbrightbits", "0", CVAR_ARCHIVE);
 
 	gl1_particle_min_size = ri.Cvar_Get("gl1_particle_min_size", "2", CVAR_ARCHIVE);
@@ -287,45 +202,24 @@ GL4_Register(void)
 	gl1_particle_att_c = ri.Cvar_Get("gl1_particle_att_c", "0.01", CVAR_ARCHIVE);
 
 	//gl_modulate = ri.Cvar_Get("gl_modulate", "1", CVAR_ARCHIVE);
-	//r_mode = ri.Cvar_Get("r_mode", "4", CVAR_ARCHIVE);
-	//gl_lightmap = ri.Cvar_Get("r_lightmap", "0", 0);
-	//gl_shadows = ri.Cvar_Get("r_shadows", "0", CVAR_ARCHIVE);
 	//gl_nobind = ri.Cvar_Get("gl_nobind", "0", 0);
-	r_showtris = ri.Cvar_Get("r_showtris", "0", 0);
 	gl_showbbox = Cvar_Get("gl_showbbox", "0", 0);
 	//gl1_ztrick = ri.Cvar_Get("gl1_ztrick", "0", 0); NOTE: dump this.
 	//gl_zfix = ri.Cvar_Get("gl_zfix", "0", 0);
 	//gl_finish = ri.Cvar_Get("gl_finish", "0", CVAR_ARCHIVE);
-	r_clear = ri.Cvar_Get("r_clear", "0", 0);
-	//r_flashblend = ri.Cvar_Get("r_flashblend", "0", 0);
 
 	//gl_texturemode = ri.Cvar_Get("gl_texturemode", "GL_LINEAR_MIPMAP_NEAREST", CVAR_ARCHIVE);
 	gl1_texturealphamode = ri.Cvar_Get("gl1_texturealphamode", "default", CVAR_ARCHIVE);
 	gl1_texturesolidmode = ri.Cvar_Get("gl1_texturesolidmode", "default", CVAR_ARCHIVE);
-	//gl_anisotropic = ri.Cvar_Get("r_anisotropic", "0", CVAR_ARCHIVE);
-	//r_lockpvs = ri.Cvar_Get("r_lockpvs", "0", 0);
 
-	//gl1_palettedtexture = ri.Cvar_Get("gl1_palettedtexture", "0", CVAR_ARCHIVE); NOPE.
 	gl1_pointparameters = ri.Cvar_Get("gl1_pointparameters", "1", CVAR_ARCHIVE);
 
 	//gl_drawbuffer = ri.Cvar_Get("gl_drawbuffer", "GL_BACK", 0);
-	//r_vsync = ri.Cvar_Get("r_vsync", "1", CVAR_ARCHIVE);
 
-
-	//vid_fullscreen = ri.Cvar_Get("vid_fullscreen", "0", CVAR_ARCHIVE);
-	//vid_gamma = ri.Cvar_Get("vid_gamma", "1.0", CVAR_ARCHIVE);
-
-	//r_customwidth = ri.Cvar_Get("r_customwidth", "1024", CVAR_ARCHIVE);
-	//r_customheight = ri.Cvar_Get("r_customheight", "768", CVAR_ARCHIVE);
-	//gl_msaa_samples = ri.Cvar_Get ( "r_msaa_samples", "0", CVAR_ARCHIVE );
-
-	//r_retexturing = ri.Cvar_Get("r_retexturing", "1", CVAR_ARCHIVE);
-
-
-	gl1_stereo = ri.Cvar_Get( "gl1_stereo", "0", CVAR_ARCHIVE );
-	gl1_stereo_separation = ri.Cvar_Get( "gl1_stereo_separation", "-0.4", CVAR_ARCHIVE );
-	gl1_stereo_anaglyph_colors = ri.Cvar_Get( "gl1_stereo_anaglyph_colors", "rc", CVAR_ARCHIVE );
-	gl1_stereo_convergence = ri.Cvar_Get( "gl1_stereo_convergence", "1", CVAR_ARCHIVE );
+	gl1_stereo = ri.Cvar_Get("gl1_stereo", "0", CVAR_ARCHIVE );
+	gl1_stereo_separation = ri.Cvar_Get("gl1_stereo_separation", "-0.4", CVAR_ARCHIVE );
+	gl1_stereo_anaglyph_colors = ri.Cvar_Get("gl1_stereo_anaglyph_colors", "rc", CVAR_ARCHIVE );
+	gl1_stereo_convergence = ri.Cvar_Get("gl1_stereo_convergence", "1", CVAR_ARCHIVE );
 #endif // 0
 
 	ri.Cmd_AddCommand("imagelist", GL4_ImageList_f);
@@ -341,44 +235,48 @@ GL4_Register(void)
 static int
 SetMode_impl(int *pwidth, int *pheight, int mode, int fullscreen)
 {
-	R_Printf(PRINT_ALL, "Setting mode %d:", mode);
+	Com_Printf("Setting mode %d:", mode);
 
 	/* mode -1 is not in the vid mode table - so we keep the values in pwidth
 	   and pheight and don't even try to look up the mode info */
 	if ((mode >= 0) && !ri.Vid_GetModeInfo(pwidth, pheight, mode))
 	{
-		R_Printf(PRINT_ALL, " invalid mode\n");
+		Com_Printf(" invalid mode\n");
 		return rserr_invalid_mode;
 	}
 
 	/* We trying to get resolution from desktop */
 	if (mode == -2)
 	{
-		if(!ri.GLimp_GetDesktopMode(pwidth, pheight))
+		if (!ri.GLimp_GetDesktopMode(pwidth, pheight))
 		{
-			R_Printf( PRINT_ALL, " can't detect mode\n" );
+			Com_Printf(" can't detect mode\n" );
 			return rserr_invalid_mode;
 		}
 	}
 
-	R_Printf(PRINT_ALL, " %dx%d (vid_fullscreen %i)\n", *pwidth, *pheight, fullscreen);
-
+	Com_Printf(" %dx%d (vid_fullscreen %i)\n", *pwidth, *pheight, fullscreen);
 
 	if (!ri.GLimp_InitGraphics(fullscreen, pwidth, pheight))
 	{
 		return rserr_invalid_mode;
 	}
 
+	if (mode == -2 || fullscreen)
+	{
+		GL4_BindVBO(0);
+	}
+
 	/* This is totaly obscure: For some strange reasons the renderer
 	   maintains two(!) repesentations of the resolution. One comes
-	   from the client and is saved in gl4_newrefdef. The other one
+	   from the client and is saved in r_newrefdef. The other one
 	   is determined here and saved in vid. Several calculations take
 	   both representations into account.
 
 	   The values will always be the same. The GLimp_InitGraphics()
 	   call above communicates the requested resolution to the client
 	   where it ends up in the vid subsystem and the vid system writes
-	   it into gl4_newrefdef.
+	   it into r_newrefdef.
 
 	   We can't avoid the client roundtrip, because we can get the
 	   real size of the drawable (which can differ from the resolution
@@ -442,20 +340,20 @@ GL4_SetMode(void)
 	{
 		if (err == rserr_invalid_mode)
 		{
-			R_Printf(PRINT_ALL, "ref_gl4::GL4_SetMode() - invalid mode\n");
+			Com_Printf("ref_gl4::GL4_SetMode() - invalid mode\n");
 
-			if (gl_msaa_samples->value != 0.0f)
+			if (r_msaa_samples->value != 0.0f)
 			{
-				R_Printf(PRINT_ALL, "gl_msaa_samples was %d - will try again with gl_msaa_samples = 0\n", (int)gl_msaa_samples->value);
+				Com_Printf("r_msaa_samples was %d - will try again with r_msaa_samples = 0\n", (int)r_msaa_samples->value);
 				ri.Cvar_SetValue("r_msaa_samples", 0.0f);
-				gl_msaa_samples->modified = false;
+				r_msaa_samples->modified = false;
 
 				if ((err = SetMode_impl(&vid.width, &vid.height, r_mode->value, 0)) == rserr_ok)
 				{
 					return true;
 				}
 			}
-			if(r_mode->value == gl4state.prev_mode)
+			if (r_mode->value == gl4state.prev_mode)
 			{
 				// trying again would result in a crash anyway, give up already
 				// (this would happen if your initing fails at all and your resolution already was 640x480)
@@ -469,7 +367,7 @@ GL4_SetMode(void)
 		/* try setting it back to something safe */
 		if ((err = SetMode_impl(&vid.width, &vid.height, gl4state.prev_mode, 0)) != rserr_ok)
 		{
-			R_Printf(PRINT_ALL, "ref_gl4::GL4_SetMode() - could not revert to safe mode\n");
+			Com_Printf("ref_gl4::GL4_SetMode() - could not revert to safe mode\n");
 			return false;
 		}
 	}
@@ -483,24 +381,21 @@ enum { QGL_POINT_SPRITE = 0x8861 };
 static qboolean
 GL4_Init(void)
 {
-	byte *colormap;
-
 	Swap_Init(); // FIXME: for fucks sake, this doesn't have to be done at runtime!
 
-	R_Printf(PRINT_ALL, "Refresh: " REF_VERSION "\n");
-	R_Printf(PRINT_ALL, "Client: " YQ2VERSION "\n\n");
+	Com_Printf("Refresh: " REF_VERSION "\n");
+	Com_Printf("Client: " YQ2VERSION "\n\n");
 
-	if(sizeof(float) != sizeof(GLfloat))
+	if (sizeof(float) != sizeof(GLfloat))
 	{
 		// if this ever happens, things would explode because we feed vertex arrays and UBO data
 		// using floats to OpenGL, which expects GLfloat (can't easily change, those floats are from HMM etc)
 		// (but to be honest I very much doubt this will ever happen.)
-		R_Printf(PRINT_ALL, "ref_gl4: sizeof(float) != sizeof(GLfloat) - we're in real trouble here.\n");
+		Com_Printf("ref_gl4: sizeof(float) != sizeof(GLfloat) - we're in real trouble here.\n");
 		return false;
 	}
 
-	GetPCXPalette (&colormap, d_8to24table);
-	free(colormap);
+	ri.VID_GetPalette(NULL, d_8to24table);
 
 	GL4_Register();
 
@@ -511,7 +406,7 @@ GL4_Init(void)
 	/* create the window and set up the context */
 	if (!GL4_SetMode())
 	{
-		R_Printf(PRINT_ALL, "ref_gl4::R_Init() - could not R_SetMode()\n");
+		Com_Printf("ref_gl4::R_Init() - could not R_SetMode()\n");
 		return false;
 	}
 
@@ -523,60 +418,60 @@ GL4_Init(void)
 	gl4config.version_string = (const char*)glGetString(GL_VERSION);
 	gl4config.glsl_version_string = (const char*)glGetString(GL_SHADING_LANGUAGE_VERSION);
 
-	R_Printf(PRINT_ALL, "\nOpenGL setting:\n");
+	Com_Printf("\nOpenGL setting:\n");
 	GL4_Strings();
 
-	R_Printf(PRINT_ALL, "\n\nProbing for OpenGL extensions:\n");
+	Com_Printf("\n\nProbing for OpenGL extensions:\n");
 
 
 	/* Anisotropic */
-	R_Printf(PRINT_ALL, " - Anisotropic Filtering: ");
+	Com_Printf(" - Anisotropic Filtering: ");
 
-	if(gl4config.anisotropic)
+	if (gl4config.anisotropic)
 	{
 		glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &gl4config.max_anisotropy);
 
-		R_Printf(PRINT_ALL, "Max level: %ux\n", (int)gl4config.max_anisotropy);
+		Com_Printf("Max level: %ux\n", (int)gl4config.max_anisotropy);
 	}
 	else
 	{
 		gl4config.max_anisotropy = 0.0;
 
-		R_Printf(PRINT_ALL, "Not supported\n");
+		Com_Printf("Not supported\n");
 	}
 
-	if(gl4config.debug_output)
+	if (gl4config.debug_output)
 	{
-		R_Printf(PRINT_ALL, " - OpenGL Debug Output: Supported ");
-		if(gl4_debugcontext->value == 0.0f)
+		Com_Printf(" - OpenGL Debug Output: Supported ");
+		if (gl4_debugcontext->value == 0.0f)
 		{
-			R_Printf(PRINT_ALL, "(but disabled with gl4_debugcontext = 0)\n");
+			Com_Printf("(but disabled with gl4_debugcontext = 0)\n");
 		}
 		else
 		{
-			R_Printf(PRINT_ALL, "and enabled with gl4_debugcontext = %i\n", (int)gl4_debugcontext->value);
+			Com_Printf("and enabled with gl4_debugcontext = %i\n", (int)gl4_debugcontext->value);
 		}
 	}
 	else
 	{
-		R_Printf(PRINT_ALL, " - OpenGL Debug Output: Not Supported\n");
+		Com_Printf(" - OpenGL Debug Output: Not Supported\n");
 	}
 
 	gl4config.useBigVBO = false;
-	if(gl4_usebigvbo->value == 1.0f)
+	if (gl4_usebigvbo->value == 1.0f)
 	{
-		R_Printf(PRINT_ALL, "Enabling useBigVBO workaround because gl4_usebigvbo = 1\n");
+		Com_Printf("Enabling useBigVBO workaround because gl4_usebigvbo = 1\n");
 		gl4config.useBigVBO = true;
 	}
-	else if(gl4_usebigvbo->value == -1.0f)
+	else if (gl4_usebigvbo->value == -1.0f)
 	{
 		// enable for AMDs proprietary Windows and Linux drivers
 #ifdef _WIN32
-		if(gl4config.version_string != NULL && gl4config.vendor_string != NULL
+		if (gl4config.version_string != NULL && gl4config.vendor_string != NULL
 		   && strstr(gl4config.vendor_string, "ATI Technologies Inc") != NULL)
 		{
 			int a, b, ver;
-			if(sscanf(gl4config.version_string, " %d.%d.%d ", &a, &b, &ver) >= 3 && ver >= 13431)
+			if (sscanf(gl4config.version_string, " %d.%d.%d ", &a, &b, &ver) >= 3 && ver >= 13431)
 			{
 				// turns out the legacy driver is a lot faster *without* the workaround :-/
 				// GL_VERSION for legacy 16.2.1 Beta driver: 3.2.13399 Core Profile Forward-Compatible Context 15.200.1062.1004
@@ -589,15 +484,15 @@ GL4_Init(void)
 				//  but AFAIK the number behind that can be used to roughly match the driver version)
 				// => let's try matching for x.y.z with z >= 13431
 				// (no, I don't feel like testing which release since 16.2.1 has introduced the slowdown.)
-				R_Printf(PRINT_ALL, "Detected AMD Windows GPU driver, enabling useBigVBO workaround\n");
+				Com_Printf("Detected AMD Windows GPU driver, enabling useBigVBO workaround\n");
 				gl4config.useBigVBO = true;
 			}
 		}
 #elif defined(__linux__)
-		if(gl4config.vendor_string != NULL && strstr(gl4config.vendor_string, "Advanced Micro Devices, Inc.") != NULL)
+		if (gl4config.vendor_string != NULL && strstr(gl4config.vendor_string, "Advanced Micro Devices, Inc.") != NULL)
 		{
-			R_Printf(PRINT_ALL, "Detected proprietary AMD GPU driver, enabling useBigVBO workaround\n");
-			R_Printf(PRINT_ALL, "(consider using the open source RadeonSI drivers, they tend to work better overall)\n");
+			Com_Printf("Detected proprietary AMD GPU driver, enabling useBigVBO workaround\n");
+			Com_Printf("(consider using the open source RadeonSI drivers, they tend to work better overall)\n");
 			gl4config.useBigVBO = true;
 		}
 #endif
@@ -608,13 +503,13 @@ GL4_Init(void)
 
 	GL4_SetDefaultState();
 
-	if(GL4_InitShaders())
+	if (GL4_InitShaders())
 	{
-		R_Printf(PRINT_ALL, "Loading shaders succeeded.\n");
+		Com_Printf("Loading shaders succeeded.\n");
 	}
 	else
 	{
-		R_Printf(PRINT_ALL, "Loading shaders failed.\n");
+		Com_Printf("Loading shaders failed.\n");
 		return false;
 	}
 
@@ -635,7 +530,7 @@ GL4_Init(void)
 	// take the viewsize into account (enforce that by setting invalid size)
 	gl4state.ppFBtexWidth = gl4state.ppFBtexHeight = -1;
 
-	R_Printf(PRINT_ALL, "\n");
+	Com_Printf("\n");
 	return true;
 }
 
@@ -649,7 +544,7 @@ GL4_Shutdown(void)
 
 	// only call all these if we have an OpenGL context and the gl function pointers
 	// randomly chose one function that should always be there to test..
-	if(glDeleteBuffers != NULL)
+	if (glDeleteBuffers != NULL)
 	{
 		GL4_Mod_FreeAll();
 		GL4_ShutdownMeshes();
@@ -660,11 +555,11 @@ GL4_Shutdown(void)
 		GL4_ShutdownShaders();
 
 		// free the postprocessing FBO and its renderbuffer and texture
-		if(gl4state.ppFBrbo != 0)
+		if (gl4state.ppFBrbo != 0)
 			glDeleteRenderbuffers(1, &gl4state.ppFBrbo);
-		if(gl4state.ppFBtex != 0)
+		if (gl4state.ppFBtex != 0)
 			glDeleteTextures(1, &gl4state.ppFBtex);
-		if(gl4state.ppFBO != 0)
+		if (gl4state.ppFBO != 0)
 			glDeleteFramebuffers(1, &gl4state.ppFBO);
 		gl4state.ppFBrbo = gl4state.ppFBtex = gl4state.ppFBO = 0;
 		gl4state.ppFBObound = false;
@@ -681,71 +576,28 @@ GL4_Shutdown(void)
 void
 GL4_BufferAndDraw3D(const mvtx_t* verts, int numVerts, GLenum drawMode)
 {
-	if(!gl4config.useBigVBO)
+	if (!gl4config.useBigVBO)
 	{
 		glBufferData( GL_ARRAY_BUFFER, sizeof(mvtx_t)*numVerts, verts, GL_STREAM_DRAW );
 		glDrawArrays( drawMode, 0, numVerts );
 	}
 	else // gl4config.useBigVBO == true
 	{
-		/*
-		 * For some reason, AMD's Windows driver doesn't seem to like lots of
-		 * calls to glBufferData() (some of them seem to take very long then).
-		 * GL4_BufferAndDraw3D() is called a lot when drawing world geometry
-		 * (once for each visible face I think?).
-		 * The simple code above caused noticeable slowdowns - even a fast
-		 * quadcore CPU and a Radeon RX580 weren't able to maintain 60fps..
-		 * The workaround is to not call glBufferData() with small data all the time,
-		 * but to allocate a big buffer and on each call to GL4_BufferAndDraw3D()
-		 * to use a different region of that buffer, resulting in a lot less calls
-		 * to glBufferData() (=> a lot less buffer allocations in the driver).
-		 * Only when the buffer is full and at the end of a frame (=> GL4_EndFrame())
-		 * we get a fresh buffer.
-		 *
-		 * BTW, we couldn't observe this kind of problem with any other driver:
-		 * Neither nvidias driver, nor AMDs or Intels Open Source Linux drivers,
-		 * not even Intels Windows driver seem to care that much about the
-		 * glBufferData() calls.. However, at least nvidias driver doesn't like
-		 * this workaround (with glMapBufferRange()), the framerate dropped
-		 * significantly - that's why both methods are available and
-		 * selectable at runtime.
-		 */
-#if 0
-		// I /think/ doing it with glBufferSubData() didn't really help
-		const int bufSize = gl4state.vbo3Dsize;
-		int neededSize = numVerts*sizeof(mvtx_t);
 		int curOffset = gl4state.vbo3DcurOffset;
-		if(curOffset + neededSize > gl4state.vbo3Dsize)
-			curOffset = 0;
-		int curIdx = curOffset / sizeof(mvtx_t);
+		int neededSize = numVerts * sizeof(mvtx_t);
 
-		gl4state.vbo3DcurOffset = curOffset + neededSize;
-
-		glBufferSubData( GL_ARRAY_BUFFER, curOffset, neededSize, verts );
-		glDrawArrays( drawMode, curIdx, numVerts );
-#else
-		int curOffset = gl4state.vbo3DcurOffset;
-		int neededSize = numVerts*sizeof(mvtx_t);
-		if(curOffset+neededSize > gl4state.vbo3Dsize)
-		{
-			// buffer is full, need to start again from the beginning
-			// => need to sync or get fresh buffer
-			// (getting fresh buffer seems easier)
-			glBufferData(GL_ARRAY_BUFFER, gl4state.vbo3Dsize, NULL, GL_STREAM_DRAW);
+		if (curOffset + neededSize > gl4state.vbo3Dsize) {
 			curOffset = 0;
 		}
 
-		// as we make sure to use a previously unused part of the buffer,
-		// doing it unsynchronized should be safe..
-		GLbitfield accessBits = GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_RANGE_BIT | GL_MAP_UNSYNCHRONIZED_BIT;
-		void* data = glMapBufferRange(GL_ARRAY_BUFFER, curOffset, neededSize, accessBits);
-		memcpy(data, verts, neededSize);
+		glBindBuffer(GL_ARRAY_BUFFER, gl4state.vbo3D);
+		void* data = glMapBufferRange(GL_ARRAY_BUFFER, curOffset, gl4state.vbo3Dsize - curOffset, GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_RANGE_BIT | GL_MAP_UNSYNCHRONIZED_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT);
+
+		memcpy((char*)data + curOffset, verts, neededSize);
+
 		glUnmapBuffer(GL_ARRAY_BUFFER);
-
-		glDrawArrays(drawMode, curOffset/sizeof(mvtx_t), numVerts);
-
-		gl4state.vbo3DcurOffset = curOffset + neededSize; // TODO: padding or sth needed?
-#endif
+		glDrawArrays(drawMode, curOffset / sizeof(mvtx_t), numVerts);
+		gl4state.vbo3DcurOffset = (curOffset + neededSize) % gl4state.vbo3Dsize;
 	}
 }
 
@@ -793,7 +645,6 @@ GL4_DrawBeam(entity_t *e)
 		VectorAdd(start_points[i], direction, end_points[i]);
 	}
 
-	//glDisable(GL_TEXTURE_2D);
 	glEnable(GL_BLEND);
 	glDepthMask(GL_FALSE);
 
@@ -831,7 +682,7 @@ GL4_DrawBeam(entity_t *e)
 }
 
 static void
-GL4_DrawSpriteModel(entity_t *e, gl4model_t *currentmodel)
+GL4_DrawSpriteModel(entity_t *e, const gl4model_t *currentmodel)
 {
 	float alpha = 1.0F;
 	mvtx_t verts[4];
@@ -839,6 +690,9 @@ GL4_DrawSpriteModel(entity_t *e, gl4model_t *currentmodel)
 	float *up, *right;
 	dsprite_t *psprite;
 	gl4image_t *skin = NULL;
+	vec3_t scale;
+
+	VectorCopy(e->scale, scale);
 
 	/* don't even bother culling, because it's just
 	   a single polygon without a surface cache */
@@ -870,16 +724,26 @@ GL4_DrawSpriteModel(entity_t *e, gl4model_t *currentmodel)
 
 	GL4_Bind(skin->texnum);
 
-	if (alpha == 1.0)
+	if (e->flags & RF_FLARE)
 	{
-		// use shader with alpha test
-		GL4_UseProgram(gl4state.si3DspriteAlpha.shaderProgram);
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_ONE, GL_ONE);
+
+		GL4_UseProgram(gl4state.si3Dsprite.shaderProgram);
 	}
 	else
 	{
-		glEnable(GL_BLEND);
+		if (alpha == 1.0)
+		{
+			// use shader with alpha test
+			GL4_UseProgram(gl4state.si3DspriteAlpha.shaderProgram);
+		}
+		else
+		{
+			glEnable(GL_BLEND);
 
-		GL4_UseProgram(gl4state.si3Dsprite.shaderProgram);
+			GL4_UseProgram(gl4state.si3Dsprite.shaderProgram);
+		}
 	}
 
 	verts[0].texCoord[0] = 0;
@@ -891,28 +755,42 @@ GL4_DrawSpriteModel(entity_t *e, gl4model_t *currentmodel)
 	verts[3].texCoord[0] = 1;
 	verts[3].texCoord[1] = 1;
 
-	VectorMA( e->origin, -frame->origin_y, up, verts[0].pos );
-	VectorMA( verts[0].pos, -frame->origin_x, right, verts[0].pos );
+	VectorMA( e->origin, -frame->origin_y * scale[0], up, verts[0].pos );
+	VectorMA( verts[0].pos, -frame->origin_x * scale[1], right, verts[0].pos );
 
-	VectorMA( e->origin, frame->height - frame->origin_y, up, verts[1].pos );
-	VectorMA( verts[1].pos, -frame->origin_x, right, verts[1].pos );
+	VectorMA( e->origin, (frame->height - frame->origin_y) * scale[0], up, verts[1].pos );
+	VectorMA( verts[1].pos, -frame->origin_x * scale[1], right, verts[1].pos );
 
-	VectorMA( e->origin, frame->height - frame->origin_y, up, verts[2].pos );
-	VectorMA( verts[2].pos, frame->width - frame->origin_x, right, verts[2].pos );
+	VectorMA( e->origin, (frame->height - frame->origin_y) * scale[0], up, verts[2].pos );
+	VectorMA( verts[2].pos, (frame->width - frame->origin_x) * scale[1], right, verts[2].pos );
 
-	VectorMA( e->origin, -frame->origin_y, up, verts[3].pos );
-	VectorMA( verts[3].pos, frame->width - frame->origin_x, right, verts[3].pos );
+	VectorMA( e->origin, -frame->origin_y * scale[0], up, verts[3].pos );
+	VectorMA( verts[3].pos, (frame->width - frame->origin_x) * scale[1], right, verts[3].pos );
 
 	GL4_BindVAO(gl4state.vao3D);
 	GL4_BindVBO(gl4state.vbo3D);
 
 	GL4_BufferAndDraw3D(verts, 4, GL_TRIANGLE_FAN);
 
-	if (alpha != 1.0F)
+	if (e->flags & RF_FLARE)
 	{
 		glDisable(GL_BLEND);
-		gl4state.uni3DData.alpha = 1.0f;
-		GL4_UpdateUBO3D();
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+		if (alpha != 1.0F)
+		{
+			gl4state.uni3DData.alpha = 1.0f;
+			GL4_UpdateUBO3D();
+		}
+	}
+	else
+	{
+		if (alpha != 1.0F)
+		{
+			glDisable(GL_BLEND);
+			gl4state.uni3DData.alpha = 1.0f;
+			GL4_UpdateUBO3D();
+		}
 	}
 }
 
@@ -927,9 +805,9 @@ GL4_DrawNullModel(entity_t *currententity)
 	}
 	else
 	{
-		R_LightPoint(gl4_worldmodel->grid, currententity, &gl4_newrefdef,
+		R_LightPoint(gl4_worldmodel->grid, currententity,
 			gl4_worldmodel->surfaces, gl4_worldmodel->nodes, currententity->origin,
-			shadelight, r_modulate->value, lightspot);
+			shadelight, lightspot);
 	}
 
 	hmm_mat4 origModelMat = gl4state.uni3DData.transModelMat4;
@@ -975,11 +853,11 @@ GL4_DrawParticles(void)
 	//if (!(stereo_split_tb || stereo_split_lr))
 	{
 		int i;
-		int numParticles = gl4_newrefdef.num_particles;
+		int numParticles = r_newrefdef.num_particles;
 		YQ2_ALIGNAS_TYPE(unsigned) byte color[4];
 		const particle_t *p;
 		// assume the size looks good with window height 480px and scale according to real resolution
-		float pointSize = gl4_particle_size->value * (float)gl4_newrefdef.height/480.0f;
+		float pointSize = gl4_particle_size->value * (float)r_newrefdef.height/480.0f;
 
 		typedef struct part_vtx {
 			GLfloat pos[3];
@@ -999,7 +877,7 @@ GL4_DrawParticles(void)
 
 		// TODO: viewOrg could be in UBO
 		vec3_t viewOrg;
-		VectorCopy(gl4_newrefdef.vieworg, viewOrg);
+		VectorCopy(r_newrefdef.vieworg, viewOrg);
 
 		glDepthMask(GL_FALSE);
 		glEnable(GL_BLEND);
@@ -1008,9 +886,9 @@ GL4_DrawParticles(void)
 
 		GL4_UseProgram(gl4state.siParticle.shaderProgram);
 
-		for ( i = 0, p = gl4_newrefdef.particles; i < numParticles; i++, p++ )
+		for ( i = 0, p = r_newrefdef.particles; i < numParticles; i++, p++ )
 		{
-			*(int *) color = d_8to24table [ p->color & 0xFF ];
+			*(int *) color = p->color;
 			part_vtx* cur = &buf[i];
 			vec3_t offset; // between viewOrg and particle position
 			VectorSubtract(viewOrg, p->origin, offset);
@@ -1019,7 +897,10 @@ GL4_DrawParticles(void)
 			cur->size = pointSize;
 			cur->dist = VectorLength(offset);
 
-			for(int j=0; j<3; ++j)  cur->color[j] = color[j]*(1.0f/255.0f);
+			for (int j=0; j<3; ++j)
+			{
+				cur->color[j] = color[j] * (1.0f / 255.0f);
+			}
 
 			cur->color[3] = p->alpha;
 		}
@@ -1041,6 +922,7 @@ GL4_DrawParticles(void)
 static void
 GL4_DrawEntitiesOnList(void)
 {
+	qboolean translucent_entities = false;
 	int i;
 
 	if (!r_drawentities->value)
@@ -1051,13 +933,14 @@ GL4_DrawEntitiesOnList(void)
 	GL4_ResetShadowAliasModels();
 
 	/* draw non-transparent first */
-	for (i = 0; i < gl4_newrefdef.num_entities; i++)
+	for (i = 0; i < r_newrefdef.num_entities; i++)
 	{
-		entity_t *currententity = &gl4_newrefdef.entities[i];
+		entity_t *currententity = &r_newrefdef.entities[i];
 
-		if (currententity->flags & RF_TRANSLUCENT)
+		if (currententity->flags & (RF_TRANSLUCENT | RF_FLARE))
 		{
-			continue; /* solid */
+			translucent_entities = true;
+			continue; /* not solid */
 		}
 
 		if (currententity->flags & RF_BEAM)
@@ -1086,23 +969,28 @@ GL4_DrawEntitiesOnList(void)
 					GL4_DrawSpriteModel(currententity, currentmodel);
 					break;
 				default:
-					R_Printf(PRINT_ALL, "%s: Bad modeltype %d\n",
+					Com_Printf("%s: Bad modeltype %d\n",
 						__func__, currentmodel->type);
 					break;
 			}
 		}
 	}
 
+	if (!translucent_entities)
+	{
+		return;
+	}
+
 	/* draw transparent entities
 	   we could sort these if it ever
 	   becomes a problem... */
-	glDepthMask(0);
+	glDepthMask(GL_FALSE);
 
-	for (i = 0; i < gl4_newrefdef.num_entities; i++)
+	for (i = 0; i < r_newrefdef.num_entities; i++)
 	{
-		entity_t *currententity = &gl4_newrefdef.entities[i];
+		entity_t *currententity = &r_newrefdef.entities[i];
 
-		if (!(currententity->flags & RF_TRANSLUCENT))
+		if (!(currententity->flags & (RF_TRANSLUCENT | RF_FLARE)))
 		{
 			continue; /* solid */
 		}
@@ -1133,7 +1021,7 @@ GL4_DrawEntitiesOnList(void)
 					GL4_DrawSpriteModel(currententity, currentmodel);
 					break;
 				default:
-					R_Printf(PRINT_ALL, "%s: Bad modeltype %d\n",
+					Com_Printf("%s: Bad modeltype %d\n",
 						__func__, currentmodel->type);
 					break;
 			}
@@ -1142,25 +1030,23 @@ GL4_DrawEntitiesOnList(void)
 
 	GL4_DrawAliasShadows();
 
-	glDepthMask(1); /* back to writing */
-
+	glDepthMask(GL_TRUE); /* back to writing */
 }
 
 static void
 SetupFrame(void)
 {
-	int i;
 	mleaf_t *leaf;
 
 	gl4_framecount++;
 
 	/* build the transformation matrix for the given view angles */
-	VectorCopy(gl4_newrefdef.vieworg, gl4_origin);
+	VectorCopy(r_newrefdef.vieworg, gl4_origin);
 
-	AngleVectors(gl4_newrefdef.viewangles, vpn, vright, vup);
+	AngleVectors(r_newrefdef.viewangles, vpn, vright, vup);
 
 	/* current viewcluster */
-	if (!(gl4_newrefdef.rdflags & RDF_NOWORLDMODEL))
+	if (!(r_newrefdef.rdflags & RDF_NOWORLDMODEL))
 	{
 		if (!gl4_worldmodel)
 		{
@@ -1206,22 +1092,19 @@ SetupFrame(void)
 		}
 	}
 
-	for (i = 0; i < 4; i++)
-	{
-		v_blend[i] = gl4_newrefdef.blend[i];
-	}
+	R_CombineBlendWithFog(v_blend, false);
 
 	c_brush_polys = 0;
 	c_alias_polys = 0;
 
 	/* clear out the portion of the screen that the NOWORLDMODEL defines */
-	if (gl4_newrefdef.rdflags & RDF_NOWORLDMODEL)
+	if (r_newrefdef.rdflags & RDF_NOWORLDMODEL)
 	{
 		glEnable(GL_SCISSOR_TEST);
 		glClearColor(0.3, 0.3, 0.3, 1);
-		glScissor(gl4_newrefdef.x,
-				vid.height - gl4_newrefdef.height - gl4_newrefdef.y,
-				gl4_newrefdef.width, gl4_newrefdef.height);
+		glScissor(r_newrefdef.x,
+				vid.height - r_newrefdef.height - r_newrefdef.y,
+				r_newrefdef.width, r_newrefdef.height);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glClearColor(1, 0, 0.5, 0.5);
 		glDisable(GL_SCISSOR_TEST);
@@ -1242,12 +1125,12 @@ GL4_SetGL2D(void)
 	qboolean stereo_split_tb = ((gl_state.stereo_mode == STEREO_SPLIT_VERTICAL) && gl_state.camera_separation);
 	qboolean stereo_split_lr = ((gl_state.stereo_mode == STEREO_SPLIT_HORIZONTAL) && gl_state.camera_separation);
 
-	if(stereo_split_lr) {
+	if (stereo_split_lr) {
 		w =  w / 2;
 		x = drawing_left_eye ? 0 : w;
 	}
 
-	if(stereo_split_tb) {
+	if (stereo_split_tb) {
 		h =  h / 2;
 		y = drawing_left_eye ? h : 0;
 	}
@@ -1290,10 +1173,15 @@ static hmm_mat4 rotAroundAxisXYZ(float aroundXdeg, float aroundYdeg, float aroun
 	return ret;
 }
 
-// equivalent to R_MYgluPerspective() but returning a matrix instead of setting internal OpenGL state
+// equivalent to R_SetPerspective() but returning a matrix instead of setting internal OpenGL state
 hmm_mat4
-GL4_MYgluPerspective(GLdouble fovy, GLdouble aspect, GLdouble zNear, GLdouble zFar)
+GL4_SetPerspective(GLdouble fovy)
 {
+	// gluPerspective() / R_MYgluPerspective() style parameters
+	const GLdouble zNear = Q_max(gl_znear->value, 0.1f);
+	const GLdouble zFar = (r_farsee->value) ? (gl4_worldmodel->radius * 2) : 4096.0f;
+	const GLdouble aspect = (GLdouble)r_newrefdef.width / r_newrefdef.height;
+
 	// calculation of left, right, bottom, top is from R_MYgluPerspective() of old gl backend
 	// which seems to be slightly different from the real gluPerspective()
 	// and thus also from HMM_Perspective()
@@ -1301,10 +1189,10 @@ GL4_MYgluPerspective(GLdouble fovy, GLdouble aspect, GLdouble zNear, GLdouble zF
 	float A, B, C, D;
 
 	top = zNear * tan(fovy * M_PI / 360.0);
-	bottom = -top;
-
-	left = bottom * aspect;
 	right = top * aspect;
+
+	bottom = -top;
+	left = -right;
 
 	// TODO:  stereo stuff
 	// left += - gl1_stereo_convergence->value * (2 * gl_state.camera_separation) / zNear;
@@ -1336,10 +1224,10 @@ SetupGL(void)
 	int x, x2, y2, y, w, h;
 
 	/* set up viewport */
-	x = floor(gl4_newrefdef.x * vid.width / vid.width);
-	x2 = ceil((gl4_newrefdef.x + gl4_newrefdef.width) * vid.width / vid.width);
-	y = floor(vid.height - gl4_newrefdef.y * vid.height / vid.height);
-	y2 = ceil(vid.height - (gl4_newrefdef.y + gl4_newrefdef.height) * vid.height / vid.height);
+	x = floor(r_newrefdef.x * vid.width / (float)vid.width);
+	x2 = ceil((r_newrefdef.x + r_newrefdef.width) * vid.width / (float)vid.width);
+	y = floor(vid.height - r_newrefdef.y * vid.height / (float)vid.height);
+	y2 = ceil(vid.height - (r_newrefdef.y + r_newrefdef.height) * vid.height / (float)vid.height);
 
 	w = x2 - x;
 	h = y - y2;
@@ -1349,12 +1237,12 @@ SetupGL(void)
 	qboolean stereo_split_tb = ((gl_state.stereo_mode == STEREO_SPLIT_VERTICAL) && gl_state.camera_separation);
 	qboolean stereo_split_lr = ((gl_state.stereo_mode == STEREO_SPLIT_HORIZONTAL) && gl_state.camera_separation);
 
-	if(stereo_split_lr) {
+	if (stereo_split_lr) {
 		w = w / 2;
 		x = drawing_left_eye ? (x / 2) : (x + vid.width) / 2;
 	}
 
-	if(stereo_split_tb) {
+	if (stereo_split_tb) {
 		h = h / 2;
 		y2 = drawing_left_eye ? (y2 + vid.height) / 2 : (y2 / 2);
 	}
@@ -1364,17 +1252,17 @@ SetupGL(void)
 	// (=> don't use FBO when rendering the playermodel in the player menu)
 	// also, only do this when under water, because this has a noticeable overhead on some systems
 	if (gl4_usefbo->value && gl4state.ppFBO != 0
-		&& (gl4_newrefdef.rdflags & (RDF_NOWORLDMODEL|RDF_UNDERWATER)) == RDF_UNDERWATER)
+		&& (r_newrefdef.rdflags & (RDF_NOWORLDMODEL|RDF_UNDERWATER)) == RDF_UNDERWATER)
 	{
 		glBindFramebuffer(GL_FRAMEBUFFER, gl4state.ppFBO);
 		gl4state.ppFBObound = true;
-		if(gl4state.ppFBtex == 0)
+		if (gl4state.ppFBtex == 0)
 		{
 			gl4state.ppFBtexWidth = -1; // make sure we generate the texture storage below
 			glGenTextures(1, &gl4state.ppFBtex);
 		}
 
-		if(gl4state.ppFBrbo == 0)
+		if (gl4state.ppFBrbo == 0)
 		{
 			gl4state.ppFBtexWidth = -1; // make sure we generate the RBO storage below
 			glGenRenderbuffers(1, &gl4state.ppFBrbo);
@@ -1382,7 +1270,7 @@ SetupGL(void)
 
 		// even if the FBO already has a texture and RBO, the viewport size
 		// might have changed so they need to be regenerated with the correct sizes
-		if(gl4state.ppFBtexWidth != w || gl4state.ppFBtexHeight != h)
+		if (gl4state.ppFBtexWidth != w || gl4state.ppFBtexHeight != h)
 		{
 			gl4state.ppFBtexWidth = w;
 			gl4state.ppFBtexHeight = h;
@@ -1404,9 +1292,9 @@ SetupGL(void)
 			                          GL_RENDERBUFFER, gl4state.ppFBrbo);
 
 			GLenum fbState = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-			if(fbState != GL_FRAMEBUFFER_COMPLETE)
+			if (fbState != GL_FRAMEBUFFER_COMPLETE)
 			{
-				R_Printf(PRINT_ALL, "GL4 SetupGL(): WARNING: FBO is not complete, status = 0x%x\n", fbState);
+				Com_Printf("GL4 SetupGL(): WARNING: FBO is not complete, status = 0x%x\n", fbState);
 				gl4state.ppFBtexWidth = -1; // to try again next frame; TODO: maybe give up?
 				gl4state.ppFBObound = false;
 				glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -1423,11 +1311,7 @@ SetupGL(void)
 	}
 
 	/* set up projection matrix (eye coordinates -> clip coordinates) */
-	{
-		float screenaspect = (float)gl4_newrefdef.width / gl4_newrefdef.height;
-		float dist = (r_farsee->value == 0) ? 4096.0f : 8192.0f;
-		gl4state.projMat3D = GL4_MYgluPerspective(gl4_newrefdef.fov_y, screenaspect, 4, dist);
-	}
+	gl4state.projMat3D = GL4_SetPerspective(r_newrefdef.fov_y);
 
 	glCullFace(GL_FRONT);
 
@@ -1442,12 +1326,12 @@ SetupGL(void)
 		}};
 
 		// now rotate by view angles
-		hmm_mat4 rotMat = rotAroundAxisXYZ(-gl4_newrefdef.viewangles[2], -gl4_newrefdef.viewangles[0], -gl4_newrefdef.viewangles[1]);
+		hmm_mat4 rotMat = rotAroundAxisXYZ(-r_newrefdef.viewangles[2], -r_newrefdef.viewangles[0], -r_newrefdef.viewangles[1]);
 
 		viewMat = HMM_MultiplyMat4( viewMat, rotMat );
 
 		// .. and apply translation for current position
-		hmm_vec3 trans = HMM_Vec3(-gl4_newrefdef.vieworg[0], -gl4_newrefdef.vieworg[1], -gl4_newrefdef.vieworg[2]);
+		hmm_vec3 trans = HMM_Vec3(-r_newrefdef.vieworg[0], -r_newrefdef.vieworg[1], -r_newrefdef.vieworg[2]);
 		viewMat = HMM_MultiplyMat4( viewMat, HMM_Translate(trans) );
 
 		gl4state.viewMat3D = viewMat;
@@ -1459,7 +1343,7 @@ SetupGL(void)
 
 	gl4state.uni3DData.transModelMat4 = gl4_identityMat4;
 
-	gl4state.uni3DData.time = gl4_newrefdef.time;
+	gl4state.uni3DData.time = r_newrefdef.time;
 
 	GL4_UpdateUBO3D();
 
@@ -1479,7 +1363,7 @@ SetupGL(void)
 extern int c_visible_lightmaps, c_visible_textures;
 
 /*
- * gl4_newrefdef must be set before the first call
+ * r_newrefdef must be set before the first call
  */
 static void
 GL4_RenderView(refdef_t *fd)
@@ -1599,11 +1483,12 @@ GL4_RenderView(refdef_t *fd)
 		return;
 	}
 
-	gl4_newrefdef = *fd;
+	r_newrefdef = *fd;
 
-	if (!gl4_worldmodel && !(gl4_newrefdef.rdflags & RDF_NOWORLDMODEL))
+	if (!gl4_worldmodel && !(r_newrefdef.rdflags & RDF_NOWORLDMODEL))
 	{
-		Com_Error(ERR_DROP, "R_RenderView: NULL worldmodel");
+		Com_Error(ERR_DROP, "%s: NULL worldmodel", __func__);
+		return;
 	}
 
 	if (r_speeds->value)
@@ -1622,7 +1507,7 @@ GL4_RenderView(refdef_t *fd)
 	SetupFrame();
 
 	R_SetFrustum(vup, vpn, vright, gl4_origin,
-		gl4_newrefdef.fov_x, gl4_newrefdef.fov_y, frustum);
+		r_newrefdef.fov_x, r_newrefdef.fov_y, frustum);
 
 	SetupGL();
 
@@ -1640,7 +1525,7 @@ GL4_RenderView(refdef_t *fd)
 
 	if (r_speeds->value)
 	{
-		R_Printf(PRINT_ALL, "%4i wpoly %4i epoly %i tex %i lmaps\n",
+		Com_Printf("%4i wpoly %4i epoly %i tex %i lmaps\n",
 				c_brush_polys, c_alias_polys, c_visible_textures,
 				c_visible_lightmaps);
 	}
@@ -1688,15 +1573,15 @@ GL4_SetLightLevel(entity_t *currententity)
 {
 	vec3_t shadelight = {0};
 
-	if (gl4_newrefdef.rdflags & RDF_NOWORLDMODEL)
+	if (r_newrefdef.rdflags & RDF_NOWORLDMODEL)
 	{
 		return;
 	}
 
 	/* save off light value for server to look at */
-	R_LightPoint(gl4_worldmodel->grid, currententity, &gl4_newrefdef,
-		gl4_worldmodel->surfaces, gl4_worldmodel->nodes, gl4_newrefdef.vieworg,
-		shadelight, r_modulate->value, lightspot);
+	R_LightPoint(gl4_worldmodel->grid, currententity,
+		gl4_worldmodel->surfaces, gl4_worldmodel->nodes, r_newrefdef.vieworg,
+		shadelight, lightspot);
 
 	/* pick the greatest component, which should be the
 	 * same as the mono value returned by software */
@@ -1730,23 +1615,23 @@ GL4_RenderFrame(refdef_t *fd)
 	GL4_RenderView(fd);
 	GL4_SetLightLevel(NULL);
 	qboolean usedFBO = gl4state.ppFBObound; // if it was/is used this frame
-	if(usedFBO)
+	if (usedFBO)
 	{
 		glBindFramebuffer(GL_FRAMEBUFFER, 0); // now render to default framebuffer
 		gl4state.ppFBObound = false;
 	}
 	GL4_SetGL2D();
 
-	int x = (vid.width - gl4_newrefdef.width)/2;
-	int y = (vid.height - gl4_newrefdef.height)/2;
+	int x = (vid.width - r_newrefdef.width)/2;
+	int y = (vid.height - r_newrefdef.height)/2;
 	if (usedFBO)
 	{
 		// if we're actually drawing the world and using an FBO, render the FBO's texture
-		GL4_DrawFrameBufferObject(x, y, gl4_newrefdef.width, gl4_newrefdef.height, gl4state.ppFBtex, v_blend);
+		GL4_DrawFrameBufferObject(x, y, r_newrefdef.width, r_newrefdef.height, gl4state.ppFBtex, v_blend);
 	}
-	else if(v_blend[3] != 0.0f)
+	else if (v_blend[3] != 0.0f)
 	{
-		GL4_Draw_Flash(v_blend, x, y, gl4_newrefdef.width, gl4_newrefdef.height);
+		GL4_Draw_Flash(v_blend, x, y, r_newrefdef.width, r_newrefdef.height);
 	}
 }
 
@@ -1758,7 +1643,7 @@ GL4_Clear(void)
 	GLbitfield stencilFlags = 0;
 #if 0 // TODO: stereo stuff
 	if (gl4state.stereo_mode >= STEREO_MODE_ROW_INTERLEAVED && gl_state.stereo_mode <= STEREO_MODE_PIXEL_INTERLEAVED) {
-		glClearStencil(0);
+		glClearStencil(GL_FALSE);
 		stencilFlags |= GL_STENCIL_BUFFER_BIT;
 	}
 #endif // 0
@@ -1792,9 +1677,9 @@ GL4_Clear(void)
 	}
 
 	/* stencilbuffer shadows */
-	if (gl_shadows->value && gl4config.stencil)
+	if (r_shadows->value && gl4config.stencil)
 	{
-		glClearStencil(1);
+		glClearStencil(GL_TRUE);
 		glClear(GL_STENCIL_BUFFER_BIT);
 	}
 }
@@ -1804,6 +1689,7 @@ GL4_BeginFrame(float camera_separation)
 {
 #if 0 // TODO: stereo stuff
 	gl_state.camera_separation = camera_separation;
+
 	// force a vid_restart if gl1_stereo has been modified.
 	if ( gl_state.stereo_mode != gl1_stereo->value ) {
 		// If we've gone from one mode to another with the same special buffer requirements there's no need to restart.
@@ -1812,7 +1698,7 @@ GL4_BeginFrame(float camera_separation)
 		}
 		else
 		{
-			R_Printf(PRINT_ALL, "stereo supermode changed, restarting video!\n");
+			Com_Printf("stereo supermode changed, restarting video!\n");
 			vid_fullscreen->modified = true;
 		}
 	}
@@ -1835,7 +1721,7 @@ GL4_BeginFrame(float camera_separation)
 	{
 		gl4_overbrightbits->modified = false;
 
-		if(gl4_overbrightbits->value < 0.0f)
+		if (gl4_overbrightbits->value < 0.0f)
 		{
 			ri.Cvar_Set("gl4_overbrightbits", "0");
 		}
@@ -1844,14 +1730,14 @@ GL4_BeginFrame(float camera_separation)
 		GL4_UpdateUBO3D();
 	}
 
-	if(gl4_particle_fade_factor->modified)
+	if (gl4_particle_fade_factor->modified)
 	{
 		gl4_particle_fade_factor->modified = false;
 		gl4state.uni3DData.particleFadeFactor = gl4_particle_fade_factor->value;
 		GL4_UpdateUBO3D();
 	}
 
-	if(gl4_particle_square->modified || gl4_colorlight->modified)
+	if (gl4_particle_square->modified || gl4_colorlight->modified)
 	{
 		gl4_particle_square->modified = false;
 		gl4_colorlight->modified = false;
@@ -1881,13 +1767,13 @@ GL4_BeginFrame(float camera_separation)
 	}
 
 	/* texturemode stuff */
-	if (gl_texturemode->modified || (gl4config.anisotropic && gl_anisotropic->modified)
+	if (gl_texturemode->modified || (gl4config.anisotropic && r_anisotropic->modified)
 	    || r_nolerp_list->modified || r_lerp_list->modified
 		|| r_2D_unfiltered->modified || r_videos_unfiltered->modified)
 	{
 		GL4_TextureMode(gl_texturemode->string);
 		gl_texturemode->modified = false;
-		gl_anisotropic->modified = false;
+		r_anisotropic->modified = false;
 		r_nolerp_list->modified = false;
 		r_lerp_list->modified = false;
 		r_2D_unfiltered->modified = false;
@@ -1955,6 +1841,7 @@ GetRefAPI(refimport_t imp)
 	ri = imp;
 
 	re.api_version = API_VERSION;
+	re.framework_version = GL4_GetSDLVersion();
 
 	re.Init = GL4_Init;
 	re.Shutdown = GL4_Shutdown;
@@ -1980,6 +1867,7 @@ GetRefAPI(refimport_t imp)
 	re.DrawStretchPic = GL4_Draw_StretchPic;
 
 	re.DrawCharScaled = GL4_Draw_CharScaled;
+	re.DrawStringScaled = GL4_Draw_StringScaled;
 	re.DrawTileClear = GL4_Draw_TileClear;
 	re.DrawFill = GL4_Draw_Fill;
 	re.DrawFadeScreen = GL4_Draw_FadeScreen;
@@ -1991,56 +1879,9 @@ GetRefAPI(refimport_t imp)
 	re.EndWorldRenderpass = GL4_EndWorldRenderpass;
 	re.EndFrame = GL4_EndFrame;
 
-    // Tell the client that we're unsing the
+	// Tell the client that we're unsing the
 	// new renderer restart API.
-    ri.Vid_RequestRestart(RESTART_NO);
+	ri.Vid_RequestRestart(RESTART_NO);
 
 	return re;
-}
-
-void R_Printf(int level, const char* msg, ...)
-{
-	va_list argptr;
-	va_start(argptr, msg);
-	ri.Com_VPrintf(level, msg, argptr);
-	va_end(argptr);
-}
-
-/*
- * this is only here so the functions in shared source files
- * (shared.c, rand.c, flash.c, mem.c/hunk.c) can link
- */
-void
-Sys_Error(const char *error, ...)
-{
-	va_list argptr;
-	char text[4096]; // MAXPRINTMSG == 4096
-
-	va_start(argptr, error);
-	vsnprintf(text, sizeof(text), error, argptr);
-	va_end(argptr);
-
-	ri.Sys_Error(ERR_FATAL, "%s", text);
-}
-
-void
-Com_Printf(const char *msg, ...)
-{
-	va_list argptr;
-	va_start(argptr, msg);
-	ri.Com_VPrintf(PRINT_ALL, msg, argptr);
-	va_end(argptr);
-}
-
-void
-Com_Error(int code, const char *fmt, ...)
-{
-	va_list argptr;
-	char text[4096]; // MAXPRINTMSG == 4096
-
-	va_start(argptr, fmt);
-	vsnprintf(text, sizeof(text), fmt, argptr);
-	va_end(argptr);
-
-	ri.Sys_Error(code, "%s", text);
 }

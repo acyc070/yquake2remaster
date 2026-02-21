@@ -32,6 +32,9 @@ netadr_t master_adr[MAX_MASTERS]; /* address of group servers */
 
 client_t *sv_client; /* current client */
 
+static cvar_t *sv_optimize_sp_loadtime;
+static cvar_t *sv_optimize_mp_loadtime;
+
 cvar_t *sv_paused;
 cvar_t *sv_timedemo;
 cvar_t *sv_enforcetime;
@@ -51,6 +54,7 @@ cvar_t *hostname;
 cvar_t *public_server; /* should heartbeats be sent */
 cvar_t *sv_entfile; /* External entity files. */
 cvar_t *sv_downloadserver; /* Download server. */
+cvar_t *sv_language; /* Server message language. */
 
 /*
  * Called when the player is totally leaving the server, either willingly
@@ -67,7 +71,7 @@ SV_DropClient(client_t *drop)
 	{
 		/* call the prog function for removing a client
 		   this will remove the body, among other things */
-		ge->ClientDisconnect(drop->edict);
+		ge->ClientDisconnect(CL_EDICT(drop));
 	}
 
 	if (drop->download)
@@ -89,22 +93,23 @@ SV_StatusString(void)
 	char player[1024];
 	static char status[MAX_MSGLEN - 16];
 	int i;
-	client_t *cl;
 	int statusLength;
 	int playerLength;
 
 	strcpy(status, Cvar_Serverinfo());
-	strcat(status, "\n");
+	Q_strlcat(status, "\n", sizeof(status));
 	statusLength = (int)strlen(status);
 
 	for (i = 0; i < maxclients->value; i++)
 	{
+		static client_t *cl;
+
 		cl = &svs.clients[i];
 
 		if ((cl->state == cs_connected) || (cl->state == cs_spawned))
 		{
 			Com_sprintf(player, sizeof(player), "%i %i \"%s\"\n",
-					cl->edict->client->ps.stats[STAT_FRAGS], cl->ping, cl->name);
+					CL_EDICT(cl)->client->ps.stats[STAT_FRAGS], cl->ping, cl->name);
 			playerLength = (int)strlen(player);
 
 			if (statusLength + playerLength >= sizeof(status))
@@ -151,17 +156,10 @@ SV_CalcPings(void)
 			}
 		}
 
-		if (!count)
-		{
-			cl->ping = 0;
-		}
-		else
-		{
-			cl->ping = total / count;
-		}
+		cl->ping = (!count) ? 0 : (total / count);
 
 		/* let the game dll know about the ping */
-		cl->edict->client->ping = cl->ping;
+		CL_EDICT(cl)->client->ping = cl->ping;
 	}
 }
 
@@ -173,7 +171,6 @@ static void
 SV_GiveMsec(void)
 {
 	int i;
-	client_t *cl;
 
 	if (sv.framenum & 15)
 	{
@@ -182,6 +179,8 @@ SV_GiveMsec(void)
 
 	for (i = 0; i < maxclients->value; i++)
 	{
+		client_t *cl;
+
 		cl = &svs.clients[i];
 
 		if (cl->state == cs_free)
@@ -370,9 +369,27 @@ SV_RunGameFrame(void)
 #endif
 }
 
+int
+SV_Optimizations(void)
+{
+	cvar_t *cv;
+
+	if (svs.gamemode <= 0 || svs.gamemode > 3)
+	{
+		return 0;
+	}
+
+	cv = (svs.gamemode == GAMEMODE_SP) ?
+		sv_optimize_sp_loadtime : sv_optimize_mp_loadtime;
+
+	return cv ? cv->value : 0;
+}
+
 void
 SV_Frame(int usec)
 {
+	int opt_sendrate;
+
 #ifndef DEDICATED_ONLY
 	time_before_game = time_after_game = 0;
 #endif
@@ -393,6 +410,16 @@ SV_Frame(int usec)
 
 	/* get packets from clients */
 	SV_ReadPackets();
+
+	/* send messages more often to new clients getting ready for spawning in
+	   speeds up the process of sending configstrings, entty deltas, etc.
+	*/
+	opt_sendrate = SV_Optimizations() & OPTIMIZE_SENDRATE;
+
+	if (opt_sendrate)
+	{
+		SV_SendPrepClientMessages();
+	}
 
 	/* move autonomous things around if enough time has passed */
 	if (!sv_timedemo->value && (svs.realtime < sv.time))
@@ -423,6 +450,12 @@ SV_Frame(int usec)
 
 	/* send messages back to the clients that had packets read this frame */
 	SV_SendClientMessages();
+
+	/* if not optimizing, send all messages here */
+	if (!opt_sendrate)
+	{
+		SV_SendPrepClientMessages();
+	}
 
 	/* save the entire world state if recording a serverdemo */
 	SV_RecordDemoMessage();
@@ -524,11 +557,11 @@ Master_Shutdown(void)
 void
 SV_UserinfoChanged(client_t *cl)
 {
-	char *val;
+	const char *val;
 	int i;
 
 	/* call prog code to allow overrides */
-	ge->ClientUserinfoChanged(cl->edict, cl->userinfo);
+	ge->ClientUserinfoChanged(CL_EDICT(cl), cl->userinfo);
 
 	/* name for C code */
 	Q_strlcpy(cl->name, Info_ValueForKey(cl->userinfo, "name"), sizeof(cl->name));
@@ -569,7 +602,11 @@ SV_UserinfoChanged(client_t *cl)
 void
 SV_Init(void)
 {
+	SV_SendInitBuffers();
 	SV_InitOperatorCommands();
+
+	sv_optimize_sp_loadtime = Cvar_Get("sv_optimize_sp_loadtime", "15", 0);
+	sv_optimize_mp_loadtime = Cvar_Get("sv_optimize_mp_loadtime", "0", 0);
 
 	rcon_password = Cvar_Get("rcon_password", "", 0);
 	Cvar_Get("skill", "1", 0);
@@ -594,7 +631,8 @@ SV_Init(void)
 	allow_download_models = Cvar_Get("allow_download_models", "1", CVAR_ARCHIVE);
 	allow_download_sounds = Cvar_Get("allow_download_sounds", "1", CVAR_ARCHIVE);
 	allow_download_maps = Cvar_Get("allow_download_maps", "1", CVAR_ARCHIVE);
-	sv_downloadserver = Cvar_Get ("sv_downloadserver", "", 0);
+	sv_downloadserver = Cvar_Get("sv_downloadserver", "", 0);
+	sv_language = Cvar_Get("language", "english", CVAR_ARCHIVE);
 
 	sv_noreload = Cvar_Get("sv_noreload", "0", 0);
 
@@ -614,8 +652,8 @@ SV_Init(void)
  * outgoing message list, because the server is going
  * to totally exit after returning from this function.
  */
-void
-SV_FinalMessage(char *message, qboolean reconnect)
+static void
+SV_FinalMessage(const char *message, qboolean reconnect)
 {
 	int i;
 	client_t *cl;
@@ -639,11 +677,11 @@ SV_FinalMessage(char *message, qboolean reconnect)
 	 *     because this is called by SV_Shutdown() and the shut down server might have
 	 *     a different number of clients (e.g. 1 if it's single player), when maxclients
 	 *     has already been set to a higher value for multiplayer (e.g. 4 for coop)
-	 *     Luckily, svs.num_client_entities = maxclients->value * UPDATE_BACKUP * 64;
+	 *     Luckily, svs.num_client_entities = maxclients->value * UPDATE_BACKUP * MAX_PACKET_ENTITIES;
 	 *     with the maxclients value from when the current server was started (see SV_InitGame())
 	 *     so we can just calculate the right number of clients from that
 	 */
-	int numClients = svs.num_client_entities / ( UPDATE_BACKUP * 64 );
+	int numClients = svs.num_client_entities / ( UPDATE_BACKUP * MAX_PACKET_ENTITIES );
 	for (i = 0, cl = svs.clients; i < numClients; i++, cl++)
 	{
 		if (cl->state >= cs_connected)
@@ -663,12 +701,25 @@ SV_FinalMessage(char *message, qboolean reconnect)
 	}
 }
 
+/* Also called in SpawnServer just in case */
+void
+SV_ClearBaselines(void)
+{
+	if (sv.baselines)
+	{
+		Z_Free(sv.baselines);
+		sv.baselines = NULL;
+	}
+
+	sv.numbaselines = 0;
+}
+
 /*
  * Called when each game quits,
  * before Sys_Quit or Sys_Error
  */
 void
-SV_Shutdown(char *finalmsg, qboolean reconnect)
+SV_Shutdown(const char *finalmsg, qboolean reconnect)
 {
 	if (svs.clients)
 	{
@@ -684,8 +735,13 @@ SV_Shutdown(char *finalmsg, qboolean reconnect)
 		FS_FCloseFile(sv.demofile);
 	}
 
+	StringList_Free(&sv.configstrings_overflow);
+	SV_ClearBaselines();
 	memset(&sv, 0, sizeof(sv));
 	Com_SetServerState(sv.state);
+
+	/* No old connect for sure */
+	sv_client = NULL;
 
 	/* free server static data */
 	if (svs.clients)
@@ -704,5 +760,6 @@ SV_Shutdown(char *finalmsg, qboolean reconnect)
 	}
 
 	memset(&svs, 0, sizeof(svs));
-}
 
+	SV_SendFreeBuffers();
+}

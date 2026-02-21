@@ -27,8 +27,6 @@
 #include "header/local.h"
 
 #define TURBSCALE (256.0 / (2 * M_PI))
-#define ON_EPSILON 0.1 /* point on plane side epsilon */
-#define MAX_CLIP_VERTS 64
 
 static float skyrotate;
 static int skyautorotate;
@@ -38,8 +36,6 @@ static const int skytexorder[6] = {0, 2, 1, 3, 4, 5};
 
 GLfloat vtx_sky[12];
 GLfloat tex_sky[8];
-unsigned int index_vtx = 0;
-unsigned int index_tex = 0;
 
 /* 3dstudio environment map names */
 static const char *suf[6] = {"rt", "bk", "lf", "ft", "up", "dn"};
@@ -70,67 +66,30 @@ R_EmitWaterPolys(msurface_t *fa)
 {
 	mpoly_t *p, *bp;
 	mvtx_t *v;
-	int i;
+	int i, nv;
 	float s, t, os, ot;
-	float scroll;
-	float rdt = r_newrefdef.time;
+	float sscroll, tscroll;
 
-	if (fa->texinfo->flags & SURF_FLOWING)
-	{
-		scroll = -64 * ((r_newrefdef.time * 0.5) - (int)(r_newrefdef.time * 0.5));
-	}
-	else
-	{
-		scroll = 0;
-	}
-
-	// workaround for lack of VLAs (=> our workaround uses alloca() which is bad in loops)
-#ifdef _MSC_VER
-	int maxNumVerts = 0;
-	for ( mpoly_t* tmp = fa->polys; tmp; tmp = tmp->next )
-	{
-		if (tmp->numverts > maxNumVerts)
-			maxNumVerts = tmp->numverts;
-	}
-
-	YQ2_VLA( GLfloat, tex, 2 * maxNumVerts );
-#endif
+	R_FlowingScroll(&r_newrefdef, fa->texinfo->flags, &sscroll, &tscroll);
 
 	for (bp = fa->polys; bp; bp = bp->next)
 	{
 		p = bp;
-#ifndef _MSC_VER // we have real VLAs, so it's safe to use one in this loop
-		YQ2_VLA(GLfloat, tex, 2 * p->numverts);
-#endif
-		unsigned int index_tex = 0;
+		nv = p->numverts;
+		R_SetBufferIndices(GL_TRIANGLE_FAN, nv);
 
 		for ( i = 0, v = p->verts; i < p->numverts; i++, v++)
 		{
 			os = v->texCoord[0];
 			ot = v->texCoord[1];
 
-			s = os + r_turbsin [ (int) ( ( ot * 0.125 + r_newrefdef.time ) * TURBSCALE ) & 255 ];
-			s += scroll;
-			tex[index_tex++] = s * ( 1.0 / 64 );
+			s = os + r_turbsin [ (int) ( ( ot * 0.125 + r_newrefdef.time ) * TURBSCALE ) & 255 ] + sscroll;
+			t = ot + r_turbsin [ (int) ( ( os * 0.125 + r_newrefdef.time ) * TURBSCALE ) & 255 ] + tscroll;
 
-			t = ot + r_turbsin [ (int) ( ( os * 0.125 + rdt ) * TURBSCALE ) & 255 ];
-			tex[index_tex++] = t * ( 1.0 / 64 );
+			GLBUFFER_VERTEX( v->pos[0], v->pos[1], v->pos[2] )
+			GLBUFFER_SINGLETEX( s * ( 1.0 / 64 ), t * ( 1.0 / 64 ) )
 		}
-
-		v = p->verts;
-
-		glEnableClientState(GL_VERTEX_ARRAY);
-		glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-
-		glVertexPointer(3, GL_FLOAT, sizeof(mvtx_t), v->pos);
-		glTexCoordPointer(2, GL_FLOAT, 0, tex);
-		glDrawArrays(GL_TRIANGLE_FAN, 0, p->numverts);
-
-		glDisableClientState(GL_VERTEX_ARRAY);
-		glDisableClientState(GL_TEXTURE_COORD_ARRAY);
 	}
-
-	YQ2_VLAFREE( tex );
 }
 
 void
@@ -146,7 +105,7 @@ RE_ClearSkyBox(void)
 }
 
 static void
-RE_MakeSkyVec(float s, float t, int axis)
+RE_MakeSkyVec(float s, float t, int axis, unsigned int *index_tex, unsigned int *index_vtx)
 {
 	vec3_t v, b;
 	int j;
@@ -197,12 +156,12 @@ RE_MakeSkyVec(float s, float t, int axis)
 
 	t = 1.0 - t;
 
-    tex_sky[index_tex++] = s;
-    tex_sky[index_tex++] = t;
+	tex_sky[(*index_tex)++] = s;
+	tex_sky[(*index_tex)++] = t;
 
-    vtx_sky[index_vtx++] = v[ 0 ];
-    vtx_sky[index_vtx++] = v[ 1 ];
-    vtx_sky[index_vtx++] = v[ 2 ];
+	vtx_sky[(*index_vtx)++] = v[ 0 ];
+	vtx_sky[(*index_vtx)++] = v[ 1 ];
+	vtx_sky[(*index_vtx)++] = v[ 2 ];
 }
 
 void
@@ -234,6 +193,8 @@ R_DrawSkyBox(void)
 
 	for (i = 0; i < 6; i++)
 	{
+		unsigned int index_vtx = 0, index_tex = 0;
+
 		if (skyrotate)
 		{
 			skymins[0][i] = -1;
@@ -253,20 +214,17 @@ R_DrawSkyBox(void)
 		glEnableClientState( GL_VERTEX_ARRAY );
 		glEnableClientState( GL_TEXTURE_COORD_ARRAY );
 
-		index_vtx = 0;
-		index_tex = 0;
-
-		RE_MakeSkyVec( skymins [ 0 ] [ i ], skymins [ 1 ] [ i ], i );
-		RE_MakeSkyVec( skymins [ 0 ] [ i ], skymaxs [ 1 ] [ i ], i );
-		RE_MakeSkyVec( skymaxs [ 0 ] [ i ], skymaxs [ 1 ] [ i ], i );
-		RE_MakeSkyVec( skymaxs [ 0 ] [ i ], skymins [ 1 ] [ i ], i );
+		RE_MakeSkyVec(skymins[ 0 ][ i ], skymins[ 1 ] [ i ], i, &index_tex, &index_vtx);
+		RE_MakeSkyVec(skymins[ 0 ][ i ], skymaxs[ 1 ] [ i ], i, &index_tex, &index_vtx);
+		RE_MakeSkyVec(skymaxs[ 0 ][ i ], skymaxs[ 1 ] [ i ], i, &index_tex, &index_vtx);
+		RE_MakeSkyVec(skymaxs[ 0 ][ i ], skymins[ 1 ] [ i ], i, &index_tex, &index_vtx);
 
 		glVertexPointer( 3, GL_FLOAT, 0, vtx_sky );
 		glTexCoordPointer( 2, GL_FLOAT, 0, tex_sky );
 		glDrawArrays( GL_TRIANGLE_FAN, 0, 4 );
 
 		glDisableClientState( GL_VERTEX_ARRAY );
-        	glDisableClientState( GL_TEXTURE_COORD_ARRAY );
+		glDisableClientState( GL_TEXTURE_COORD_ARRAY );
 	}
 
 	glPopMatrix();
@@ -292,7 +250,7 @@ RI_SetSky(const char *name, float rotate, int autorotate, const vec3_t axis)
 
 		if (!image)
 		{
-			R_Printf(PRINT_ALL, "%s: can't load %s:%s sky\n",
+			Com_Printf("%s: can't load %s:%s sky\n",
 				__func__, skyname, suf[i]);
 			image = r_notexture;
 		}

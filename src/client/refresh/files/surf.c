@@ -27,6 +27,7 @@
 #include "../ref_shared.h"
 
 #define SUBDIVIDE_SIZE 64.0f
+#define MAX_SUBDIVIDE_VERTS 60
 
 /*
 ===============
@@ -57,7 +58,7 @@ R_TextureAnimation(const entity_t *currententity, const mtexinfo_t *tex)
 		c--;
 	}
 
-	return tex->image;
+	return tex ? tex->image : NULL;
 }
 
 qboolean
@@ -184,7 +185,7 @@ R_SubdividePolygon(int numverts, float *verts, msurface_t *warpface)
 	float *v;
 	vec3_t front[64], back[64];
 	int f, b;
-	float dist[64];
+	float dist[64] = {0};
 	float frac;
 	mpoly_t *poly;
 	vec3_t total;
@@ -193,9 +194,10 @@ R_SubdividePolygon(int numverts, float *verts, msurface_t *warpface)
 
 	VectorCopy(warpface->plane->normal, normal);
 
-	if (numverts > 60)
+	if (numverts > MAX_SUBDIVIDE_VERTS)
 	{
 		Com_Error(ERR_DROP, "%s: numverts = %i", __func__, numverts);
+		return;
 	}
 
 	R_BoundPoly(numverts, verts, mins, maxs);

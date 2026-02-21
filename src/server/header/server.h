@@ -45,9 +45,13 @@
  * savegames would be broken. */
 #define MAX_SAVE_TOKEN_CHARS 128
 
+/* expected count of entities in packet */
+#define MAX_PACKET_ENTITIES 256
 
 #define SV_OUTPUTBUF_LENGTH (MAX_MSGLEN - 16)
 #define EDICT_NUM(n) ((edict_t *)((byte *)ge->edicts + ge->edict_size * (n)))
+#define CL_EDICT(cl) EDICT_NUM(1 + ((cl) - svs.clients))
+#define CLNUM_EDICT(i) EDICT_NUM(i + 1)
 #define NUM_FOR_EDICT(e) (((byte *)(e) - (byte *)ge->edicts) / ge->edict_size)
 
 typedef enum
@@ -73,8 +77,10 @@ typedef struct
 	char name[MAX_QPATH];           /* map name, or cinematic name */
 	struct cmodel_s *models[MAX_MODELS];
 
-	char configstrings[MAX_CONFIGSTRINGS][MAX_QPATH];
-	entity_state_t baselines[MAX_EDICTS];
+	stringlist_t configstrings_overflow;
+	char configstrings[MAX_CONFIGSTRINGS][MAX_CONFIGSTRING];
+	entity_xstate_t *baselines;
+	int numbaselines;
 
 	/* the multicast buffer is used to send a message to a set of clients
 	   it is only used to marshall data until SV_Multicast is called */
@@ -100,6 +106,7 @@ typedef struct
 	int areabytes;
 	byte areabits[MAX_MAP_AREAS / 8];       /* portalarea visibility bits */
 	player_state_t ps;
+	int origin[3];                          /* extended ps.origin to 28.3 format */
 	int num_entities;
 	int first_entity;                       /* into the circular sv_packet_entities[] */
 	int senttime;                           /* for ping calculations */
@@ -124,7 +131,6 @@ typedef struct client_s
 	int rate;
 	int surpressCount;                  /* number of messages rate supressed */
 
-	edict_t *edict;                     /* EDICT_NUM(clientnum+1) */
 	char name[32];                      /* extracted from userinfo, high bits masked */
 
 	/* The datagram is written to by sound calls, prints,
@@ -144,6 +150,7 @@ typedef struct client_s
 	int challenge;                      /* challenge of this user, randomly generated */
 
 	netchan_t netchan;
+	int protocol;
 } client_t;
 
 typedef struct
@@ -164,9 +171,9 @@ typedef struct
 										/* used to check late spawns */
 
 	client_t *clients;                  /* [maxclients->value]; */
-	int num_client_entities;            /* maxclients->value*UPDATE_BACKUP*MAX_PACKET_ENTITIES */
+	int num_client_entities;            /* maxclients->value * UPDATE_BACKUP * MAX_PACKET_ENTITIES */
 	int next_client_entities;           /* next client_entity to use */
-	entity_state_t *client_entities;    /* [num_client_entities] */
+	entity_xstate_t *client_entities;    /* [num_client_entities] */
 
 	int last_heartbeat;
 
@@ -176,7 +183,13 @@ typedef struct
 	FILE *demofile;
 	sizebuf_t demo_multicast;
 	byte demo_multicast_buf[MAX_MSGLEN];
+
+	int gamemode;
 } server_static_t;
+
+#define GAMEMODE_SP 1
+#define GAMEMODE_COOP 2
+#define GAMEMODE_DM 3
 
 extern netadr_t net_from;
 extern sizebuf_t net_message;
@@ -193,16 +206,17 @@ extern cvar_t *sv_airaccelerate;            /* don't reload level state when ree
 											/* development tool */
 extern cvar_t *sv_enforcetime;
 extern cvar_t *sv_downloadserver;			/* Download server. */
+extern cvar_t *sv_language;			/* Localization. */
 
 extern client_t *sv_client;
 extern edict_t *sv_player;
 
-void SV_FinalMessage(char *message, qboolean reconnect);
 void SV_DropClient(client_t *drop);
 
 int SV_ModelIndex(const char *name);
 int SV_SoundIndex(const char *name);
 int SV_ImageIndex(const char *name);
+void SV_GetEntityState(const edict_t *svent, entity_xstate_t *state);
 
 void SV_WriteClientdataToMessage(client_t *client, sizebuf_t *msg);
 
@@ -216,7 +230,9 @@ void Master_Heartbeat(void);
 void Master_Packet(void);
 
 void SV_InitGame(void);
-void SV_Map(qboolean attractloop, char *levelstring, qboolean loadgame, qboolean isautosave);
+void SV_Map(qboolean attractloop, const char *levelstring, qboolean loadgame, qboolean isautosave);
+void SV_SendInitBuffers(void);
+void SV_SendFreeBuffers(void);
 
 void SV_PrepWorldFrame(void);
 
@@ -226,8 +242,8 @@ extern char sv_outputbuf[SV_OUTPUTBUF_LENGTH];
 
 void SV_FlushRedirect(int sv_redirected, char *outputbuf);
 
-void SV_DemoCompleted(void);
 void SV_SendClientMessages(void);
+void SV_SendPrepClientMessages(void);
 
 void SV_Multicast(vec3_t origin, multicast_t to);
 void SV_StartSound(vec3_t origin, edict_t *entity, int channel,
@@ -236,6 +252,7 @@ void SV_StartSound(vec3_t origin, edict_t *entity, int channel,
 void SV_ClientPrintf(client_t *cl, int level, const char *fmt, ...);
 void SV_BroadcastPrintf(int level, const char *fmt, ...);
 void SV_BroadcastCommand(const char *fmt, ...);
+int SV_GetRecomendedProtocol(void);
 
 void SV_Nextserver(void);
 void SV_ExecuteClientMessage(client_t *cl);
@@ -250,6 +267,7 @@ void SV_BuildClientFrame(client_t *client);
 
 extern game_export_t *ge;
 
+void SV_ClearBaselines(void);
 void SV_InitGameProgs(void);
 void SV_ShutdownGameProgs(void);
 void SV_InitEdict(edict_t *e);
@@ -258,6 +276,7 @@ void SV_InitEdict(edict_t *e);
 void SV_WipeSavegame(char *savename);
 void SV_CopySaveGame(char *src, char *dst);
 void SV_WriteLevelFile(void);
+void SV_CleanLevelFileName(char *savename);
 void SV_WriteServerFile(qboolean autosave);
 void SV_Loadgame_f(void);
 void SV_Savegame_f(void);
@@ -281,8 +300,17 @@ int SV_AreaEdicts(vec3_t mins, vec3_t maxs, edict_t **list,
 
 int SV_PointContents(vec3_t p);
 
-trace_t SV_Trace(vec3_t start, vec3_t mins, vec3_t maxs,
-		vec3_t end, edict_t *passedict, int contentmask);
+trace_t SV_Trace(const vec3_t start, const vec3_t mins, const vec3_t maxs,
+		const vec3_t end, const edict_t *passedict, int contentmask);
+
+/* loadtime optimizations */
+
+#define OPTIMIZE_MSGUTIL 1
+#define OPTIMIZE_SENDRATE 2
+#define OPTIMIZE_RECONNECT 4
+#define OPTIMIZE_HUDSEND 8
+
+int SV_Optimizations(void);
 
 #endif
 

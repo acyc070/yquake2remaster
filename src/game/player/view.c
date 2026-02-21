@@ -38,7 +38,7 @@ static float bobmove;
 static int bobcycle; /* odd cycles are right foot going forward */
 static float bobfracsin; /* sin(bobfrac*M_PI) */
 
-float
+static float
 SV_CalcRoll(vec3_t angles, vec3_t velocity)
 {
 	float sign;
@@ -63,17 +63,27 @@ SV_CalcRoll(vec3_t angles, vec3_t velocity)
 	return side * sign;
 }
 
+void
+P_SetAnimGroup(edict_t *ent, const char *animname, int firstframe, int lastframe,
+	int select)
+{
+	lastframe -= firstframe - 1;
+	M_SetAnimGroupFrameValues(ent, animname, &firstframe, &lastframe, select);
+	lastframe += firstframe - 1;
+
+	ent->s.frame = firstframe;
+	ent->client->anim_end = lastframe;
+}
+
 /*
  * Handles color blends and view kicks
  */
-void
+static void
 P_DamageFeedback(edict_t *player)
 {
 	gclient_t *client;
-	float side;
 	float realcount, count, kick;
 	vec3_t v;
-	int r, l;
 	static vec3_t power_color = {0.0, 1.0, 0.0};
 	static vec3_t acolor = {1.0, 1.0, 1.0};
 	static vec3_t bcolor = {1.0, 0.0, 0.0};
@@ -86,7 +96,7 @@ P_DamageFeedback(edict_t *player)
 	/* death/gib sound is now aggregated and played here */
 	if (player->sounds)
 	{
-		gi.sound (player, CHAN_VOICE, player->sounds, 1, ATTN_NORM, 0);
+		gi.sound(player, CHAN_VOICE, player->sounds, 1, ATTN_NORM, 0);
 		player->sounds = 0;
 	}
 
@@ -116,37 +126,43 @@ P_DamageFeedback(edict_t *player)
 	}
 
 	/* start a pain animation if still in the player model */
-	if ((client->anim_priority < ANIM_PAIN) && (player->s.modelindex == 255))
+	if ((client->anim_priority < ANIM_PAIN) && (player->s.modelindex == CUSTOM_PLAYER_MODEL))
 	{
-		static int i;
+		int firstframe, lastframe, group = 0;
+		const char *action;
 
+		firstframe = FRAME_crpain1;
+		lastframe = FRAME_crpain4;
 		client->anim_priority = ANIM_PAIN;
 
 		if (client->ps.pmove.pm_flags & PMF_DUCKED)
 		{
-			player->s.frame = FRAME_crpain1 - 1;
-			client->anim_end = FRAME_crpain4;
+			action = "crpain";
 		}
 		else
 		{
-			i = (i + 1) % 3;
-
-			switch (i)
+			group = randk() % 3;
+			switch (group)
 			{
 				case 0:
-					player->s.frame = FRAME_pain101 - 1;
-					client->anim_end = FRAME_pain104;
+					firstframe = FRAME_pain101;
+					lastframe = FRAME_pain104;
 					break;
 				case 1:
-					player->s.frame = FRAME_pain201 - 1;
-					client->anim_end = FRAME_pain204;
+					firstframe = FRAME_pain201;
+					lastframe = FRAME_pain204;
 					break;
 				case 2:
-					player->s.frame = FRAME_pain301 - 1;
-					client->anim_end = FRAME_pain304;
+					firstframe = FRAME_pain301;
+					lastframe = FRAME_pain304;
 					break;
 			}
+
+			action = "pain";
 		}
+
+		P_SetAnimGroup(player, action, firstframe, lastframe, group);
+		player->s.frame --;
 	}
 
 	realcount = count;
@@ -162,6 +178,8 @@ P_DamageFeedback(edict_t *player)
 		(client->invincible_framenum <= level.framenum) &&
 		player->health > 0)
 	{
+		int r, l;
+
 		r = 1 + (randk() & 1);
 		player->pain_debounce_time = level.time + 0.7;
 
@@ -230,6 +248,8 @@ P_DamageFeedback(edict_t *player)
 
 	if (kick && (player->health > 0)) /* kick of 0 means no view adjust at all */
 	{
+		float side;
+
 		kick = kick * 100 / player->health;
 
 		if (kick < count * 0.5)
@@ -272,7 +292,7 @@ P_DamageFeedback(edict_t *player)
  *
  * damage = deltavelocity*deltavelocity  * 0.0001
  */
-void
+static void
 SV_CalcViewOffset(edict_t *ent)
 {
 	float *angles;
@@ -285,7 +305,6 @@ SV_CalcViewOffset(edict_t *ent)
 	{
 		return;
 	}
-
 
 	/* base angles */
 	angles = ent->client->ps.kick_angles;
@@ -432,19 +451,37 @@ SV_CalcViewOffset(edict_t *ent)
 	}
 	else
 	{
-		VectorSet (v, 0, 0, 0);
+		VectorSet(v, 0, 0, 0);
 		if (ent->client->chasecam)
 		{
-			ent->client->ps.pmove.origin[0] = ent->client->chasecam->s.origin[0] * 8;
-			ent->client->ps.pmove.origin[1] = ent->client->chasecam->s.origin[1] * 8;
-			ent->client->ps.pmove.origin[2] = ent->client->chasecam->s.origin[2] * 8;
+			int i;
+
+			/*
+			 * code had used ent->client->ps.pmove.origin,
+			 * that can't be unused with 4k+ coordinates,
+			 * so use viewoffset with clamp
+			 */
+			VectorSubtract(ent->client->chasecam->s.origin, ent->s.origin, v);
+
+			/* Clamp coordinates to -30..30 */
+			for (i = 0; i < 3; i++)
+			{
+				if (v[i] > 30)
+				{
+					v[i] = 30;
+				}
+				else if (v[i] < -30)
+				{
+					v[i] = -30;
+				}
+			}
 		}
 	}
 
 	VectorCopy(v, ent->client->ps.viewoffset);
 }
 
-void
+static void
 SV_CalcGunOffset(edict_t *ent)
 {
 	int i;
@@ -530,7 +567,7 @@ SV_CalcGunOffset(edict_t *ent)
 	}
 }
 
-void
+static void
 SV_AddBlend(float r, float g, float b, float a, float *v_blend)
 {
 	float a2, a3;
@@ -554,7 +591,7 @@ SV_AddBlend(float r, float g, float b, float a, float *v_blend)
 	v_blend[3] = a2;
 }
 
-void
+static void
 SV_CalcBlend(edict_t *ent)
 {
 	int contents;
@@ -665,6 +702,21 @@ SV_CalcBlend(edict_t *ent)
 			SV_AddBlend(1, 1, 0, 0.08, ent->client->ps.blend);
 		}
 	}
+	else if (ent->client->invisible_framenum > level.framenum)
+	{
+		remaining = ent->client->invisible_framenum - level.framenum;
+
+		if (remaining == 30) /* beginning to fade */
+		{
+			gi.sound(ent, CHAN_ITEM, gi.soundindex(
+							"items/protect2.wav"), 1, ATTN_NORM, 0);
+		}
+
+		if ((remaining > 30) || (remaining & 4))
+		{
+			SV_AddBlend(0.8f, 0.8f, 0.8f, 0.08f, ent->client->ps.blend);
+		}
+	}
 	else if (ent->client->enviro_framenum > level.framenum)
 	{
 		remaining = ent->client->enviro_framenum - level.framenum;
@@ -755,7 +807,7 @@ SV_CalcBlend(edict_t *ent)
 	}
 }
 
-void
+static void
 P_FallingDamage(edict_t *ent)
 {
 	float delta;
@@ -767,7 +819,7 @@ P_FallingDamage(edict_t *ent)
 		return;
 	}
 
-	if (ent->s.modelindex != 255)
+	if (ent->s.modelindex != CUSTOM_PLAYER_MODEL)
 	{
 		return; /* not in the player model */
 	}
@@ -877,7 +929,7 @@ P_FallingDamage(edict_t *ent)
 	}
 }
 
-void
+static void
 P_WorldEffects(void)
 {
 	qboolean breather;
@@ -1099,6 +1151,7 @@ G_SetClientEffects(edict_t *ent)
 	}
 
 	ent->s.effects = 0;
+	ent->rrs.effects = 0;
 
 	/* player is always ir visible, even dead. */
 	ent->s.renderfx = RF_IR_VISIBLE;
@@ -1106,6 +1159,11 @@ G_SetClientEffects(edict_t *ent)
 	if ((ent->health <= 0) || level.intermissiontime)
 	{
 		return;
+	}
+
+	if (ent->flags & FL_FLASHLIGHT)
+	{
+		ent->rrs.effects |= EF_FLASHLIGHT;
 	}
 
 	if (ent->flags & FL_DISGUISED)
@@ -1308,8 +1366,10 @@ G_SetClientSound(edict_t *ent)
 }
 
 void
-G_SetClientFrame(edict_t *ent)
+G_SetClientFrame(edict_t *ent, float speed)
 {
+	const char *animname = NULL;
+	int firstframe, lastframe;
 	gclient_t *client;
 	qboolean duck, run;
 
@@ -1318,9 +1378,14 @@ G_SetClientFrame(edict_t *ent)
 		return;
 	}
 
-	if (ent->s.modelindex != 255)
+	if (ent->s.modelindex != CUSTOM_PLAYER_MODEL)
 	{
 		return; /* not in the player model */
+	}
+
+	if (speed)
+	{
+		xyspeed = speed;
 	}
 
 	client = ent->client;
@@ -1381,14 +1446,24 @@ G_SetClientFrame(edict_t *ent)
 
 	if (client->anim_priority == ANIM_JUMP)
 	{
+		int firstframe, lastframe;
+
 		if (!ent->groundentity)
 		{
 			return; /* stay there */
 		}
 
 		ent->client->anim_priority = ANIM_WAVE;
-		ent->s.frame = FRAME_jump3;
-		ent->client->anim_end = FRAME_jump6;
+
+		firstframe = FRAME_jump1;
+		lastframe = FRAME_jump6;
+
+		lastframe -= firstframe;
+		M_SetAnimGroupFrameValues(ent, "jump", &firstframe, &lastframe, 0);
+		lastframe += firstframe;
+
+		ent->s.frame = firstframe + 2;
+		ent->client->anim_end = lastframe;
 		return;
 	}
 
@@ -1405,19 +1480,30 @@ newanim:
 		   frame, go into standing frame */
 		if (client->ctf_grapple)
 		{
-			ent->s.frame = FRAME_stand01;
-			client->anim_end = FRAME_stand40;
+			firstframe = FRAME_stand01;
+			lastframe = FRAME_stand40;
+			animname = "stand";
 		}
 		else
 		{
+			int firstframe, lastframe;
+
 			client->anim_priority = ANIM_JUMP;
 
-			if (ent->s.frame != FRAME_jump2)
+			firstframe = FRAME_jump1;
+			lastframe = FRAME_jump6;
+
+			lastframe -= firstframe;
+			M_SetAnimGroupFrameValues(ent, "jump", &firstframe, &lastframe, 0);
+			lastframe += firstframe;
+
+			if (ent->s.frame != (firstframe + 1))
 			{
-				ent->s.frame = FRAME_jump1;
+				ent->s.frame = firstframe;
 			}
 
-			client->anim_end = FRAME_jump2;
+			client->anim_end = Q_min(firstframe + 1, lastframe);
+			return;
 		}
 	}
 	else if (run)
@@ -1425,13 +1511,23 @@ newanim:
 		/* running */
 		if (duck)
 		{
-			ent->s.frame = FRAME_crwalk1;
-			client->anim_end = FRAME_crwalk6;
+			firstframe = FRAME_crwalk1;
+			lastframe = FRAME_crwalk6;
+			animname = "crwalk";
 		}
 		else
 		{
-			ent->s.frame = FRAME_run1;
-			client->anim_end = FRAME_run6;
+			firstframe = FRAME_run1;
+			lastframe = FRAME_run6;
+
+			if (ent->waterlevel >= 2)
+			{
+				animname = "swim";
+			}
+			else
+			{
+				animname = "run";
+			}
 		}
 	}
 	else
@@ -1439,15 +1535,19 @@ newanim:
 		/* standing */
 		if (duck)
 		{
-			ent->s.frame = FRAME_crstnd01;
-			client->anim_end = FRAME_crstnd19;
+			firstframe = FRAME_crstnd01;
+			lastframe = FRAME_crstnd19;
+			animname = "crstnd";
 		}
 		else
 		{
-			ent->s.frame = FRAME_stand01;
-			client->anim_end = FRAME_stand40;
+			firstframe = FRAME_stand01;
+			lastframe = FRAME_stand40;
+			animname = "stand";
 		}
 	}
+
+	P_SetAnimGroup(ent, animname, firstframe, lastframe, 0);
 }
 
 /*
@@ -1468,6 +1568,9 @@ ClientEndServerFrame(edict_t *ent)
 	current_player = ent;
 	current_client = ent->client;
 
+	/* check fog changes */
+	ForceFogTransition(ent, false);
+
 	/* If the origin or velocity have changed since ClientThink(),
 	   update the pmove values. This will happen when the client
 	   is pushed by a bmodel or kicked by an explosion.
@@ -1475,7 +1578,9 @@ ClientEndServerFrame(edict_t *ent)
 	   behind the body position when pushed -- "sinking into plats" */
 	for (i = 0; i < 3; i++)
 	{
-		current_client->ps.pmove.origin[i] = ent->s.origin[i] * 8.0;
+		/*
+		 * set ps.pmove.origin is not required as server uses ent.origin instead
+		 */
 		current_client->ps.pmove.velocity[i] = ent->velocity[i] * 8.0;
 	}
 
@@ -1594,7 +1699,7 @@ ClientEndServerFrame(edict_t *ent)
 	G_SetClientEvent(ent);
 	G_SetClientEffects(ent);
 	G_SetClientSound(ent);
-	G_SetClientFrame(ent);
+	G_SetClientFrame(ent, 0);
 
 	VectorCopy(ent->velocity, ent->client->oldvelocity);
 	VectorCopy(ent->client->ps.viewangles, ent->client->oldviewangles);

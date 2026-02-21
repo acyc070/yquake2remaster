@@ -25,6 +25,7 @@
  * =======================================================================
  */
 
+#include <errno.h>
 #include "header/client.h"
 #include "input/header/input.h"
 
@@ -33,6 +34,7 @@ void CL_Changing_f(void);
 void CL_Reconnect_f(void);
 void CL_Connect_f(void);
 void CL_Rcon_f(void);
+void CL_Packet_f(void);
 void CL_CheckForResend(void);
 
 cvar_t *rcon_client_password;
@@ -43,12 +45,15 @@ cvar_t *cl_footsteps;
 cvar_t *cl_timeout;
 cvar_t *cl_predict;
 cvar_t *cl_showfps;
+cvar_t *cl_showspeed;
 cvar_t *cl_gun;
 cvar_t *cl_add_particles;
 cvar_t *cl_add_lights;
 cvar_t *cl_add_entities;
 cvar_t *cl_add_blend;
 cvar_t *cl_kickangles;
+cvar_t *cl_laseralpha;
+cvar_t *cl_nodownload_list;
 
 cvar_t *cl_shownet;
 cvar_t *cl_showmiss;
@@ -83,9 +88,13 @@ cvar_t *cl_vwep;
 client_static_t cls;
 client_state_t cl;
 
-centity_t cl_entities[MAX_EDICTS];
+/* initialize the entities array to at least this many entities */
+#define ALLOC_ENTITIES_MIN 32
 
-entity_state_t cl_parse_entities[MAX_PARSE_ENTITIES];
+centity_t *cl_entities;
+int cl_numentities;
+
+entity_xstate_t cl_parse_entities[MAX_PARSE_ENTITIES];
 
 /*Evil hack against too many power screen and power
   shield impact sounds. For example if the player
@@ -102,6 +111,59 @@ extern cvar_t *allow_download_players;
 extern cvar_t *allow_download_models;
 extern cvar_t *allow_download_sounds;
 extern cvar_t *allow_download_maps;
+
+void
+CL_ClearEntities(void)
+{
+	if (cl_entities)
+	{
+		Z_Free(cl_entities);
+		cl_entities = NULL;
+	}
+
+	cl_numentities = 0;
+}
+
+centity_t *
+CL_AllocEntity(int entnum)
+{
+	int nextpow2;
+
+	if ((entnum < 0) || (entnum > MAX_CL_ENTNUM))
+	{
+		return NULL;
+	}
+
+	if (entnum >= cl_numentities)
+	{
+		nextpow2 = (cl_numentities || (entnum >= ALLOC_ENTITIES_MIN)) ?
+			(int)NextPow2gt(entnum) : ALLOC_ENTITIES_MIN;
+
+		cl_entities = Z_Realloc(cl_entities, nextpow2 * sizeof(centity_t));
+		cl_numentities = nextpow2;
+	}
+
+	return &cl_entities[entnum];
+}
+
+/*
+ * Returns max clients in the current session
+ * Returns 1 if the value is bad (<= 0) or the configstring is blank
+ */
+int
+CL_MaxClients(void)
+{
+	int i = 0;
+
+	sscanf(cl.configstrings[CS_MAXCLIENTS], " %i ", &i);
+
+	if (i > MAX_CLIENTS)
+	{
+		return MAX_CLIENTS;
+	}
+
+	return i <= 0 ? 1 : i;
+}
 
 /*
  * Dumps the current net message, prefixed by the length
@@ -148,13 +210,11 @@ CL_Stop_f(void)
 static void
 CL_Record_f(void)
 {
-	char name[MAX_OSPATH];
 	byte buf_data[MAX_MSGLEN];
+	char name[MAX_OSPATH];
+	entity_xstate_t *ent;
 	sizebuf_t buf;
-	int i;
-	int len;
-	entity_state_t *ent;
-	entity_state_t nullstate;
+	int i, len;
 
 	if (Cmd_Argc() != 2)
 	{
@@ -219,15 +279,15 @@ CL_Record_f(void)
 
 			MSG_WriteByte(&buf, svc_configstring);
 
-			MSG_WriteShort(&buf, i);
-			MSG_WriteString(&buf, cl.configstrings[i]);
+			/* i in native server range */
+			MSG_WriteConfigString(&buf,
+				P_ConvertConfigStringTo(i, PROTOCOL_VERSION),
+				cl.configstrings[i]);
 		}
 	}
 
 	/* baselines */
-	memset(&nullstate, 0, sizeof(nullstate));
-
-	for (i = 0; i < MAX_EDICTS; i++)
+	for (i = 0; i < cl_numentities; i++)
 	{
 		ent = &cl_entities[i].baseline;
 
@@ -246,8 +306,8 @@ CL_Record_f(void)
 
 		MSG_WriteByte(&buf, svc_spawnbaseline);
 
-		MSG_WriteDeltaEntity(&nullstate, &cl_entities[i].baseline,
-				&buf, true, true);
+		MSG_WriteDeltaEntity(NULL, &cl_entities[i].baseline,
+				&buf, true, true, PROTOCOL_VERSION);
 	}
 
 	MSG_WriteByte(&buf, svc_stufftext);
@@ -279,7 +339,11 @@ CL_Setenv_f(void)
 			Q_strlcat(buffer, " ", sizeof(buffer));
 		}
 
-		putenv(buffer);
+		if (putenv(buffer))
+		{
+			Com_Printf("%s: putenv is failed: %s\n",
+				__func__, strerror(errno));
+		}
 	}
 
 	else if (argc == 2)
@@ -329,6 +393,42 @@ CL_Quit_f(void)
 	Com_Quit();
 }
 
+static void
+CL_SaveMap_f(void)
+{
+	char filename[MAX_OSPATH];
+	const byte *mapdump;
+	unsigned hash;
+	FILE *f;
+	int len;
+
+	mapdump = CM_GetRawMap(&len);
+
+	if (!mapdump || len < 0)
+	{
+		Com_Printf("Can't get map content\n");
+		return;
+	}
+
+	hash = Com_BlockChecksum(mapdump, len);
+
+	Com_sprintf(filename, sizeof(filename), "%s/maps/%d.bsp",
+		FS_Gamedir(), hash);
+
+	FS_CreatePath(filename);
+	f = Q_fopen(filename, "wb");
+
+	if (!f)
+	{
+		Com_Printf("%s: Couldn't open %s", __func__, filename);
+		return;
+	}
+
+	fwrite(mapdump, len, 1, f);
+	fclose(f);
+	Com_Printf("Map dumped to %s with %d bytes\n", filename, len);
+}
+
 void
 CL_ClearState(void)
 {
@@ -338,7 +438,7 @@ CL_ClearState(void)
 
 	/* wipe the entire cl structure */
 	memset(&cl, 0, sizeof(cl));
-	memset(&cl_entities, 0, sizeof(cl_entities));
+	CL_ClearEntities();
 
 	SZ_Clear(&cls.netchan.message);
 }
@@ -502,7 +602,7 @@ CL_InitLocal(void)
 	CL_InitInput();
 
 	/* register our variables */
-	cin_force43 = Cvar_Get("cin_force43", "1", 0);
+	cin_force43 = Cvar_Get("cin_force43", "1", CVAR_ARCHIVE);
 
 	cl_add_blend = Cvar_Get("cl_blend", "1", 0);
 	cl_add_lights = Cvar_Get("cl_lights", "1", 0);
@@ -514,6 +614,9 @@ CL_InitLocal(void)
 	cl_noskins = Cvar_Get("cl_noskins", "0", 0);
 	cl_predict = Cvar_Get("cl_predict", "1", 0);
 	cl_showfps = Cvar_Get("cl_showfps", "0", CVAR_ARCHIVE);
+	cl_showspeed = Cvar_Get("cl_showspeed", "0", CVAR_ARCHIVE);
+	cl_laseralpha = Cvar_Get("cl_laseralpha", "0.3", 0);
+	cl_nodownload_list = Cvar_Get("cl_nodownload_list", "", CVAR_ARCHIVE);
 
 	cl_upspeed = Cvar_Get("cl_upspeed", "200", 0);
 	cl_forwardspeed = Cvar_Get("cl_forwardspeed", "200", 0);
@@ -563,7 +666,8 @@ CL_InitLocal(void)
 	cl_vwep = Cvar_Get("cl_vwep", "1", CVAR_ARCHIVE);
 
 #ifdef USE_CURL
-	cl_http_proxy = Cvar_Get("cl_http_proxy", "", 0);
+	cl_http_verifypeer = Cvar_Get("cl_http_verifypeer", "1", CVAR_ARCHIVE);
+	cl_http_proxy = Cvar_Get("cl_http_proxy", "", CVAR_ARCHIVE);
 	cl_http_filelists = Cvar_Get("cl_http_filelists", "1", 0);
 	cl_http_downloads = Cvar_Get("cl_http_downloads", "1", CVAR_ARCHIVE);
 	cl_http_max_connections = Cvar_Get("cl_http_max_connections", "4", 0);
@@ -587,11 +691,13 @@ CL_InitLocal(void)
 	Cmd_AddCommand("stop", CL_Stop_f);
 
 	Cmd_AddCommand("quit", CL_Quit_f);
+	Cmd_AddCommand("savemap", CL_SaveMap_f);
 
 	Cmd_AddCommand("connect", CL_Connect_f);
 	Cmd_AddCommand("reconnect", CL_Reconnect_f);
 
 	Cmd_AddCommand("rcon", CL_Rcon_f);
+	Cmd_AddCommand("packet", CL_Packet_f);
 
 	Cmd_AddCommand("setenv", CL_Setenv_f);
 
@@ -622,9 +728,12 @@ CL_InitLocal(void)
 	Cmd_AddCommand("invprev", NULL);
 	Cmd_AddCommand("invnext", NULL);
 	Cmd_AddCommand("invdrop", NULL);
+	Cmd_AddCommand("cl_weapnext", NULL);
 	Cmd_AddCommand("weapnext", NULL);
+	Cmd_AddCommand("cl_weapprev", NULL);
 	Cmd_AddCommand("weapprev", NULL);
 	Cmd_AddCommand("listentities", NULL);
+	Cmd_AddCommand("listitems", NULL);
 	Cmd_AddCommand("teleport", NULL);
 	Cmd_AddCommand("spawnentity", NULL);
 	Cmd_AddCommand("spawnonstart", NULL);
@@ -960,8 +1069,6 @@ CL_Shutdown(void)
 
 	isdown = true;
 
-	CM_ModFreeAll();
-
 #ifdef USE_CURL
 	CL_HTTP_Cleanup(true);
 #endif
@@ -975,4 +1082,7 @@ CL_Shutdown(void)
 	S_Shutdown();
 	IN_Shutdown();
 	VID_Shutdown();
+
+	CL_ClearEntities();
+	Mods_NamesFinish();
 }

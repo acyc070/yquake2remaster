@@ -37,7 +37,6 @@
 #define VARIANCE 15.0
 
 void BossExplode(edict_t *self);
-qboolean infront(edict_t *self, edict_t *other);
 
 static int sound_pain1;
 static int sound_pain2;
@@ -95,24 +94,6 @@ void widow_start_run_12(edict_t *self);
 
 void WidowCalcSlots(edict_t *self);
 
-void drawbbox(edict_t *self);
-
-void
-showme(edict_t *self)
-{
-	if (!self)
-	{
-		return;
-	}
-
-	gi.dprintf("frame %d\n", self->s.frame);
-}
-
-void
-widow_search(edict_t *self)
-{
-}
-
 void
 widow_sight(edict_t *self, edict_t *other /* unused */)
 {
@@ -148,7 +129,7 @@ target_angle(edict_t *self)
 	return enemy_yaw;
 }
 
-int
+static int
 WidowTorso(edict_t *self)
 {
 	float enemy_yaw;
@@ -1050,7 +1031,7 @@ static mframe_t widow_frames_death[] = {
 
 mmove_t widow_move_death = {
 	FRAME_death01,
- 	FRAME_death31,
+	FRAME_death31,
 	widow_frames_death,
 	NULL
 };
@@ -1386,10 +1367,7 @@ widow_dead(edict_t *self)
 
 	VectorSet(self->mins, -56, -56, 0);
 	VectorSet(self->maxs, 56, 56, 80);
-	self->movetype = MOVETYPE_TOSS;
-	self->svflags |= SVF_DEADMONSTER;
-	self->nextthink = 0;
-	gi.linkentity(self);
+	monster_dynamic_dead(self);
 }
 
 void
@@ -1820,7 +1798,7 @@ WidowCalcSlots(edict_t *self)
 	}
 }
 
-void
+static void
 WidowPrecache(void)
 {
 	/* cache in all of the stalker stuff, widow stuff, spawngro stuff, gibs */
@@ -1883,7 +1861,7 @@ SP_monster_widow(edict_t *self)
 	VectorSet(self->mins, -40, -40, 0);
 	VectorSet(self->maxs, 40, 40, 144);
 
-	self->health = 2000 + 1000 * (skill->value);
+	self->health = 2000 + 1000 * (skill->value) * st.health_multiplier;
 
 	if (coop->value)
 	{
@@ -1912,7 +1890,7 @@ SP_monster_widow(edict_t *self)
 	self->monsterinfo.walk = widow_walk;
 	self->monsterinfo.run = widow_run;
 	self->monsterinfo.attack = widow_attack;
-	self->monsterinfo.search = widow_search;
+	self->monsterinfo.search = monster_dynamic_search;
 	self->monsterinfo.checkattack = Widow_CheckAttack;
 	self->monsterinfo.sight = widow_sight;
 

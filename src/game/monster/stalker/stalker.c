@@ -49,7 +49,6 @@ void stalker_jump_straightup(edict_t *self);
 void stalker_jump_wait_land(edict_t *self);
 void stalker_false_death(edict_t *self);
 void stalker_false_death_start(edict_t *self);
-qboolean stalker_ok_to_transition(edict_t *self);
 
 #define STALKER_ON_CEILING(ent) (ent->gravityVector[2] > 0 ? 1 : 0)
 
@@ -59,9 +58,8 @@ qboolean stalker_ok_to_transition(edict_t *self);
 #define FAUX_GRAVITY 800.0
 
 extern qboolean SV_PointCloseEnough(edict_t *ent, vec3_t goal, float dist);
-extern void drawbbox(edict_t *self);
 
-qboolean
+static qboolean
 stalker_ok_to_transition(edict_t *self)
 {
 	trace_t trace;
@@ -528,7 +526,7 @@ stalker_false_death_start(edict_t *self)
 		return;
 	}
 
-	self->s.angles[2] = 0;
+	self->s.angles[ROLL] = 0;
 	VectorSet(self->gravityVector, 0, 0, -1);
 
 	self->monsterinfo.aiflags |= AI_STAND_GROUND;
@@ -824,7 +822,7 @@ stalker_attack_melee(edict_t *self)
 	}
 }
 
-void
+static void
 calcJumpAngle(vec3_t start, vec3_t end, float velocity, vec3_t angles)
 {
 	float distV, distH;
@@ -1080,11 +1078,11 @@ stalker_jump_straightup(edict_t *self)
 		if (stalker_ok_to_transition(self))
 		{
 			self->gravityVector[2] = -1;
-			self->s.angles[2] += 180.0;
+			self->s.angles[ROLL] += 180.0;
 
-			if (self->s.angles[2] > 360.0)
+			if (self->s.angles[ROLL] > 360.0)
 			{
-				self->s.angles[2] -= 360.0;
+				self->s.angles[ROLL] -= 360.0;
 			}
 
 			self->groundentity = NULL;
@@ -1099,7 +1097,7 @@ stalker_jump_straightup(edict_t *self)
 		if (stalker_ok_to_transition(self))
 		{
 			self->gravityVector[2] = 1;
-			self->s.angles[2] = 180.0;
+			self->s.angles[ROLL] = 180.0;
 			self->groundentity = NULL;
 		}
 	}
@@ -1129,20 +1127,6 @@ stalker_dodge_jump(edict_t *self)
 
 	self->monsterinfo.currentmove = &stalker_move_jump_straightup;
 }
-
-static mframe_t stalker_frames_dodge_run[] = {
-	{ai_run, 13, NULL},
-	{ai_run, 17, NULL},
-	{ai_run, 21, NULL},
-	{ai_run, 18, monster_done_dodge}
-};
-
-mmove_t stalker_move_dodge_run = {
-	FRAME_run01,
-	FRAME_run04,
-	stalker_frames_dodge_run,
-	NULL
-};
 
 void
 stalker_dodge(edict_t *self, edict_t *attacker, float eta, trace_t *tr /* unused */)
@@ -1345,11 +1329,11 @@ stalker_blocked(edict_t *self, float dist)
 		if (stalker_ok_to_transition(self))
 		{
 			self->gravityVector[2] = -1;
-			self->s.angles[2] += 180.0;
+			self->s.angles[ROLL] += 180.0;
 
-			if (self->s.angles[2] > 360.0)
+			if (self->s.angles[ROLL] > 360.0)
 			{
-				self->s.angles[2] -= 360.0;
+				self->s.angles[ROLL] -= 360.0;
 			}
 
 			self->groundentity = NULL;
@@ -1371,10 +1355,7 @@ stalker_dead(edict_t *self)
 
 	VectorSet(self->mins, -28, -28, -18);
 	VectorSet(self->maxs, 28, 28, -4);
-	self->movetype = MOVETYPE_TOSS;
-	self->svflags |= SVF_DEADMONSTER;
-	self->nextthink = 0;
-	gi.linkentity(self);
+	monster_dynamic_dead(self);
 }
 
 static mframe_t stalker_frames_death[] = {
@@ -1411,7 +1392,7 @@ stalker_die(edict_t *self, edict_t *inflictor /* unused */, edict_t *attacker /*
 
 	/* dude bit it, make him fall! */
 	self->movetype = MOVETYPE_TOSS;
-	self->s.angles[2] = 0;
+	self->s.angles[ROLL] = 0;
 	VectorSet(self->gravityVector, 0, 0, -1);
 
 	/* check for gib */
@@ -1426,10 +1407,10 @@ stalker_die(edict_t *self, edict_t *inflictor /* unused */, edict_t *attacker /*
 
 		for (n = 0; n < 4; n++)
 		{
-			ThrowGib(self, "models/objects/gibs/sm_meat/tris.md2", damage, GIB_ORGANIC);
+			ThrowGib(self, NULL, damage, GIB_ORGANIC);
 		}
 
-		ThrowHead(self, "models/objects/gibs/head2/tris.md2", damage, GIB_ORGANIC);
+		ThrowHead(self, NULL, damage, GIB_ORGANIC);
 		self->deadflag = DEAD_DEAD;
 		return;
 	}
@@ -1481,7 +1462,7 @@ SP_monster_stalker(edict_t *self)
 	self->movetype = MOVETYPE_STEP;
 	self->solid = SOLID_BBOX;
 
-	self->health = 250;
+	self->health = 250 * st.health_multiplier;
 	self->gib_health = -50;
 	self->mass = 250;
 	self->viewheight = 15;
@@ -1508,7 +1489,7 @@ SP_monster_stalker(edict_t *self)
 
 	if (self->spawnflags & 8)
 	{
-		self->s.angles[2] = 180;
+		self->s.angles[ROLL] = 180;
 		self->gravityVector[2] = 1;
 	}
 

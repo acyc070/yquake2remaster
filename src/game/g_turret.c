@@ -31,10 +31,8 @@ void infantry_die(edict_t *self, edict_t *inflictor, edict_t *attacker,
 		int damage, vec3_t point);
 void infantry_stand(edict_t *self);
 void monster_use(edict_t *self, edict_t *other, edict_t *activator);
-qboolean FindTarget(edict_t *self);
-void SpawnTargetingSystem(edict_t *turret);
 
-void
+static void
 AnglesNormalize(vec3_t vec)
 {
 	while (vec[0] > 360)
@@ -58,7 +56,7 @@ AnglesNormalize(vec3_t vec)
 	}
 }
 
-float
+static float
 SnapToEights(float x)
 {
 	x *= 8.0;
@@ -277,7 +275,7 @@ turret_breach_think(edict_t *self)
 		self->owner->avelocity[1] = self->avelocity[1];
 
 		/* x & y */
-		angle = self->s.angles[1] + self->owner->move_origin[1];
+		angle = self->s.angles[YAW] + self->owner->move_origin[1];
 		angle *= (M_PI * 2 / 360);
 		target[0] = SnapToEights(self->s.origin[0] + cos(
 					angle) * self->owner->move_origin[0]);
@@ -496,6 +494,11 @@ turret_driver_think(edict_t *self)
 		}
 	}
 
+	if (!self->enemy)
+	{
+		return;
+	}
+
 	/* let the turret know where we want it to aim */
 	VectorCopy(self->enemy->s.origin, target);
 	target[2] += self->enemy->viewheight;
@@ -655,6 +658,11 @@ turret_brain_think(edict_t *self)
 	if (!self->enemy)
 	{
 		if (!FindTarget(self))
+		{
+			return;
+		}
+
+		if (!self->enemy)
 		{
 			return;
 		}

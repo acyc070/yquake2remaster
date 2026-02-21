@@ -26,29 +26,34 @@
  */
 
 #include "header/local.h"
+#include "../files/stb_truetype.h"
 
 unsigned d_8to24table[256];
 
-gl3image_t *draw_chars;
+static float gl3_font_size = 8.0;
+static int gl3_font_height = 128;
+gl3image_t *draw_chars = NULL;
+static gl3image_t *draw_font = NULL;
+static gl3image_t *draw_font_alt = NULL;
+static stbtt_bakedchar *draw_fontcodes = NULL;
+static qboolean draw_chars_has_alt;
 
 static GLuint vbo2D = 0, vao2D = 0, vao2Dcolor = 0; // vao2D is for textured rendering, vao2Dcolor for color-only
+
+void R_LoadTTFFont(const char *ttffont, int vid_height, float *r_font_size,
+	int *r_font_height, stbtt_bakedchar **draw_fontcodes,
+	struct image_s **draw_font, struct image_s **draw_font_alt,
+	loadimage_t R_LoadPic);
 
 void
 GL3_Draw_InitLocal(void)
 {
-	/* load console characters */
-	draw_chars = R_FindPic("conchars", (findimage_t)GL3_FindImage);
-	/* Daikatana */
-	if (!draw_chars)
-	{
-		draw_chars = R_FindPic ("dkchars", (findimage_t)GL3_FindImage);
-	}
+	R_LoadTTFFont(r_ttffont->string, vid.height, &gl3_font_size, &gl3_font_height,
+		&draw_fontcodes, &draw_font, &draw_font_alt, (loadimage_t)GL3_LoadPic);
 
-	if (!draw_chars)
-	{
-		Com_Error(ERR_FATAL, "%s: Couldn't load pics/conchars",
-			__func__);
-	}
+	draw_chars = R_LoadConsoleChars((findimage_t)GL3_FindImage);
+	/* Heretic 2 uses more than 128 symbols in image */
+	draw_chars_has_alt = !(draw_chars && !strcmp(draw_chars->name, "pics/misc/conchars.m32"));
 
 	// set up attribute layout for 2D textured rendering
 	glGenVertexArrays(1, &vao2D);
@@ -91,6 +96,7 @@ GL3_Draw_ShutdownLocal(void)
 	vao2D = 0;
 	glDeleteVertexArrays(1, &vao2Dcolor);
 	vao2Dcolor = 0;
+	free(draw_fontcodes);
 }
 
 // bind the texture before calling this
@@ -166,6 +172,64 @@ GL3_Draw_CharScaled(int x, int y, int num, float scale)
 	drawTexturedRectangle(x, y, scaledSize, scaledSize, fcol, frow, fcol+size, frow+size);
 }
 
+void
+GL3_Draw_StringScaled(int x, int y, float scale, qboolean alt, const char *message)
+{
+	while (*message)
+	{
+		unsigned value = R_NextUTF8Code(&message);
+
+		if (draw_fontcodes && draw_font && draw_font_alt)
+		{
+			float font_scale;
+
+			font_scale = gl3_font_size / 8.0;
+
+			if (value >= 32 && value < MAX_FONTCODE)
+			{
+				float xf = 0, yf = 0, xdiff;
+				stbtt_aligned_quad q;
+
+				stbtt_GetBakedQuad(draw_fontcodes, gl3_font_height, gl3_font_height,
+					value - 32, &xf, &yf, &q, 1);
+
+				xdiff = (8 - xf / font_scale) / 2;
+				if (xdiff < 0)
+				{
+					xdiff = 0;
+				}
+
+				GL3_UseProgram(gl3state.si2D.shaderProgram);
+				GL3_Bind(alt ? draw_font_alt->texnum : draw_font->texnum);
+				drawTexturedRectangle(
+					(float)(x + (xdiff + q.x0 / font_scale) * scale),
+					(float)(y + q.y0 * scale / font_scale + 8 * scale),
+					(q.x1 - q.x0) * scale / font_scale,
+					(q.y1 - q.y0) * scale / font_scale,
+					q.s0, q.t0, q.s1, q.t1);
+				x += Q_max(8, xf / font_scale) * scale;
+			}
+			else
+			{
+				x += 8 * scale;
+			}
+		}
+		else
+		{
+			int xor;
+
+			xor = (alt && draw_chars_has_alt) ? 0x80 : 0;
+
+			if (value > ' ' && value < 128)
+			{
+				GL3_Draw_CharScaled(x, y, value ^ xor, scale);
+			}
+
+			x += 8 * scale;
+		}
+	}
+}
+
 gl3image_t *
 GL3_Draw_FindPic(const char *name)
 {
@@ -196,7 +260,7 @@ GL3_Draw_StretchPic(int x, int y, int w, int h, const char *pic)
 
 	if (!gl)
 	{
-		R_Printf(PRINT_ALL, "Can't find pic: %s\n", pic);
+		Com_Printf("Can't find pic: %s\n", pic);
 		return;
 	}
 
@@ -207,12 +271,21 @@ GL3_Draw_StretchPic(int x, int y, int w, int h, const char *pic)
 }
 
 void
-GL3_Draw_PicScaled(int x, int y, const char *pic, float factor)
+GL3_Draw_PicScaled(int x, int y, const char *pic, float factor, const char *alttext)
 {
-	gl3image_t *gl = R_FindPic(pic, (findimage_t)GL3_FindImage);
+	gl3image_t *gl;
+
+	gl = R_FindPic(pic, (findimage_t)GL3_FindImage);
 	if (!gl)
 	{
-		R_Printf(PRINT_ALL, "Can't find pic: %s\n", pic);
+		if (alttext && alttext[0])
+		{
+			/* Show alttext if provided */
+			GL3_Draw_StringScaled(x, y, factor, false, alttext);
+			return;
+		}
+
+		Com_Printf("Can't find pic: %s\n", pic);
 		return;
 	}
 
@@ -233,7 +306,7 @@ GL3_Draw_TileClear(int x, int y, int w, int h, const char *pic)
 	gl3image_t *image = R_FindPic(pic, (findimage_t)GL3_FindImage);
 	if (!image)
 	{
-		R_Printf(PRINT_ALL, "Can't find pic: %s\n", pic);
+		Com_Printf("Can't find pic: %s\n", pic);
 		return;
 	}
 
@@ -246,17 +319,17 @@ GL3_Draw_TileClear(int x, int y, int w, int h, const char *pic)
 void
 GL3_DrawFrameBufferObject(int x, int y, int w, int h, GLuint fboTexture, const float v_blend[4])
 {
-	qboolean underwater = (gl3_newrefdef.rdflags & RDF_UNDERWATER) != 0;
+	qboolean underwater = (r_newrefdef.rdflags & RDF_UNDERWATER) != 0;
 	gl3ShaderInfo_t* shader = underwater ? &gl3state.si2DpostProcessWater
 	                                     : &gl3state.si2DpostProcess;
 	GL3_UseProgram(shader->shaderProgram);
 	GL3_Bind(fboTexture);
 
-	if(underwater && shader->uniLmScalesOrTime != -1)
+	if (underwater && shader->uniLmScalesOrTime != -1)
 	{
-		glUniform1f(shader->uniLmScalesOrTime, gl3_newrefdef.time);
+		glUniform1f(shader->uniLmScalesOrTime, r_newrefdef.time);
 	}
-	if(shader->uniVblend != -1)
+	if (shader->uniVblend != -1)
 	{
 		glUniform4fv(shader->uniVblend, 1, v_blend);
 	}
@@ -279,7 +352,8 @@ GL3_Draw_Fill(int x, int y, int w, int h, int c)
 
 	if ((unsigned)c > 255)
 	{
-		Com_Error(ERR_FATAL, "Draw_Fill: bad color");
+		Com_Error(ERR_FATAL, "%s: bad color", __func__);
+		return;
 	}
 
 	color.c = d_8to24table[c];
@@ -292,7 +366,7 @@ GL3_Draw_Fill(int x, int y, int w, int h, int c)
 		x+w, y
 	};
 
-	for(i=0; i<3; ++i)
+	for (i=0; i<3; ++i)
 	{
 		gl3state.uniCommonData.color.Elements[i] = color.v[i] * (1.0f/255.0f);
 	}
@@ -332,7 +406,7 @@ GL3_Draw_Flash(const float color[4], float x, float y, float w, float h)
 
 	glEnable(GL_BLEND);
 
-	for(i=0; i<4; ++i)  gl3state.uniCommonData.color.Elements[i] = color[i];
+	for (i=0; i<4; ++i)  gl3state.uniCommonData.color.Elements[i] = color[i];
 
 	GL3_UpdateUBOCommon();
 
@@ -372,17 +446,17 @@ GL3_Draw_StretchRaw(int x, int y, int w, int h, int cols, int rows, const byte *
 	}
 	else
 	{
-		if(cols*rows > 320*240)
+		if (cols*rows > 320*240)
 		{
 			/* in case there is a bigger video after all,
 			 * malloc enough space to hold the frame */
 			img = (unsigned*)malloc(cols*rows*4);
 		}
 
-		for(i=0; i<rows; ++i)
+		for (i=0; i<rows; ++i)
 		{
 			int rowOffset = i*cols;
-			for(j=0; j<cols; ++j)
+			for (j=0; j<cols; ++j)
 			{
 				byte palIdx = data[rowOffset+j];
 				img[rowOffset+j] = gl3_rawpalette[palIdx];
@@ -400,7 +474,7 @@ GL3_Draw_StretchRaw(int x, int y, int w, int h, int cols, int rows, const byte *
 	glTexImage2D(GL_TEXTURE_2D, 0, gl3_tex_solid_format,
 	             cols, rows, 0, GL_RGBA, GL_UNSIGNED_BYTE, img);
 
-	if(img != image32 && img != (unsigned *)data)
+	if (img != image32 && img != (unsigned *)data)
 	{
 		free(img);
 	}

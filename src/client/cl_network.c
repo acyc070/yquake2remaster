@@ -107,7 +107,7 @@ CL_Drop(void)
  * We have gotten a challenge from the server, so try and
  * connect.
  */
-void
+static void
 CL_SendConnectPacket(void)
 {
 	netadr_t adr;
@@ -239,15 +239,15 @@ CL_Rcon_f(void)
 
 	NET_Config(true);  /* allow remote */
 
-	strcat(message, "rcon ");
+	Q_strlcat(message, "rcon ", sizeof(message));
 
-	strcat(message, rcon_client_password->string);
-	strcat(message, " ");
+	Q_strlcat(message, rcon_client_password->string, sizeof(message));
+	Q_strlcat(message, " ", sizeof(message));
 
 	for (i = 1; i < Cmd_Argc(); i++)
 	{
-		strcat(message, Cmd_Argv(i));
-		strcat(message, " ");
+		Q_strlcat(message, Cmd_Argv(i), sizeof(message));
+		Q_strlcat(message, " ", sizeof(message));
 	}
 
 	if (cls.state >= ca_connected)
@@ -374,7 +374,7 @@ void
 CL_Packet_f(void)
 {
 	char send[2048];
-	int i, l;
+	size_t i, l;
 	char *in, *out;
 	netadr_t adr;
 
@@ -440,6 +440,13 @@ CL_Changing_f(void)
 
 	SCR_BeginLoadingPlaque();
 	cls.state = ca_connected; /* not active anymore, but not disconnected */
+
+	/* reset this to 0 just in case it didn't get a chance to settle normally
+		this became a problem with the faster client connection changes
+		but is a good idea to do this regardless
+	*/
+	anykeydown = 0;
+
 	Com_Printf("\nChanging map...\n");
 
 #ifdef USE_CURL
@@ -563,7 +570,7 @@ CL_PingServers_f(void)
 /*
  * Responses to broadcasts, etc
  */
-void
+static void
 CL_ConnectionlessPacket(void)
 {
 	char *s;
@@ -590,7 +597,9 @@ CL_ConnectionlessPacket(void)
 		}
 
 		Netchan_Setup(NS_CLIENT, &cls.netchan, net_from, cls.quakePort);
+#ifdef USE_CURL
 		char *buff = NET_AdrToString(cls.netchan.remote_address);
+#endif
 
 		for(int i = 1; i < Cmd_Argc(); i++)
 		{

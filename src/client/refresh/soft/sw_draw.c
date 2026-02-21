@@ -20,9 +20,20 @@
  */
 
 #include "header/local.h"
+#include "../files/stb_truetype.h"
 
+static float sw_font_size = 8.0;
+static int sw_font_height = 128;
+static image_t *draw_chars; // 8*8 graphic characters
+static image_t* draw_font = NULL;
+static image_t* draw_font_alt = NULL;
+static stbtt_bakedchar* draw_fontcodes = NULL;
+static qboolean draw_chars_has_alt;
 
-static image_t	*draw_chars;	// 8*8 graphic characters
+void R_LoadTTFFont(const char *ttffont, int vid_height, float *r_font_size,
+	int *r_font_height, stbtt_bakedchar **draw_fontcodes,
+	struct image_s **draw_font, struct image_s **draw_font_alt,
+	loadimage_t R_LoadPic);
 
 //=============================================================================
 
@@ -37,27 +48,20 @@ RE_Draw_FindPic (const char *name)
 	return R_FindPic(name, (findimage_t)R_FindImage);
 }
 
-
-
 /*
 ===============
 Draw_InitLocal
 ===============
 */
 void
-Draw_InitLocal (void)
+Draw_InitLocal(void)
 {
-	draw_chars = R_FindPic ("conchars", (findimage_t)R_FindImage);
-	/* Daikatana */
-	if (!draw_chars)
-	{
-		draw_chars = R_FindPic ("dkchars", (findimage_t)R_FindImage);
-	}
+	R_LoadTTFFont(r_ttffont->string, vid.height, &sw_font_size, &sw_font_height,
+		&draw_fontcodes, &draw_font, &draw_font_alt, (loadimage_t)R_LoadPic);
 
-	if (!draw_chars)
-	{
-		Com_Error(ERR_FATAL, "%s: Couldn't load pics/conchars", __func__);
-	}
+	draw_chars = R_LoadConsoleChars((findimage_t)R_FindImage);
+	/* Heretic 2 uses more than 128 symbols in image */
+	draw_chars_has_alt = !(draw_chars && !strcmp(draw_chars->name, "pics/misc/conchars.m32"));
 }
 
 /*
@@ -72,26 +76,33 @@ smoothly scrolled off.
 void
 RE_Draw_CharScaled(int x, int y, int c, float scale)
 {
-	pixel_t	*dest;
-	byte	*source, *pic_pixels;
-	int	drawline;
-	int	row, col, v, iscale, sscale, width, height;
+	int drawline, row, col, v, iscale, sscale, width, height;
+	const byte *pic_pixels;
+	pixel_t *dest;
 
 	iscale = (int) scale;
 
 	if (iscale < 1)
+	{
 		return;
+	}
 
 	c &= 255;
 
 	if ((c&127) == 32)
+	{
 		return;
+	}
 
 	if (y <= -8)
+	{
 		return;	// totally off screen
+	}
 
 	if ( ( y + 8 ) > vid_buffer_height )	// status text was missing in sw...
+	{
 		return;
+	}
 
 	row = c>>4;
 	col = c&15;
@@ -110,7 +121,9 @@ RE_Draw_CharScaled(int x, int y, int c, float scale)
 		y = 0;
 	}
 	else
+	{
 		drawline = 8;
+	}
 
 	dest = vid_buffer + y * vid_buffer_width + x;
 
@@ -127,12 +140,14 @@ RE_Draw_CharScaled(int x, int y, int c, float scale)
 
 	for (v=0 ; v < drawline; v++, dest += vid_buffer_width)
 	{
-		int f, fstep, u;
-		int sv = v * height / (iscale * draw_chars->asset_height);
+		int f, fstep, u, sv;
+		const byte *source;
+
+		sv = v * height / (iscale * draw_chars->asset_height);
 		source = pic_pixels + sv * width;
 		f = 0;
 		fstep = (width << SHIFT16XYZ) / (scale * draw_chars->asset_width);
-		for (u=0 ; u < (8 * iscale) ; u++)
+		for (u = 0; u < (8 * iscale); u++)
 		{
 			if (source[f>>16] != TRANSPARENT_COLOR)
 			{
@@ -144,14 +159,105 @@ RE_Draw_CharScaled(int x, int y, int c, float scale)
 }
 
 /*
+================
+RE_Draw_TexRect
+
+Draws a sub-rectangle from a source image to the screen buffer.
+x, y: destination top-left in screen pixels
+w, h: destination size in screen pixels
+s0, t0: top-left UV in [0,1]
+sw, th: width/height in UV (e.g. s1-s0, t1-t0)
+src: source image (font atlas)
+================
+*/
+void
+RE_Draw_TexRect(int x, int y, int w, int h, float s0, float t0, float sw, float th,
+	const image_t* src)
+{
+	int pic_height, pic_width, dy;
+	const byte *pic_pixels;
+
+	if (!src || !src->pixels[0])
+	{
+		return;
+	}
+
+	pic_width = src->width;
+	pic_height = src->height;
+	pic_pixels = src->pixels[0];
+
+	for (dy = 0; dy < h; dy++)
+	{
+		const byte *source;
+		int sy, src_y, dx;
+		pixel_t *dst;
+		float v;
+
+		sy = y + dy;
+		if (sy < 0 || sy >= vid_buffer_height)
+		{
+			continue;
+		}
+
+		v = t0 + th * ((float)dy / h);
+		src_y = (int)(v * pic_height);
+		if (src_y < 0)
+		{
+			src_y = 0;
+		}
+
+		if (src_y >= pic_height)
+		{
+			src_y = pic_height - 1;
+		}
+
+		dst = vid_buffer + sy * vid_buffer_width + x;
+		source = pic_pixels + src_y * pic_width;
+
+		for (dx = 0; dx < w; dx++)
+		{
+			byte src_pixel;
+			int sx, src_x;
+			float u;
+
+			sx = x + dx;
+
+			if (sx < 0 || sx >= vid_buffer_width)
+			{
+				continue;
+			}
+
+			u = s0 + sw * ((float)dx / w);
+			src_x = (int)(u * pic_width);
+
+			if (src_x < 0)
+			{
+				src_x = 0;
+			}
+
+			if (src_x >= pic_width)
+			{
+				src_x = pic_width - 1;
+			}
+
+			src_pixel = source[src_x];
+			if (src_pixel != TRANSPARENT_COLOR)
+			{
+				dst[dx] = src_pixel;
+			}
+		}
+	}
+}
+
+/*
 =============
 RE_Draw_GetPicSize
 =============
 */
 void
-RE_Draw_GetPicSize (int *w, int *h, const char *name)
+RE_Draw_GetPicSize(int *w, int *h, const char *name)
 {
-	image_t *image;
+	const image_t *image;
 
 	image = R_FindPic (name, (findimage_t)R_FindImage);
 	if (!image)
@@ -159,6 +265,7 @@ RE_Draw_GetPicSize (int *w, int *h, const char *name)
 		*w = *h = -1;
 		return;
 	}
+
 	*w = image->asset_width;
 	*h = image->asset_height;
 }
@@ -169,20 +276,17 @@ RE_Draw_StretchPicImplementation
 =============
 */
 static void
-RE_Draw_StretchPicImplementation (int x, int y, int w, int h, const image_t *pic)
+RE_Draw_StretchPicImplementation(int x, int y, int w, int h, const image_t *pic)
 {
-	pixel_t	*dest;
-	byte	*source;
-	int		height;
-	int		skip;
-	int		pic_height, pic_width;
-	byte	*pic_pixels;
+	int height, skip, pic_height, pic_width;
+	const byte *pic_pixels, *source;
+	byte *dest;
 
 	if ((x < 0) ||
 		(x + w > vid_buffer_width) ||
 		(y + h > vid_buffer_height))
 	{
-		R_Printf(PRINT_ALL, "%s: bad coordinates %dx%d[%dx%d]",
+		Com_Printf("%s: bad coordinates %dx%d[%dx%d]",
 			__func__, x, y, w, h);
 		return;
 	}
@@ -198,7 +302,9 @@ RE_Draw_StretchPicImplementation (int x, int y, int w, int h, const image_t *pic
 		y = 0;
 	}
 	else
+	{
 		skip = 0;
+	}
 
 	dest = vid_buffer + y * vid_buffer_width + x;
 
@@ -212,9 +318,11 @@ RE_Draw_StretchPicImplementation (int x, int y, int w, int h, const image_t *pic
 		{
 			int v;
 
-			for (v=0 ; v<height ; v++, dest += vid_buffer_width)
+			for (v = 0; v < height; v++, dest += vid_buffer_width)
 			{
-				int sv = (skip + v) * pic_height / h;
+				int sv;
+
+				sv = (skip + v) * pic_height / h;
 				memcpy (dest, pic_pixels + sv*pic_width, w);
 			}
 		}
@@ -225,31 +333,36 @@ RE_Draw_StretchPicImplementation (int x, int y, int w, int h, const image_t *pic
 			// size of screen tile to pic pixel
 			int picupscale = h / pic_height;
 
-			for (v=0 ; v<height ; v++, dest += vid_buffer_width)
+			for (v = 0; v < height; v++, dest += vid_buffer_width)
 			{
-				int f, fstep, u;
-				int sv = (skip + v) * pic_height/h;
+				int f, fstep, u, sv;
+
+				sv = (skip + v) * pic_height/h;
 				source = pic_pixels + sv*pic_width;
 				f = 0;
 				fstep = (pic_width << SHIFT16XYZ) / w;
-				for (u=0 ; u<w ; u++)
+				for (u = 0; u < w; u++)
 				{
 					dest[u] = source[f>>16];
 					f += fstep;
 				}
+
 				if (picupscale > 1)
 				{
-					int i;
-					int pu = Q_min(height-v, picupscale);
-					pixel_t	*dest_orig = dest;
+					const pixel_t *dest_orig;
+					int pu, i;
+
+					pu = Q_min(height-v, picupscale);
+					dest_orig = dest;
 
 					// copy first line to fill whole sector
-					for (i=1; i < pu; i++)
+					for (i = 1; i < pu; i++)
 					{
 						// go to next line
 						dest += vid_buffer_width;
 						memcpy (dest, dest_orig, w);
 					}
+
 					// skip updated lines
 					v += (picupscale - 1);
 				}
@@ -281,14 +394,16 @@ RE_Draw_StretchPicImplementation (int x, int y, int w, int h, const image_t *pic
 		{
 			int v;
 
-			for (v=0 ; v<height ; v++, dest += vid_buffer_width)
+			for (v = 0; v < height; v++, dest += vid_buffer_width)
 			{
-				int f, fstep, u;
-				int sv = (skip + v) * pic_height/h;
+				int f, fstep, u, sv;
+
+				sv = (skip + v) * pic_height/h;
 				source = pic_pixels + sv*pic_width;
 				f = 0;
 				fstep = (pic_width << SHIFT16XYZ) / w;
-				for (u=0 ; u<w ; u++)
+
+				for (u = 0; u < w; u++)
 				{
 					if (source[f>>16] != TRANSPARENT_COLOR)
 					{
@@ -307,16 +422,17 @@ RE_Draw_StretchPic
 =============
 */
 void
-RE_Draw_StretchPic (int x, int y, int w, int h, const char *name)
+RE_Draw_StretchPic(int x, int y, int w, int h, const char *name)
 {
-	image_t	*pic;
+	const image_t *pic;
 
 	pic = R_FindPic (name, (findimage_t)R_FindImage);
 	if (!pic)
 	{
-		R_Printf(PRINT_ALL, "Can't find pic: %s\n", name);
+		Com_Printf("Can't find pic: %s\n", name);
 		return;
 	}
+
 	RE_Draw_StretchPicImplementation (x, y, w, h, pic);
 }
 
@@ -328,10 +444,10 @@ RE_Draw_StretchRaw
 void
 RE_Draw_StretchRaw(int x, int y, int w, int h, int cols, int rows, const byte *data, int bits)
 {
-	image_t	pic;
-	byte	*image_scaled;
+	byte *image_scaled;
+	image_t pic = {0};
 
-	// we have only one image size
+	/* we have only one image size */
 	pic.mip_levels = 1;
 
 	if (bits == 32)
@@ -371,11 +487,68 @@ RE_Draw_StretchRaw(int x, int y, int w, int h, int cols, int rows, const byte *d
 	pic.asset_width = cols;
 	pic.asset_height = rows;
 
-	RE_Draw_StretchPicImplementation (x, y, w, h, &pic);
+	RE_Draw_StretchPicImplementation(x, y, w, h, &pic);
 
-	if (r_retexturing->value)
+	if (image_scaled != (byte *)data)
 	{
 		free(image_scaled);
+	}
+}
+
+void
+RE_Draw_StringScaled(int x, int y, float scale, qboolean alt, const char *message)
+{
+	while (*message)
+	{
+		unsigned value = R_NextUTF8Code(&message);
+
+		if (draw_fontcodes && draw_font && draw_font_alt)
+		{
+			float font_scale;
+
+			font_scale = sw_font_size / 8.0;
+
+			if (value >= 32 && value < MAX_FONTCODE)
+			{
+				float xf = 0, yf = 0, xdiff;
+				stbtt_aligned_quad q;
+
+				stbtt_GetBakedQuad(draw_fontcodes, sw_font_height, sw_font_height,
+					value - 32, &xf, &yf, &q, 1);
+
+				xdiff = (8 - xf / font_scale) / 2;
+				if (xdiff < 0)
+				{
+					xdiff = 0;
+				}
+
+				RE_Draw_TexRect(
+					x + (xdiff + q.x0 / font_scale) * scale,
+					y + q.y0 * scale / font_scale + 8 * scale,
+					(q.x1 - q.x0) * scale / font_scale,
+					(q.y1 - q.y0) * scale / font_scale,
+					q.s0, q.t0, q.s1 - q.s0, q.t1 - q.t0,
+					alt ? draw_font_alt : draw_font);
+				x += Q_max(8, xf / font_scale) * scale;
+			}
+			else
+			{
+				x += 8 * scale;
+			}
+		}
+		else
+		{
+			int xor;
+
+			xor = (alt && draw_chars_has_alt) ? 0x80 : 0;
+
+			if (value > ' ' && value < 128)
+			{
+				RE_Draw_CharScaled(x, y, value ^ xor, scale);
+			}
+
+			x += 8 * scale;
+		}
 	}
 }
 
@@ -385,14 +558,21 @@ Draw_Pic
 =============
 */
 void
-RE_Draw_PicScaled(int x, int y, const char *name, float scale)
+RE_Draw_PicScaled(int x, int y, const char *name, float scale, const char *alttext)
 {
-	image_t		*pic;
+	const image_t *pic;
 
 	pic = R_FindPic (name, (findimage_t)R_FindImage);
 	if (!pic)
 	{
-		R_Printf(PRINT_ALL, "Can't find pic: %s\n", name);
+		if (alttext && alttext[0])
+		{
+			/* Show alttext if provided */
+			RE_Draw_StringScaled(x, y, scale, false, alttext);
+			return;
+		}
+
+		Com_Printf("Can't find pic: %s\n", name);
 		return;
 	}
 
@@ -413,11 +593,10 @@ refresh window.
 void
 RE_Draw_TileClear (int x, int y, int w, int h, const char *name)
 {
-	int			i, j;
-	byte		*psrc;
-	pixel_t		*pdest;
-	image_t		*pic;
-	int			x2;
+	const byte *psrc;
+	pixel_t *pdest;
+	int i, j, x2;
+	image_t *pic;
 
 	if (x < 0)
 	{
@@ -430,11 +609,19 @@ RE_Draw_TileClear (int x, int y, int w, int h, const char *name)
 		y = 0;
 	}
 	if (x + w > vid_buffer_width)
+	{
 		w = vid_buffer_width - x;
+	}
+
 	if (y + h > vid_buffer_height)
+	{
 		h = vid_buffer_height - y;
+	}
+
 	if (w <= 0 || h <= 0)
+	{
 		return;
+	}
 
 	VID_DamageBuffer(x, y);
 	VID_DamageBuffer(x + w, y + h);
@@ -442,9 +629,10 @@ RE_Draw_TileClear (int x, int y, int w, int h, const char *name)
 	pic = R_FindPic (name, (findimage_t)R_FindImage);
 	if (!pic)
 	{
-		R_Printf(PRINT_ALL, "Can't find pic: %s\n", name);
+		Com_Printf("Can't find pic: %s\n", name);
 		return;
 	}
+
 	x2 = x + w;
 	pdest = vid_buffer + y * vid_buffer_width;
 	for (i=0 ; i<h ; i++, pdest += vid_buffer_width)
@@ -464,21 +652,27 @@ Fills a box of pixels with a single color
 =============
 */
 void
-RE_Draw_Fill (int x, int y, int w, int h, int c)
+RE_Draw_Fill(int x, int y, int w, int h, int c)
 {
-	pixel_t	*dest;
-	int	v;
+	pixel_t *dest;
+	int v;
 
-	if (x+w > vid_buffer_width)
+	if (x + w > vid_buffer_width)
+	{
 		w = vid_buffer_width - x;
-	if (y+h > vid_buffer_height)
+	}
+
+	if (y + h > vid_buffer_height)
+	{
 		h = vid_buffer_height - y;
+	}
 
 	if (x < 0)
 	{
 		w += x;
 		x = 0;
 	}
+
 	if (y < 0)
 	{
 		h += y;
@@ -486,14 +680,18 @@ RE_Draw_Fill (int x, int y, int w, int h, int c)
 	}
 
 	if (w < 0 || h < 0)
+	{
 		return;
+	}
 
 	VID_DamageBuffer(x, y);
 	VID_DamageBuffer(x + w, y + h);
 
 	dest = vid_buffer + y * vid_buffer_width + x;
-	for (v=0 ; v<h ; v++, dest += vid_buffer_width)
+	for (v = 0 ; v < h; v++, dest += vid_buffer_width)
+	{
 		memset(dest, c, w);
+	}
 }
 //=============================================================================
 
@@ -504,25 +702,27 @@ RE_Draw_FadeScreen
 ================
 */
 void
-RE_Draw_FadeScreen (void)
+RE_Draw_FadeScreen(void)
 {
 	int x,y;
 
 	VID_DamageBuffer(0, 0);
 	VID_DamageBuffer(vid_buffer_width, vid_buffer_height);
 
-	for (y=0 ; y<vid_buffer_height ; y++)
+	for (y = 0 ; y < vid_buffer_height; y++)
 	{
-		int t;
 		pixel_t *pbuf;
+		int t;
 
 		pbuf = vid_buffer + vid_buffer_width * y;
 		t = (y & 1) << 1;
 
-		for (x=0 ; x<vid_buffer_width ; x++)
+		for (x = 0; x < vid_buffer_width; x++)
 		{
 			if ((x & 3) != t)
+			{
 				pbuf[x] = 0;
+			}
 		}
 	}
 }

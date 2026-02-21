@@ -33,7 +33,7 @@ void
 SV_WipeSavegame(char *savename)
 {
 	char name[MAX_OSPATH];
-	char *s;
+	const char *s;
 
 	Com_DPrintf("SV_WipeSaveGame(%s)\n", savename);
 
@@ -73,7 +73,6 @@ static void
 CopyFile(char *src, char *dst)
 {
 	FILE *f1, *f2;
-	size_t l;
 	byte buffer[65536];
 
 	Com_DPrintf("CopyFile (%s, %s)\n", src, dst);
@@ -95,6 +94,8 @@ CopyFile(char *src, char *dst)
 
 	while (1)
 	{
+		size_t l;
+
 		l = fread(buffer, 1, sizeof(buffer), f1);
 
 		if (!l)
@@ -113,7 +114,7 @@ void
 SV_CopySaveGame(char *src, char *dst)
 {
 	char name[MAX_OSPATH], name2[MAX_OSPATH];
-	size_t l, len;
+	size_t len;
 	char *found;
 
 	Com_DPrintf("SV_CopySaveGame(%s, %s)\n", src, dst);
@@ -137,7 +138,9 @@ SV_CopySaveGame(char *src, char *dst)
 
 	while (found)
 	{
-		strcpy(name + len, found + len);
+		int l;
+
+		Q_strlcpy(name + len, found + len, Q_max(sizeof(name) - len, 0));
 
 		Com_sprintf(name2, sizeof(name2), "%s/save/%s/%s",
 					FS_Gamedir(), dst, found + len);
@@ -157,16 +160,36 @@ SV_CopySaveGame(char *src, char *dst)
 }
 
 void
+SV_CleanLevelFileName(char *savename)
+{
+	char *pos;
+
+	pos = savename;
+	while(*pos)
+	{
+		if (*pos == '/' || *pos == '\\')
+		{
+			*pos = '_';
+		}
+		pos ++;
+	}
+}
+
+void
 SV_WriteLevelFile(void)
 {
 	char name[MAX_OSPATH];
+	char savename[MAX_OSPATH];
 	char workdir[MAX_OSPATH];
 	FILE *f;
 
-	Com_DPrintf("SV_WriteLevelFile()\n");
+	Com_DPrintf("%s()\n", __func__);
+
+	Q_strlcpy(savename, sv.name, sizeof(savename));
+	SV_CleanLevelFileName(savename);
 
 	Com_sprintf(name, sizeof(name), "%s/save/current/%s.sv2",
-				FS_Gamedir(), sv.name);
+				FS_Gamedir(), savename);
 	f = Q_fopen(name, "wb");
 
 	if (!f)
@@ -190,7 +213,7 @@ SV_WriteLevelFile(void)
 		return;
 	}
 
-	Com_sprintf(name, sizeof(name), "%s.sav", sv.name);
+	Com_sprintf(name, sizeof(name), "%s.sav", savename);
 	ge->WriteLevel(name);
 
 	Sys_SetWorkDir(workdir);
@@ -200,12 +223,16 @@ void
 SV_ReadLevelFile(void)
 {
 	char name[MAX_OSPATH];
+	char savename[MAX_OSPATH];
 	char workdir[MAX_OSPATH];
 	fileHandle_t f;
 
-	Com_DPrintf("SV_ReadLevelFile()\n");
+	Com_DPrintf("%s()\n", __func__);
 
-	Com_sprintf(name, sizeof(name), "save/current/%s.sv2", sv.name);
+	Q_strlcpy(savename, sv.name, sizeof(savename));
+	SV_CleanLevelFileName(savename);
+
+	Com_sprintf(name, sizeof(name), "save/current/%s.sv2", savename);
 	FS_FOpenFile(name, &f, true);
 
 	if (!f)
@@ -228,7 +255,7 @@ SV_ReadLevelFile(void)
 		return;
 	}
 
-	Com_sprintf(name, sizeof(name), "%s.sav", sv.name);
+	Com_sprintf(name, sizeof(name), "%s.sav", savename);
 	ge->ReadLevel(name);
 
 	Sys_SetWorkDir(workdir);
@@ -243,7 +270,6 @@ SV_WriteServerFile(qboolean autosave)
 	char workdir[MAX_OSPATH];
 	char comment[32];
 	time_t aclock;
-	struct tm *newtime;
 
 	Com_DPrintf("SV_WriteServerFile(%s)\n", autosave ? "true" : "false");
 
@@ -261,6 +287,8 @@ SV_WriteServerFile(qboolean autosave)
 
 	if (!autosave)
 	{
+		struct tm *newtime;
+
 		time(&aclock);
 		newtime = localtime(&aclock);
 		Com_sprintf(comment, sizeof(comment), "%2i:%i%i %2i/%2i  ",
@@ -363,6 +391,7 @@ SV_ReadServerFile(void)
 		}
 
 		FS_Read(string, sizeof(string), f);
+		string[sizeof(string) - 1] = 0;
 		Com_DPrintf("Set %s = %s\n", cvarname, string);
 		Cvar_ForceSet(cvarname, string);
 	}
@@ -372,7 +401,7 @@ SV_ReadServerFile(void)
 	/* start a new game fresh with new cvars */
 	SV_InitGame();
 
-	strcpy(svs.mapcmd, mapcmd);
+	Q_strlcpy(svs.mapcmd, mapcmd, sizeof(svs.mapcmd));
 
 	/* read game state */
 	Com_sprintf(name, sizeof(name), "%s/save/current", FS_Gamedir());
@@ -386,25 +415,6 @@ SV_ReadServerFile(void)
 	}
 
 	ge->ReadGame("game.ssv");
-
-	/* While loading a savegame the global edict arrays is free()ed
-	   and newly malloc()ed to reset all entity states. When the game
-	   puts the first client into the server it sends it's entity
-	   state to us, so as long as there's only one client (the game
-	   is running in single player mode) everything's okay. But when
-	   there're more clients (the game is running in coop mode) the
-	   entity states if all clients >1 are dangeling. hack around
-	   that by reconnecting them here. */
-	cvar_t *coop = Cvar_Get("coop", "0", CVAR_LATCH);
-
-	if (coop->value)
-	{
-		for (int i = 0; i < maxclients->value; i++)
-		{
-			edict_t *ent = EDICT_NUM(i + 1);
-			svs.clients[i].edict = ent;
-		}
-	}
 
 	Sys_SetWorkDir(workdir);
 }
@@ -496,7 +506,7 @@ SV_Savegame_f(void)
 	}
 
 	if ((maxclients->value == 1) &&
-		(svs.clients[0].edict->client->ps.stats[STAT_HEALTH] <= 0))
+		(CL_EDICT(&svs.clients[0])->client->ps.stats[STAT_HEALTH] <= 0))
 	{
 		Com_Printf("\nCan't savegame while dead!\n");
 		return;

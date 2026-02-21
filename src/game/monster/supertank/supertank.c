@@ -29,8 +29,6 @@
 #include "../../header/local.h"
 #include "supertank.h"
 
-qboolean visible(edict_t *self, edict_t *other);
-
 static int sound_pain1;
 static int sound_pain2;
 static int sound_pain3;
@@ -584,7 +582,7 @@ supertank_reattack1(edict_t *self)
 
 void
 supertank_pain(edict_t *self, edict_t *other /* unused */,
-	   	float kick /* unused */, int damage)
+		float kick /* unused */, int damage)
 {
 	if (!self)
 	{
@@ -706,7 +704,7 @@ supertankMachineGun(edict_t *self)
 				   (self->s.frame - FRAME_attak1_1);
 
 	dir[0] = 0;
-	dir[1] = self->s.angles[1];
+	dir[1] = self->s.angles[YAW];
 	dir[2] = 0;
 
 	AngleVectors(dir, forward, right, NULL);
@@ -769,10 +767,7 @@ supertank_dead(edict_t *self)
 
 	VectorSet(self->mins, -60, -60, 0);
 	VectorSet(self->maxs, 60, 60, 72);
-	self->movetype = MOVETYPE_TOSS;
-	self->svflags |= SVF_DEADMONSTER;
-	self->nextthink = 0;
-	gi.linkentity(self);
+	monster_dynamic_dead(self);
 }
 
 void
@@ -829,20 +824,17 @@ BossExplode(edict_t *self)
 
 			for (n = 0; n < 4; n++)
 			{
-				ThrowGib(self, "models/objects/gibs/sm_meat/tris.md2",
-						500, GIB_ORGANIC);
+				ThrowGib(self, NULL, 500, GIB_ORGANIC);
 			}
 
 			for (n = 0; n < 8; n++)
 			{
-				ThrowGib(self, "models/objects/gibs/sm_metal/tris.md2",
-						500, GIB_METALLIC);
+				ThrowGib(self, NULL, 500, GIB_METALLIC);
 			}
 
 			ThrowGib(self, "models/objects/gibs/chest/tris.md2",
 				500, GIB_ORGANIC);
-			ThrowHead(self, "models/objects/gibs/gear/tris.md2",
-				500, GIB_METALLIC);
+			ThrowHead(self, NULL, 500, GIB_METALLIC);
 			self->deadflag = DEAD_DEAD;
 			return;
 	}
@@ -920,7 +912,7 @@ SP_monster_supertank(edict_t *self)
 	VectorSet(self->mins, -64, -64, 0);
 	VectorSet(self->maxs, 64, 64, 112);
 
-	self->health = 1500;
+	self->health = 1500 * st.health_multiplier;
 	self->gib_health = -500;
 	self->mass = 800;
 

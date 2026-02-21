@@ -26,6 +26,7 @@
  */
 
 #include "header/local.h"
+#include "monster/misc/player.h"
 
 int debristhisframe;
 int gibsthisframe;
@@ -72,7 +73,7 @@ SP_func_areaportal(edict_t *ent)
 
 /* ===================================================== */
 
-void
+static void
 VelocityForDamage(int damage, vec3_t v)
 {
 	v[0] = 100.0 * crandom();
@@ -193,7 +194,7 @@ gib_die(edict_t *self, edict_t *inflictor /* unused */, edict_t *attacker /* unu
 }
 
 void
-ThrowGib(edict_t *self, const char *gibname, int damage, int type)
+ThrowGib(edict_t *self, const char *gibname, int damage, gibtype_t type)
 {
 	edict_t *gib;
 	vec3_t vd;
@@ -201,9 +202,28 @@ ThrowGib(edict_t *self, const char *gibname, int damage, int type)
 	vec3_t size;
 	float vscale;
 
-	if (!self || !gibname)
+	if (!self)
 	{
 		return;
+	}
+
+	if (!gibname)
+	{
+		switch (type)
+		{
+			case GIB_NONE:
+				/* no gib expected */
+				return;
+			case GIB_ORGANIC:
+				gibname = "models/objects/gibs/sm_meat/tris.md2";
+				break;
+			case GIB_METALLIC:
+				gibname = "models/objects/gibs/sm_metal/tris.md2";
+				break;
+			default:
+				/* unknow gib */
+				return;
+		}
 	}
 
 	if (gibsthisframe >= MAX_GIBS)
@@ -262,14 +282,33 @@ ThrowGib(edict_t *self, const char *gibname, int damage, int type)
 }
 
 void
-ThrowHead(edict_t *self, const char *gibname, int damage, int type)
+ThrowHead(edict_t *self, const char *gibname, int damage, gibtype_t type)
 {
 	vec3_t vd;
 	float vscale;
 
-	if (!self || !gibname)
+	if (!self)
 	{
 		return;
+	}
+
+	if (!gibname)
+	{
+		switch (type)
+		{
+			case GIB_NONE:
+				/* no gib expected */
+				return;
+			case GIB_ORGANIC:
+				gibname = "models/objects/gibs/head2/tris.md2";
+				break;
+			case GIB_METALLIC:
+				gibname = "models/objects/gibs/gear/tris.md2";
+				break;
+			default:
+				/* unknow gib */
+				return;
+		}
 	}
 
 	self->s.skinnum = 0;
@@ -319,7 +358,7 @@ ThrowHead(edict_t *self, const char *gibname, int damage, int type)
 }
 
 void
-ThrowGibACID(edict_t *self, const char *gibname, int damage, int type)
+ThrowGibACID(edict_t *self, const char *gibname, int damage, gibtype_t type)
 {
 	edict_t *gib;
 	vec3_t vd;
@@ -387,12 +426,12 @@ ThrowGibACID(edict_t *self, const char *gibname, int damage, int type)
 }
 
 void
-ThrowHeadACID(edict_t *self, const char *gibname, int damage, int type)
+ThrowHeadACID(edict_t *self, const char *gibname, int damage, gibtype_t type)
 {
 	vec3_t vd;
 	float vscale;
 
-    if (!self || !gibname)
+	if (!self || !gibname)
 	{
 		return;
 	}
@@ -614,6 +653,7 @@ BecomeExplosion2(edict_t *self)
 
 	G_FreeEdict(self);
 }
+
 /* ===================================================== */
 
 /*
@@ -733,6 +773,7 @@ point_combat_touch(edict_t *self, edict_t *other, cplane_t *plane /* unused */,
 		csurface_t *surf /* unused */)
 {
 	edict_t *activator;
+	vec3_t v;
 
 	if (!self || !other)
 	{
@@ -749,12 +790,18 @@ point_combat_touch(edict_t *self, edict_t *other, cplane_t *plane /* unused */,
 		other->target = self->target;
 		other->goalentity = other->movetarget = G_PickTarget(other->target);
 
-		if (!other->goalentity)
+		if (other->goalentity)
+		{
+			VectorSubtract(other->goalentity->s.origin, other->s.origin, v);
+			other->ideal_yaw = vectoyaw(v);
+		}
+		else
 		{
 			gi.dprintf("%s at %s target %s does not exist\n",
 					self->classname,
 					vtos(self->s.origin),
 					self->target);
+
 			other->movetarget = self;
 		}
 
@@ -834,7 +881,7 @@ SP_point_combat(edict_t *self)
  * Just for the debugging level.  Don't use
  */
 void
-TH_viewthing(edict_t *ent)
+viewthing_think(edict_t *ent)
 {
 	if (!ent)
 	{
@@ -871,7 +918,7 @@ SP_viewthing(edict_t *ent)
 	ent->s.modelindex = gi.modelindex("models/objects/banner/tris.md2");
 	gi.linkentity(ent);
 	ent->nextthink = level.time + 0.5;
-	ent->think = TH_viewthing;
+	ent->think = viewthing_think;
 	return;
 }
 
@@ -911,6 +958,7 @@ SP_info_notnull(edict_t *self)
 }
 
 #define START_OFF 1
+#define LIGHT_ALLOW_IN_DM 2
 
 /*
  * QUAKED light (0 1 0) (-8 -8 -8) (8 8 8) START_OFF
@@ -931,13 +979,57 @@ light_use(edict_t *self, edict_t *other /* unused */, edict_t *activator /* unus
 
 	if (self->spawnflags & START_OFF)
 	{
-		gi.configstring(CS_LIGHTS + self->style, "m");
+		gi.configstring(CS_LIGHTS + self->style, self->style_on);
 		self->spawnflags &= ~START_OFF;
 	}
 	else
 	{
-		gi.configstring(CS_LIGHTS + self->style, "a");
+		gi.configstring(CS_LIGHTS + self->style, self->style_off);
 		self->spawnflags |= START_OFF;
+	}
+}
+
+/* -------------------------------------------------------------------------
+ * Shadow / dynamic light support
+ * ------------------------------------------------------------------------- */
+
+typedef struct
+{
+	int entity_number;
+	shadow_light_data_t shadowlight;
+} shadow_light_info_t;
+
+static shadow_light_info_t shadowlightinfo[MAX_SHADOW_LIGHTS];
+
+static void
+setup_dynamic_light(edict_t *self)
+{
+	if (st.sl_radius > 0 && level.shadow_light_count < MAX_SHADOW_LIGHTS)
+	{
+		shadow_light_info_t *shadowlight;
+
+		shadowlight = &shadowlightinfo[level.shadow_light_count];
+
+		self->s.renderfx = RF_CASTSHADOW;
+		self->itemtarget = st.sl_lightstyletarget;
+
+		shadowlight->entity_number = self->s.number;
+		/* copy spawn data into our shadowlightinfo entry */
+		shadowlight->shadowlight.radius = st.sl_radius;
+		shadowlight->shadowlight.resolution = st.sl_resolution;
+		shadowlight->shadowlight.intensity = st.sl_intensity;
+		shadowlight->shadowlight.fade_start = st.sl_fade_start;
+		shadowlight->shadowlight.fade_end = st.sl_fade_end;
+		shadowlight->shadowlight.lightstyle = st.sl_lightstyle;
+		shadowlight->shadowlight.coneangle = st.sl_coneangle;
+		VectorClear(shadowlight->shadowlight.conedirection);
+
+		level.shadow_light_count++;
+
+		VectorClear(self->mins);
+		VectorClear(self->maxs);
+
+		gi.linkentity(self);
 	}
 }
 
@@ -950,7 +1042,9 @@ SP_light(edict_t *self)
 	}
 
 	/* no targeted lights in deathmatch, because they cause global messages */
-	if (!self->targetname || deathmatch->value)
+	if ((!self->targetname ||
+		(deathmatch->value && !(self->spawnflags & LIGHT_ALLOW_IN_DM))) &&
+		st.sl_radius == 0)
 	{
 		G_FreeEdict(self);
 		return;
@@ -960,16 +1054,176 @@ SP_light(edict_t *self)
 	{
 		self->use = light_use;
 
+		if (!self->style_on || !*self->style_on)
+		{
+			self->style_on = "m";
+		}
+		else if (*self->style_on >= '0' && *self->style_on <= '9')
+		{
+			int style_on = atoi(self->style_on);
+
+			if (style_on < MAX_LIGHTSTYLES)
+			{
+				self->style_on = gi.GetConfigString(CS_LIGHTS + style_on);
+			}
+		}
+
+		if (!self->style_off || !*self->style_off)
+		{
+			self->style_off = "a";
+		}
+		else if (*self->style_off >= '0' && *self->style_off <= '9')
+		{
+			int style_off = atoi(self->style_off);
+
+			if (style_off < MAX_LIGHTSTYLES)
+			{
+				self->style_off = gi.GetConfigString(CS_LIGHTS + style_off);
+			}
+		}
+
 		if (self->spawnflags & START_OFF)
 		{
-			gi.configstring(CS_LIGHTS + self->style, "a");
+			gi.configstring(CS_LIGHTS + self->style, self->style_off);
 		}
 		else
 		{
-			gi.configstring(CS_LIGHTS + self->style, "m");
+			gi.configstring(CS_LIGHTS + self->style, self->style_on);
 		}
 	}
+
+	setup_dynamic_light(self);
 }
+
+void
+setup_shadow_lights(void)
+{
+	int i;
+
+	for (i = 0; i < level.shadow_light_count; ++i)
+	{
+		edict_t *self = &g_edicts[shadowlightinfo[i].entity_number];
+
+		shadowlightinfo[i].shadowlight.lighttype = SHADOW_LIGHT_POINT;
+		VectorClear(shadowlightinfo[i].shadowlight.conedirection);
+
+		if (self->target)
+		{
+			edict_t *target = G_Find(NULL, FOFS(targetname), self->target);
+			if (target)
+			{
+				vec3_t dir;
+
+				VectorSubtract(target->s.origin, self->s.origin, dir);
+				VectorNormalize(dir);
+				VectorCopy(dir, shadowlightinfo[i].shadowlight.conedirection);
+				shadowlightinfo[i].shadowlight.lighttype = SHADOW_LIGHT_CONE;
+			}
+		}
+
+		if (self->itemtarget)
+		{
+			edict_t *target = G_Find(NULL, FOFS(targetname), self->itemtarget);
+			if (target)
+			{
+				shadowlightinfo[i].shadowlight.lightstyle = target->style;
+			}
+		}
+
+		gi.configstring(CS_SHADOWLIGHTS + i, va("%d;%d;%.3f;%d;%.3f;%.3f;%.3f;%d;%.3f;%.3f;%.3f;%.3f",
+			self->s.number,
+			(int)shadowlightinfo[i].shadowlight.lighttype,
+			shadowlightinfo[i].shadowlight.radius,
+			shadowlightinfo[i].shadowlight.resolution,
+			shadowlightinfo[i].shadowlight.intensity,
+			shadowlightinfo[i].shadowlight.fade_start,
+			shadowlightinfo[i].shadowlight.fade_end,
+			shadowlightinfo[i].shadowlight.lightstyle,
+			shadowlightinfo[i].shadowlight.coneangle,
+			shadowlightinfo[i].shadowlight.conedirection[0],
+			shadowlightinfo[i].shadowlight.conedirection[1],
+			shadowlightinfo[i].shadowlight.conedirection[2]));
+	}
+}
+
+static double
+ParseShadowLight(const char **line)
+{
+	const char *end_line;
+	char token[64];
+	size_t len;
+
+	/* entity number */
+	end_line = strchr(*line, ';');
+	if (!end_line)
+	{
+		return 0;
+	}
+
+	len = Q_min(end_line - *line, sizeof(token) - 1);
+	strncpy(token, *line, len);
+	token[len] = 0;
+	*line = end_line + 1;
+	return strtod(token, (char **)NULL);
+}
+
+void
+G_LoadShadowLights(void)
+{
+	size_t i;
+
+	for (i = 0; i < level.shadow_light_count; i++)
+	{
+		const char *s;
+
+		s = gi.GetConfigString(CS_SHADOWLIGHTS + i);
+		if (!s || !*s)
+		{
+			continue;
+		}
+
+		shadowlightinfo[i].entity_number = ParseShadowLight(&s);
+		shadowlightinfo[i].shadowlight.lighttype = ParseShadowLight(&s);
+		shadowlightinfo[i].shadowlight.radius = ParseShadowLight(&s);
+		shadowlightinfo[i].shadowlight.resolution = ParseShadowLight(&s);
+		shadowlightinfo[i].shadowlight.intensity = ParseShadowLight(&s);
+		shadowlightinfo[i].shadowlight.fade_start = ParseShadowLight(&s);
+		shadowlightinfo[i].shadowlight.fade_end = ParseShadowLight(&s);
+		shadowlightinfo[i].shadowlight.lightstyle = ParseShadowLight(&s);
+		shadowlightinfo[i].shadowlight.coneangle = ParseShadowLight(&s);
+		shadowlightinfo[i].shadowlight.conedirection[0] = ParseShadowLight(&s);
+		shadowlightinfo[i].shadowlight.conedirection[1] = ParseShadowLight(&s);
+		shadowlightinfo[i].shadowlight.conedirection[2] = ParseShadowLight(&s);
+	}
+}
+
+void
+dynamic_light_use(edict_t *self, edict_t *other, edict_t *activator)
+{
+	self->svflags ^= SVF_NOCLIENT;
+}
+
+/*
+ * QUAKED dynamic_light (1 0.5 0) (-8 -8 -8) (8 8 8) START_OFF
+ *
+ * Dynamic KEX light
+ */
+void
+SP_dynamic_light(edict_t *self)
+{
+	setup_dynamic_light(self);
+
+	if (self->targetname)
+	{
+		self->use = dynamic_light_use;
+	}
+
+	if (self->spawnflags & START_OFF)
+	{
+		self->svflags ^= SVF_NOCLIENT;
+	}
+}
+
 
 /* ===================================================== */
 
@@ -1056,7 +1310,7 @@ SP_func_wall(edict_t *self)
 	{
 		if (!(self->spawnflags & 2))
 		{
-			gi.dprintf("func_wall START_ON without TOGGLE\n");
+			gi.dprintf("%s START_ON without TOGGLE\n", self->classname);
 			self->spawnflags |= 2;
 		}
 	}
@@ -1071,6 +1325,54 @@ SP_func_wall(edict_t *self)
 	{
 		self->solid = SOLID_NOT;
 		self->svflags |= SVF_NOCLIENT;
+	}
+
+	gi.linkentity(self);
+}
+
+/* ===================================================== */
+
+/*
+ * QUAKED func_animation (0 .5 .8) ? START_ON
+ *
+ * Similar to func_wall, but triggering it will toggle animation
+ * state rather than going on/off.
+ *
+ * START_ON		will start in alterate animation
+ */
+
+#define START_ON 1
+
+void
+func_animation_use(edict_t *self, edict_t *other, edict_t *activator)
+{
+	self->bmodel_anim.alternate = self->bmodel_anim.alternate ? false : true;
+}
+
+void
+SP_func_animation(edict_t *self)
+{
+	if (!self->bmodel_anim.enabled)
+	{
+		gi.dprintf("%s: has no animation data\n", __func__);
+		G_FreeEdict(self);
+		return;
+	}
+
+	self->movetype = MOVETYPE_PUSH;
+	gi.setmodel(self, self->model);
+	self->solid = SOLID_BSP;
+
+	self->use = func_animation_use;
+	self->bmodel_anim.alternate = (self->spawnflags & START_ON) ? true : false;
+
+	if (self->bmodel_anim.alternate)
+	{
+		self->s.frame = self->bmodel_anim.alt_start;
+	}
+	else
+	{
+		self->s.frame = self->bmodel_anim.start;
 	}
 
 	gi.linkentity(self);
@@ -1466,9 +1768,8 @@ barrel_touch(edict_t *self, edict_t *other, cplane_t *plane /* unused */, csurfa
 void
 barrel_explode(edict_t *self)
 {
-	vec3_t org;
+	vec3_t org, save;
 	float spd;
-	vec3_t save;
 
 	if (!self)
 	{
@@ -1651,7 +1952,6 @@ SP_misc_explobox(edict_t *self)
 
 	gi.linkentity(self);
 }
-
 
 /* ===================================================== */
 
@@ -1916,15 +2216,15 @@ commander_body_die(edict_t *self, edict_t *inflictor /* unused */,
 	{
 		gi.sound(self, CHAN_BODY, gi.soundindex("tank/pain.wav"), 1, ATTN_NORM, 0);
 
-		ThrowGib(self, "models/objects/gibs/sm_meat/tris.md2", damage, GIB_ORGANIC);
+		ThrowGib(self, NULL, damage, GIB_ORGANIC);
 
 		for (n = 0; n < 4; n++)
 		{
-			ThrowGib(self, "models/objects/gibs/sm_metal/tris.md2", damage, GIB_METALLIC);
+			ThrowGib(self, NULL, damage, GIB_METALLIC);
 		}
 
 		ThrowGib(self, "models/objects/gibs/chest/tris.md2", damage, GIB_ORGANIC);
-		ThrowHead(self, "models/objects/gibs/gear/tris.md2", damage, GIB_METALLIC);
+		ThrowHead(self, NULL, damage, GIB_METALLIC);
 		self->deadflag = DEAD_DEAD;
 
 		return;
@@ -2035,13 +2335,10 @@ misc_deadsoldier_die(edict_t *self, edict_t *inflictor /* unused */, edict_t *at
 
 	for (n = 0; n < 4; n++)
 	{
-		ThrowGib(self,
-				"models/objects/gibs/sm_meat/tris.md2",
-				damage,
-				GIB_ORGANIC);
+		ThrowGib(self, NULL, damage, GIB_ORGANIC);
 	}
 
-	ThrowHead(self, "models/objects/gibs/head2/tris.md2", damage, GIB_ORGANIC);
+	ThrowHead(self, NULL, damage, GIB_ORGANIC);
 }
 
 void
@@ -2138,7 +2435,8 @@ SP_misc_viper(edict_t *ent)
 
 	if (!ent->target)
 	{
-		gi.dprintf("misc_viper without a target at %s\n", vtos(ent->absmin));
+		gi.dprintf("%s without a target at %s\n", ent->classname,
+			vtos(ent->absmin));
 		G_FreeEdict(ent);
 		return;
 	}
@@ -2178,7 +2476,8 @@ SP_misc_crashviper(edict_t *ent)
 
 	if (!ent->target)
 	{
-		gi.dprintf("misc_viper without a target at %s\n", vtos(ent->absmin));
+		gi.dprintf("%s without a target at %s\n", ent->classname,
+			vtos(ent->absmin));
 		G_FreeEdict(ent);
 		return;
 	}
@@ -2270,9 +2569,9 @@ misc_viper_bomb_prethink(edict_t *self)
 	VectorScale(self->moveinfo.dir, 1.0 + diff, v);
 	v[2] = diff;
 
-	diff = self->s.angles[2];
+	diff = self->s.angles[ROLL];
 	vectoangles(v, self->s.angles);
-	self->s.angles[2] = diff + 10;
+	self->s.angles[ROLL] = diff + 10;
 }
 
 void
@@ -2679,6 +2978,30 @@ SP_misc_gib_head(edict_t *ent)
  * used with target_string (must be on same "team")
  * "count" is position in the string (starts at 1)
  */
+#define TARGET_CHAR_DASH 10
+#define TARGET_CHAR_COLON 11
+#define TARGET_CHAR_BLANK 12
+
+static int
+_target_character_getframe(char c)
+{
+	if ((c >= '0') && (c <= '9'))
+	{
+		return c - '0';
+	}
+
+	if (c == '-')
+	{
+		return TARGET_CHAR_DASH;
+	}
+
+	if (c == ':')
+	{
+		return TARGET_CHAR_COLON;
+	}
+
+	return TARGET_CHAR_BLANK;
+}
 
 void
 SP_target_character(edict_t *self)
@@ -2691,9 +3014,8 @@ SP_target_character(edict_t *self)
 	self->movetype = MOVETYPE_PUSH;
 	gi.setmodel(self, self->model);
 	self->solid = SOLID_BSP;
-	self->s.frame = 12;
+	self->s.frame = TARGET_CHAR_BLANK;
 	gi.linkentity(self);
-	return;
 }
 
 /* ===================================================== */
@@ -2701,54 +3023,28 @@ SP_target_character(edict_t *self)
 /*
  * QUAKED target_string (0 0 1) (-8 -8 -8) (8 8 8)
  */
+static void
+_target_string_apply(edict_t *tm, const char *str)
+{
+	edict_t *e;
+	size_t l, n;
+
+	l = str ? strlen(str) : 0;
+
+	for (e = tm; e && e->inuse; e = e->teamchain)
+	{
+		if (e->count > 0)
+		{
+			n = e->count - 1;
+			e->s.frame = _target_character_getframe((n < l) ? str[n] : ' ');
+		}
+	}
+}
+
 void
 target_string_use(edict_t *self, edict_t *other /* unused */, edict_t *activator /* unused */)
 {
-	edict_t *e;
-	int n, l;
-	char c;
-
-	if (!self)
-	{
-		return;
-	}
-
-	l = strlen(self->message);
-
-	for (e = self->teammaster; e; e = e->teamchain)
-	{
-		if (!e->count)
-		{
-			continue;
-		}
-
-		n = e->count - 1;
-
-		if (n > l)
-		{
-			e->s.frame = 12;
-			continue;
-		}
-
-		c = self->message[n];
-
-		if ((c >= '0') && (c <= '9'))
-		{
-			e->s.frame = c - '0';
-		}
-		else if (c == '-')
-		{
-			e->s.frame = 10;
-		}
-		else if (c == ':')
-		{
-			e->s.frame = 11;
-		}
-		else
-		{
-			e->s.frame = 12;
-		}
-	}
+	_target_string_apply(self->teammaster, self->message);
 }
 
 void
@@ -2783,13 +3079,18 @@ SP_target_string(edict_t *self)
  *          1 "xx:xx"
  *          2 "xx:xx:xx"
  */
+#define FUNC_CLOCK_SF_UP 1
+#define FUNC_CLOCK_SF_DOWN 2
+#define FUNC_CLOCK_SF_OFF 4
+#define FUNC_CLOCK_SF_MULUSE 8
+
+#define CLOCK_TYPE_S 0
+#define CLOCK_TYPE_MS 1
+#define CLOCK_TYPE_HMS 2
 
 #define CLOCK_MESSAGE_SIZE 16
 
-/* don't let field width of any clock messages change, or it
-   could cause an overwrite after a game load */
-
-void
+static void
 func_clock_reset(edict_t *self)
 {
 	if (!self)
@@ -2799,141 +3100,125 @@ func_clock_reset(edict_t *self)
 
 	self->activator = NULL;
 
-	if (self->spawnflags & 1)
+	if (self->spawnflags & FUNC_CLOCK_SF_UP)
 	{
 		self->health = 0;
-		self->wait = self->count;
 	}
-	else if (self->spawnflags & 2)
+	else if (self->spawnflags & FUNC_CLOCK_SF_DOWN)
 	{
 		self->health = self->count;
-		self->wait = 0;
 	}
 }
 
-/*
- * This is an evil hack to
- * prevent a rare crahs at
- * biggun exit. */
-typedef struct zhead_s
+static void
+func_clock_format_counter(int type, int t, char *str, size_t str_sz)
 {
-   struct zhead_s *prev, *next;
-   short magic;
-   short tag;
-   int size;
-} zhead_t;
+	if (!str || !str_sz)
+	{
+		return;
+	}
 
-void
-func_clock_format_countdown(edict_t *self)
+	switch (type)
+	{
+		case CLOCK_TYPE_S:
+			Com_sprintf(str, str_sz, "%2i", t);
+			break;
+		case CLOCK_TYPE_MS:
+			Com_sprintf(str, str_sz, "%2i:%02i",
+				t / 60, t % 60);
+			break;
+		case CLOCK_TYPE_HMS:
+			Com_sprintf(str, str_sz, "%2i:%02i:%02i",
+				t / 3600,
+				(t - ((t / 3600) * 3600)) / 60,
+				t % 60);
+			break;
+		default:
+			*str = '\0';
+	}
+}
+
+static void
+func_clock_format_currtime(char *str, size_t str_sz)
 {
-	if (!self)
+	struct tm *ltime;
+	time_t gmtime;
+
+	if (!str || !str_sz)
 	{
 		return;
 	}
 
-	zhead_t *z = ( zhead_t * )self->message - 1;
-	int size = z->size - sizeof (zhead_t);
+	time(&gmtime);
+	ltime = localtime(&gmtime);
 
-	if (size < CLOCK_MESSAGE_SIZE)
+	Com_sprintf(str, str_sz, "%2i:%02i:%02i",
+		ltime->tm_hour, ltime->tm_min, ltime->tm_sec);
+}
+
+static qboolean
+ent_is_target_string(const edict_t *e)
+{
+	return (e && e->inuse &&
+		e->classname && strcmp(e->classname, "target_string") == 0) ? true : false;
+}
+
+static qboolean
+_func_clock_check_strent(edict_t *self)
+{
+	if (ent_is_target_string(self->enemy))
 	{
-		gi.TagFree (self->message);
-		self->message = gi.TagMalloc (CLOCK_MESSAGE_SIZE, TAG_LEVEL);
+		return true;
 	}
 
-	if (self->style == 0)
+	self->enemy = G_Find(NULL, FOFS(targetname), self->target);
+
+	if (!ent_is_target_string(self->enemy))
 	{
-		Com_sprintf(self->message, CLOCK_MESSAGE_SIZE, "%2i", self->health);
-		return;
+		self->enemy = NULL;
+		return false;
 	}
 
-	if (self->style == 1)
-	{
-		Com_sprintf(self->message, CLOCK_MESSAGE_SIZE, "%2i:%2i",
-				self->health / 60, self->health % 60);
-
-		if (self->message[3] == ' ')
-		{
-			self->message[3] = '0';
-		}
-
-		return;
-	}
-
-	if (self->style == 2)
-	{
-		Com_sprintf(self->message, CLOCK_MESSAGE_SIZE, "%2i:%2i:%2i",
-				self->health / 3600,
-				(self->health - (self->health / 3600) * 3600) / 60,
-				self->health % 60);
-
-		if (self->message[3] == ' ')
-		{
-			self->message[3] = '0';
-		}
-
-		if (self->message[6] == ' ')
-		{
-			self->message[6] = '0';
-		}
-
-		return;
-	}
+	return true;
 }
 
 void
 func_clock_think(edict_t *self)
 {
+	char str[CLOCK_MESSAGE_SIZE];
+
 	if (!self)
 	{
 		return;
 	}
 
-	if (!self->enemy)
+	if (_func_clock_check_strent(self))
 	{
-		self->enemy = G_Find(NULL, FOFS(targetname), self->target);
+		*str = '\0';
 
-		if (!self->enemy)
+		if (self->spawnflags & (FUNC_CLOCK_SF_UP|FUNC_CLOCK_SF_DOWN))
 		{
-			return;
+			func_clock_format_counter(self->style, self->health, str, sizeof(str));
 		}
+		else
+		{
+			func_clock_format_currtime(str, sizeof(str));
+		}
+
+		_target_string_apply(self->enemy->teammaster, str);
 	}
 
-	if (self->spawnflags & 1)
+	if (self->spawnflags & FUNC_CLOCK_SF_UP)
 	{
-		func_clock_format_countdown(self);
 		self->health++;
 	}
-	else if (self->spawnflags & 2)
+	else if (self->spawnflags & FUNC_CLOCK_SF_DOWN)
 	{
-		func_clock_format_countdown(self);
 		self->health--;
 	}
-	else
-	{
-		struct tm *ltime;
-		time_t gmtime;
 
-		time(&gmtime);
-		ltime = localtime(&gmtime);
-		Com_sprintf(self->message, CLOCK_MESSAGE_SIZE, "%2i:%2i:%2i",
-				ltime->tm_hour, ltime->tm_min, ltime->tm_sec);
-
-		if (self->message[3] == ' ')
-		{
-			self->message[3] = '0';
-		}
-
-		if (self->message[6] == ' ')
-		{
-			self->message[6] = '0';
-		}
-	}
-
-	self->enemy->message = self->message;
-	self->enemy->use(self->enemy, self, self);
-
-	if (((self->spawnflags & 1) && (self->health > self->wait)) ||
-		((self->spawnflags & 2) && (self->health < self->wait)))
+	if (((self->spawnflags & FUNC_CLOCK_SF_UP) && (self->health > self->count)) ||
+		((self->spawnflags & FUNC_CLOCK_SF_DOWN) && (self->health < 0)))
 	{
 		if (self->pathtarget)
 		{
@@ -2949,7 +3234,7 @@ func_clock_think(edict_t *self)
 			self->message = savemessage;
 		}
 
-		if (!(self->spawnflags & 8))
+		if (!(self->spawnflags & FUNC_CLOCK_SF_MULUSE))
 		{
 			self->think = G_FreeEdict;
 			self->nextthink = level.time + 1;
@@ -2958,7 +3243,7 @@ func_clock_think(edict_t *self)
 
 		func_clock_reset(self);
 
-		if (self->spawnflags & 4)
+		if (self->spawnflags & FUNC_CLOCK_SF_OFF)
 		{
 			return;
 		}
@@ -2970,12 +3255,17 @@ func_clock_think(edict_t *self)
 void
 func_clock_use(edict_t *self, edict_t *other /* unused */, edict_t *activator)
 {
-	if (!self || !activator)
+	if (!self)
 	{
 		return;
 	}
 
-	if (!(self->spawnflags & 8))
+	if (!self->think)
+	{
+		return;
+	}
+
+	if (!(self->spawnflags & FUNC_CLOCK_SF_MULUSE))
 	{
 		self->use = NULL;
 	}
@@ -3001,30 +3291,32 @@ SP_func_clock(edict_t *self)
 	{
 		gi.dprintf("%s with no target at %s\n", self->classname,
 				vtos(self->s.origin));
+
 		G_FreeEdict(self);
 		return;
 	}
 
-	if ((self->spawnflags & 2) && (!self->count))
+	if ((self->spawnflags & FUNC_CLOCK_SF_DOWN) &&
+		(self->count <= 0))
 	{
 		gi.dprintf("%s with no count at %s\n", self->classname,
 				vtos(self->s.origin));
+
 		G_FreeEdict(self);
 		return;
 	}
 
-	if ((self->spawnflags & 1) && (!self->count))
+	if ((self->spawnflags & FUNC_CLOCK_SF_UP) &&
+		(self->count <= 0))
 	{
-		self->count = 60 * 60;
+		self->count = 3600;
 	}
 
 	func_clock_reset(self);
 
-	self->message = gi.TagMalloc(CLOCK_MESSAGE_SIZE, TAG_LEVEL);
-
 	self->think = func_clock_think;
 
-	if (self->spawnflags & 4)
+	if (self->spawnflags & FUNC_CLOCK_SF_OFF)
 	{
 		self->use = func_clock_use;
 	}
@@ -3272,4 +3564,359 @@ SP_misc_nuke_core(edict_t *ent)
 	gi.linkentity(ent);
 
 	ent->use = misc_nuke_core_use;
+}
+
+/*
+ * QUAKED misc_flare (1.0 1.0 0.0) (-32 -32 -32) (32 32 32) RED GREEN BLUE LOCK_ANGLE
+ * Creates a flare seen in the N64 version.
+ */
+#define SPAWNFLAG_FLARE_RED 1
+#define SPAWNFLAG_FLARE_GREEN 2
+#define SPAWNFLAG_FLARE_BLUE 4
+#define SPAWNFLAG_FLARE_LOCK_ANGLE 8
+
+void
+misc_flare_use(edict_t *ent, edict_t *other, edict_t *activator)
+{
+	ent->svflags ^= SVF_NOCLIENT;
+	gi.linkentity(ent);
+}
+
+void
+SP_misc_flare(edict_t* ent)
+{
+	int i;
+
+	ent->s.modelindex = gi.modelindex("misc/flare.tga");
+	ent->s.frame = 0;
+	ent->s.renderfx = RF_FLARE;
+	ent->solid = SOLID_NOT;
+
+	/* Radius saved to scale */
+	for (i = 0; i < 3; i++)
+	{
+		ent->rrs.scale[i] = st.radius;
+	}
+
+	if (ent->spawnflags & SPAWNFLAG_FLARE_RED)
+	{
+		ent->s.renderfx |= RF_SHELL_RED;
+	}
+
+	if (ent->spawnflags & SPAWNFLAG_FLARE_GREEN)
+	{
+		ent->s.renderfx |= RF_SHELL_GREEN;
+	}
+
+	if (ent->spawnflags & SPAWNFLAG_FLARE_BLUE)
+	{
+		ent->s.renderfx |= RF_SHELL_BLUE;
+	}
+
+	if (ent->spawnflags & SPAWNFLAG_FLARE_LOCK_ANGLE)
+	{
+		ent->s.renderfx |= RF_FLARE_LOCK_ANGLE;
+	}
+
+	if (st.image && *st.image)
+	{
+		ent->s.renderfx |= RF_CUSTOMSKIN;
+		ent->s.modelindex = gi.modelindex(st.image);
+	}
+
+	VectorSet(ent->mins, -32, -32, -32);
+	VectorSet(ent->maxs, 32, 32, 32);
+
+	ent->s.modelindex2 = st.fade_start_dist;
+	ent->s.modelindex3 = st.fade_end_dist;
+	ent->s.skinnum = st.rgba;
+	if (!ent->s.skinnum)
+	{
+		ent->s.skinnum = -1;
+	}
+
+	if (ent->targetname)
+	{
+		ent->use = misc_flare_use;
+	}
+
+	gi.linkentity(ent);
+}
+
+void
+misc_player_mannequin_use(edict_t * self, edict_t * other, edict_t * activator)
+{
+	int firstframe, lastframe;
+	const char *animname = NULL;
+
+	self->monsterinfo.aiflags |= AI_TARGET_ANGER;
+	self->enemy = activator;
+
+	switch ( self->count )
+	{
+		case GESTURE_FLIP_OFF:
+			animname = "flipoff";
+			firstframe = FRAME_flip01;
+			lastframe = FRAME_flip12;
+			break;
+		case GESTURE_SALUTE:
+			animname = "salute";
+			firstframe = FRAME_salute01;
+			lastframe = FRAME_salute11;
+			break;
+		case GESTURE_TAUNT:
+			animname = "taunt";
+			firstframe = FRAME_taunt01;
+			lastframe = FRAME_taunt17;
+			break;
+		case GESTURE_WAVE:
+			animname = "wave";
+			firstframe = FRAME_wave01;
+			lastframe = FRAME_wave11;
+			break;
+		case GESTURE_POINT:
+		default:
+			animname = "point";
+			firstframe = FRAME_point01;
+			lastframe = FRAME_point12;
+			break;
+	}
+
+	lastframe -= firstframe;
+	M_SetAnimGroupFrameValues(self, animname, &firstframe, &lastframe, 0);
+	lastframe += firstframe;
+
+	self->s.frame = firstframe;
+	self->monsterinfo.nextframe = lastframe;
+}
+
+void
+misc_player_mannequin_think(edict_t * self)
+{
+	if (self->last_sound_time <= level.time)
+	{
+		int firstframe = FRAME_stand01, lastframe = FRAME_stand40;
+
+		lastframe -= firstframe;
+		M_SetAnimGroupFrameValues(self, "stand", &firstframe, &lastframe, 0);
+		lastframe += firstframe;
+
+		self->s.frame++;
+
+		if ((self->monsterinfo.aiflags & AI_TARGET_ANGER) == 0)
+		{
+			if (self->s.frame > lastframe)
+			{
+				self->s.frame = firstframe;
+			}
+		}
+		else
+		{
+			if (self->s.frame > self->monsterinfo.nextframe)
+			{
+				self->s.frame = firstframe;
+				self->monsterinfo.aiflags &= ~AI_TARGET_ANGER;
+				self->enemy = NULL;
+			}
+		}
+
+		self->last_sound_time = level.time + FRAMETIME;
+	}
+
+	if (self->enemy)
+	{
+		vec3_t vec;
+
+		VectorSubtract(self->enemy->s.origin, self->s.origin, vec);
+		self->ideal_yaw = vectoyaw(vec);
+		M_ChangeYaw(self);
+	}
+
+	self->nextthink = level.time + FRAMETIME;
+}
+
+void
+SetupMannequinModel(edict_t * self, int modelType, const char *weapon, const char *skin)
+{
+	const char *model_name = NULL;
+	const char *default_skin = NULL;
+
+	switch (modelType)
+	{
+		case 1:
+			{
+				self->s.skinnum = (MAX_CLIENTS - 1);
+				model_name = "female";
+				default_skin = "venus";
+				break;
+			}
+
+		case 2:
+			{
+				self->s.skinnum = (MAX_CLIENTS - 2);
+				model_name = "male";
+				default_skin = "rampage";
+				break;
+			}
+
+		case 3:
+			{
+				self->s.skinnum = (MAX_CLIENTS - 3);
+				model_name = "cyborg";
+				default_skin = "oni911";
+				break;
+			}
+
+		default:
+			{
+				self->s.skinnum = (MAX_CLIENTS - 1);
+				model_name = "female";
+				default_skin = "venus";
+				break;
+			}
+	}
+
+	if (model_name)
+	{
+		char line[MAX_QPATH] = {0};
+
+		snprintf(line, sizeof(line), "players/%s/tris.md2", model_name);
+		self->model = ED_NewString(line, true);
+
+		if (weapon)
+		{
+			snprintf(line, sizeof(line), "players/%s/%s.md2", model_name, weapon);
+		}
+		else
+		{
+			snprintf(line, sizeof(line), "players/%s/w_hyperblaster.md2", model_name);
+		}
+		self->s.modelindex2 = gi.modelindex(line);
+
+		if (skin)
+		{
+			snprintf(line, sizeof(line), "%s/%s", model_name, skin);
+		}
+		else
+		{
+			snprintf(line, sizeof(line), "%s/%s", model_name, default_skin);
+		}
+		gi.configstring(CS_PLAYERSKINS + self->s.skinnum, line);
+	}
+}
+
+/*
+ * QUAKED misc_player_mannequin (1.0 1.0 0.0) (-32 -32 -32) (32 32 32)
+ * Creates a player mannequin that stands around.
+ *
+ * NOTE: this is currently very limited, and only allows one unique model
+ * from each of the three player model types.
+ *
+ *
+ * "distance"		- Sets the type of gesture mannequin when use when triggered
+ * "height"		- Sets the type of model to use ( valid numbers: 1 - 3 )
+ * "goals"		- Name of the weapon to use.
+ * "image"		- Name of the player skin to use.
+ * "radius"		- How much to scale the model in-game
+ */
+void
+SP_misc_player_mannequin(edict_t * self)
+{
+	int i;
+
+	self->movetype = MOVETYPE_NONE;
+	self->solid = SOLID_BBOX;
+	if (!st.effects)
+	{
+		self->s.effects = 0;
+	}
+
+	if (!st.renderfx)
+	{
+		self->s.renderfx = RF_MINLIGHT;
+	}
+
+	VectorSet(self->mins, -16, -16, -24);
+	VectorSet(self->maxs, 16, 16, 32);
+	self->yaw_speed = 30;
+	self->ideal_yaw = 0;
+	self->last_sound_time = level.time + FRAMETIME;
+	self->s.modelindex = CUSTOM_PLAYER_MODEL;
+	self->count = st.distance;
+
+	SetupMannequinModel(self, st.height, st.goals, st.image);
+
+	VectorSet(self->rrs.scale, 1.0f, 1.0f, 1.0f);
+	if (ai_model_scale->value > 0.0f)
+	{
+		VectorSet(self->rrs.scale,
+			ai_model_scale->value, ai_model_scale->value, ai_model_scale->value);
+	}
+	else if (st.radius > 0.0f)
+	{
+		VectorSet(self->rrs.scale,
+			st.radius, st.radius, st.radius);
+	}
+
+	for (i = 0;i < 3; i++)
+	{
+		self->mins[i] *= self->rrs.scale[i];
+		self->maxs[i] *= self->rrs.scale[i];
+	}
+
+	self->think = misc_player_mannequin_think;
+	self->nextthink = level.time + FRAMETIME;
+
+	if (self->targetname)
+	{
+		self->use = misc_player_mannequin_use;
+	}
+
+	gi.linkentity(self);
+}
+
+/*
+ * QUAKED misc_model (1 0 0) (-8 -8 -8) (8 8 8)
+ */
+void SP_misc_model(edict_t *ent)
+{
+	gi.setmodel(ent, ent->model);
+	gi.linkentity(ent);
+}
+
+/*
+ * QUAKED npc_timeminder (0 1 0) (-8 -8 -8) (8 8 8)
+ *
+ * Anachronox: Save menu open.
+ */
+void
+touch_npc_timeminder(edict_t *self, edict_t *other, cplane_t *plane /* unused */,
+		csurface_t *surf /* unused */)
+{
+	gi.AddCommandString("menu_savegame\n");
+}
+
+void
+SP_npc_timeminder(edict_t *self)
+{
+	if (!self)
+	{
+		return;
+	}
+
+	if (deathmatch->value)
+	{
+		G_FreeEdict(self);
+		return;
+	}
+
+	self->movetype = MOVETYPE_NONE;
+	self->solid = SOLID_BBOX;
+	self->touch = touch_npc_timeminder;
+	self->monsterinfo.action = "idle";
+	self->think = object_think;
+
+	self->nextthink = level.time + FRAMETIME;
+
+	gi.linkentity(self);
 }

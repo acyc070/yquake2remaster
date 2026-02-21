@@ -28,6 +28,9 @@
 
 #define MAX_STRINGCMDS 8
 
+#define CMD_MARGIN 40 /* space in message reserved for command */
+#define SAFE_MARGIN 24 /* space reserved for more data added elsewhere */
+
 edict_t *sv_player;
 
 static void
@@ -44,6 +47,21 @@ SV_BeginDemoserver(void)
 	}
 }
 
+int
+SV_GetRecomendedProtocol(void)
+{
+	if (ge->apiversion == GAME_API_R97_VERSION)
+	{
+		/* backward compatibility */
+		return PROTOCOL_R97_VERSION;
+	}
+	else
+	{
+		return PROTOCOL_VERSION;
+	}
+
+}
+
 /*
  * Sends the first message from the server to a connected client.
  * This will be sent on the initial connection and upon each server load.
@@ -51,9 +69,8 @@ SV_BeginDemoserver(void)
 static void
 SV_New_f(void)
 {
-	static char *gamedir;
+	static const char *gamedir;
 	int playernum;
-	edict_t *ent;
 
 	Com_DPrintf("New() from %s\n", sv_client->name);
 
@@ -75,8 +92,9 @@ SV_New_f(void)
 	gamedir = (char *)Cvar_VariableString("gamedir");
 
 	/* send the serverdata */
+	sv_client->protocol = SV_GetRecomendedProtocol();
 	MSG_WriteByte(&sv_client->netchan.message, svc_serverdata);
-	MSG_WriteLong(&sv_client->netchan.message, PROTOCOL_VERSION);
+	MSG_WriteLong(&sv_client->netchan.message, sv_client->protocol);
 	MSG_WriteLong(&sv_client->netchan.message, svs.spawncount);
 	MSG_WriteByte(&sv_client->netchan.message, sv.attractloop);
 	MSG_WriteString(&sv_client->netchan.message, gamedir);
@@ -99,9 +117,7 @@ SV_New_f(void)
 	if (sv.state == ss_game)
 	{
 		/* set up the entity for the client */
-		ent = EDICT_NUM(playernum + 1);
-		ent->s.number = playernum + 1;
-		sv_client->edict = ent;
+		CLNUM_EDICT(playernum)->s.number = playernum + 1;
 		memset(&sv_client->lastcmd, 0, sizeof(sv_client->lastcmd));
 
 		/* begin fetching configstrings */
@@ -111,12 +127,70 @@ SV_New_f(void)
 	}
 }
 
+static qboolean
+_EnoughSpaceInBuffer(const sizebuf_t *msg, size_t datalen, int is_opt)
+{
+	/* original check logic */
+	if (!is_opt && (msg->cursize >= (MAX_MSGLEN / 2)))
+	{
+		return false;
+	}
+
+	if ((msg->cursize + datalen) >
+		(MAX_MSGLEN - (CMD_MARGIN + SAFE_MARGIN)))
+	{
+		return false;
+	}
+
+	return true;
+}
+
+static void
+PrintOverflowConfigstrings(void)
+{
+	int i, n;
+
+	n = StringList_Len(&sv.configstrings_overflow);
+
+	if (!n)
+	{
+		return;
+	}
+
+	Com_Printf("Failed to load %i resources: configstrings overflowed\n", n);
+
+	for (i = 0; i < n; i++)
+	{
+		Com_Printf("  %s\n", StringList_Elem(&sv.configstrings_overflow, i));
+	}
+}
+
+/* Wrote this function because the optimizer was replacing
+   strlen(cs) / sizeof(sv.configstrings[i]) with 0
+   which is not the correct result for the statusbar string
+ */
+static int
+_NumIndexSkips(int start, int end)
+{
+	int i;
+
+	for (i = start;
+		i < (end - 1) && sv.configstrings[i][sizeof(sv.configstrings[i]) - 1] != '\0';
+		i++);
+
+	return i - start;
+}
+
 static void
 SV_Configstrings_f(void)
 {
-	int start;
+	sizebuf_t *msg;
+	int i, start;
+	int opt;
 
-	Com_DPrintf("Configstrings() from %s\n", sv_client->name);
+	start = (Cmd_Argc() > 2) ? (int)strtol(Cmd_Argv(2), (char **)NULL, 10) : 0;
+
+	Com_DPrintf("Configstrings(%i) from %s\n", start, sv_client->name);
 
 	if (sv_client->state != cs_connected)
 	{
@@ -125,53 +199,97 @@ SV_Configstrings_f(void)
 	}
 
 	/* handle the case of a level changing while a client was connecting */
-	if ((int)strtol(Cmd_Argv(1), (char **)NULL, 10) != svs.spawncount)
+	if ((Cmd_Argc() <= 1) ||
+		((int)strtol(Cmd_Argv(1), (char **)NULL, 10) != svs.spawncount))
 	{
 		Com_Printf("SV_Configstrings_f from different level\n");
 		SV_New_f();
 		return;
 	}
 
-	start = (int)strtol(Cmd_Argv(2), (char **)NULL, 10);
-
-	/* write a packet full of data */
-	while (sv_client->netchan.message.cursize < MAX_MSGLEN / 2 &&
-		   start < MAX_CONFIGSTRINGS)
+	if (start < 0)
 	{
-		if (sv.configstrings[start][0])
+		start = 0;
+	}
+
+	msg = &sv_client->netchan.message;
+	opt = SV_Optimizations();
+	i = start;
+
+	while (i < MAX_CONFIGSTRINGS)
+	{
+		const char *cs;
+
+		cs = sv.configstrings[i];
+
+		if (*cs != '\0')
 		{
-			MSG_WriteByte(&sv_client->netchan.message, svc_configstring);
-			MSG_WriteShort(&sv_client->netchan.message, start);
-			MSG_WriteString(&sv_client->netchan.message,
-					sv.configstrings[start]);
+			if (!_EnoughSpaceInBuffer(msg, MSG_ConfigString_Size(cs), opt & OPTIMIZE_MSGUTIL))
+			{
+				break;
+			}
+
+			MSG_WriteByte(msg, svc_configstring);
+			MSG_WriteConfigString(msg,
+				P_ConvertConfigStringTo(i, sv_client->protocol), cs);
 		}
 
-		start++;
+		/* statusbar code is sent as one big string */
+		if ((opt & OPTIMIZE_HUDSEND) &&
+			(i >= CS_STATUSBAR) && (i < CS_STATUSBAR_END))
+		{
+			i += 1 + _NumIndexSkips(i, CS_STATUSBAR_END);
+		}
+		else
+		{
+			i++;
+		}
+	}
+
+	if ((i == start) && (i < MAX_CONFIGSTRINGS))
+	{
+		Com_Printf("%s: skipping index %i: too big to send\n",
+			__func__, i);
+
+		/* statusbar code is sent as one big string */
+		if ((opt & OPTIMIZE_HUDSEND) &&
+			(i >= CS_STATUSBAR) && (i < CS_STATUSBAR_END))
+		{
+			i += 1 + _NumIndexSkips(i, CS_STATUSBAR_END);
+		}
+		else
+		{
+			i++;
+		}
 	}
 
 	/* send next command */
-	if (start == MAX_CONFIGSTRINGS)
+	if (i >= MAX_CONFIGSTRINGS)
 	{
-		MSG_WriteByte(&sv_client->netchan.message, svc_stufftext);
-		MSG_WriteString(&sv_client->netchan.message,
+		PrintOverflowConfigstrings();
+
+		MSG_WriteByte(msg, svc_stufftext);
+		MSG_WriteString(msg,
 				va("cmd baselines %i 0\n", svs.spawncount));
 	}
 	else
 	{
-		MSG_WriteByte(&sv_client->netchan.message, svc_stufftext);
-		MSG_WriteString(&sv_client->netchan.message,
-				va("cmd configstrings %i %i\n", svs.spawncount, start));
+		MSG_WriteByte(msg, svc_stufftext);
+		MSG_WriteString(msg,
+			va("cmd configstrings %i %i\n", svs.spawncount, i));
 	}
 }
 
 static void
 SV_Baselines_f(void)
 {
-	int start;
-	entity_state_t nullstate;
-	entity_state_t *base;
+	sizebuf_t *msg;
+	int i, start;
+	int is_opt;
 
-	Com_DPrintf("Baselines() from %s\n", sv_client->name);
+	start = (Cmd_Argc() > 2) ? (int)strtol(Cmd_Argv(2), (char **)NULL, 10) : 0;
+
+	Com_DPrintf("Baselines(%i) from %s\n", start, sv_client->name);
 
 	if (sv_client->state != cs_connected)
 	{
@@ -180,45 +298,60 @@ SV_Baselines_f(void)
 	}
 
 	/* handle the case of a level changing while a client was connecting */
-	if ((int)strtol(Cmd_Argv(1), (char **)NULL, 10) != svs.spawncount)
+	if ((Cmd_Argc() <= 1) ||
+		((int)strtol(Cmd_Argv(1), (char **)NULL, 10) != svs.spawncount))
 	{
 		Com_Printf("SV_Baselines_f from different level\n");
 		SV_New_f();
 		return;
 	}
 
-	start = (int)strtol(Cmd_Argv(2), (char **)NULL, 10);
-	memset(&nullstate, 0, sizeof(nullstate));
-
-	/* write a packet full of data */
-	while (sv_client->netchan.message.cursize < MAX_MSGLEN / 2 &&
-		   start < MAX_EDICTS)
+	if (start < 0)
 	{
-		base = &sv.baselines[start];
+		start = 0;
+	}
+
+	msg = &sv_client->netchan.message;
+	is_opt = SV_Optimizations() & OPTIMIZE_MSGUTIL;
+
+	for (i = start; i < sv.numbaselines; i++)
+	{
+		const entity_xstate_t *base;
+
+		base = &sv.baselines[i];
 
 		if (base->modelindex || base->sound || base->effects)
 		{
-			MSG_WriteByte(&sv_client->netchan.message, svc_spawnbaseline);
-			MSG_WriteDeltaEntity(&nullstate, base,
-					&sv_client->netchan.message,
-					true, true);
-		}
+			if (!_EnoughSpaceInBuffer(msg,
+				MSG_DeltaEntity_Size(NULL, base, true, true, sv_client->protocol), is_opt))
+			{
+				break;
+			}
 
-		start++;
+			MSG_WriteByte(msg, svc_spawnbaseline);
+			MSG_WriteDeltaEntity(NULL, base, msg, true, true, sv_client->protocol);
+		}
+	}
+
+	if ((i == start) && (i < sv.numbaselines))
+	{
+		Com_Printf("%s: skipping index %i: too big to send\n",
+			__func__, i);
+		i++;
 	}
 
 	/* send next command */
-	if (start == MAX_EDICTS)
+	if (i >= sv.numbaselines)
 	{
-		MSG_WriteByte(&sv_client->netchan.message, svc_stufftext);
-		MSG_WriteString(&sv_client->netchan.message,
+		MSG_WriteByte(msg, svc_stufftext);
+		MSG_WriteString(msg,
 				va("precache %i\n", svs.spawncount));
 	}
 	else
 	{
-		MSG_WriteByte(&sv_client->netchan.message, svc_stufftext);
-		MSG_WriteString(&sv_client->netchan.message,
-				va("cmd baselines %i %i\n", svs.spawncount, start));
+		MSG_WriteByte(msg, svc_stufftext);
+		MSG_WriteString(msg,
+				va("cmd baselines %i %i\n", svs.spawncount, i));
 	}
 }
 
@@ -314,13 +447,13 @@ SV_BeginDownload_f(void)
 		/* leading slash bad as well, must be in subdir */
 		|| (*name == '/')
 		/* next up, skin check */
-		|| ((strncmp(name, "players/", 6) == 0) && !allow_download_players->value)
+		|| ((strncmp(name, "players/", 8) == 0) && !allow_download_players->value)
 		/* now models */
-		|| ((strncmp(name, "models/", 6) == 0) && !allow_download_models->value)
+		|| ((strncmp(name, "models/", 7) == 0) && !allow_download_models->value)
 		/* now sounds */
 		|| ((strncmp(name, "sound/", 6) == 0) && !allow_download_sounds->value)
 		/* now maps (note special case for maps, must not be in pak) */
-		|| ((strncmp(name, "maps/", 6) == 0) && !allow_download_maps->value)
+		|| ((strncmp(name, "maps/", 5) == 0) && !allow_download_maps->value)
 		/* MUST be in a subdirectory */
 		|| !strstr(name, "/"))
 	{
@@ -460,7 +593,7 @@ SV_ExecuteUserCommand(char *s)
 	   macro expand variables on the server.  It seems unlikely that a
 	   client ever ought to need to be able to do this... */
 	Cmd_TokenizeString(s, false);
-	sv_player = sv_client->edict;
+	sv_player = CL_EDICT(sv_client);
 
 	for (u = ucmds; u->name; u++)
 	{
@@ -488,7 +621,7 @@ SV_ClientThink(client_t *cl, usercmd_t *cmd)
 		return;
 	}
 
-	ge->ClientThink(cl->edict, cmd);
+	ge->ClientThink(CL_EDICT(cl), cmd);
 }
 
 /*
@@ -497,7 +630,6 @@ SV_ClientThink(client_t *cl, usercmd_t *cmd)
 void
 SV_ExecuteClientMessage(client_t *cl)
 {
-	int c;
 	char *s;
 
 	usercmd_t nullcmd;
@@ -510,7 +642,7 @@ SV_ExecuteClientMessage(client_t *cl)
 	int lastframe;
 
 	sv_client = cl;
-	sv_player = sv_client->edict;
+	sv_player = CL_EDICT(sv_client);
 
 	/* only allow one move command */
 	move_issued = false;
@@ -518,6 +650,8 @@ SV_ExecuteClientMessage(client_t *cl)
 
 	while (1)
 	{
+		int c;
+
 		if (net_message.readcount > net_message.cursize)
 		{
 			Com_Printf("SV_ReadClientMessage: badread\n");

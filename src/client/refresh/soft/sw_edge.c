@@ -60,7 +60,7 @@ float	scale_for_mip;
 static void R_GenerateSpans (void);
 static void R_GenerateSpansBackward (void);
 
-static void R_TrailingEdge (surf_t *surf, edge_t *edge);
+static void R_TrailingEdge (surf_t *surf, const edge_t *edge);
 
 /*
 ===============================================================================
@@ -173,7 +173,7 @@ R_StepActiveU (edge_t *pedge)
 
 			if (pedge->prev == &edge_head)
 			{
-				R_Printf(PRINT_ALL,"Already in head.\n");
+				Com_Printf("Already in head.\n");
 			}
 
 			// push it back to keep it sorted
@@ -328,7 +328,7 @@ R_TrailingEdge
 ==============
 */
 static void
-R_TrailingEdge (surf_t *surf, edge_t *edge)
+R_TrailingEdge(surf_t *surf, const edge_t *edge)
 {
 	// don't generate a span if this is an inverted span, with the end
 	// edge preceding the start edge (that is, we haven't seen the
@@ -582,7 +582,7 @@ R_GenerateSpansBackward (void)
 	R_CleanupSpan ();
 }
 
-static void D_DrawSurfaces (entity_t *currententity, surf_t *surface);
+static void D_DrawSurfaces (entity_t *currententity, const surf_t *surface);
 
 /*
 ==============
@@ -598,7 +598,7 @@ Each surface has a linked list of its visible spans
 ==============
 */
 void
-R_ScanEdges (entity_t *currententity, surf_t *surface)
+R_ScanEdges (entity_t *currententity, const surf_t *surface)
 {
 	shift20_t	iv, bottom;
 	surf_t		*s;
@@ -815,12 +815,13 @@ D_CalcGradients (msurface_t *pface, float d_ziorigin, float d_zistepu, float d_z
 			+ pface->texinfo->vecs[1][3]*t;
 
 	// changing flow speed for non-warping textures.
-	if (pface->texinfo->flags & SURF_FLOWING)
+	if (pface->texinfo->flags & SURF_SCROLL)
 	{
-		if(pface->texinfo->flags & SURF_WARP)
-			sadjust += SHIFT16XYZ_MULT * (-128 * ( (r_newrefdef.time * 0.25) - (int)(r_newrefdef.time * 0.25) ));
-		else
-			sadjust += SHIFT16XYZ_MULT * (-128 * ( (r_newrefdef.time * 0.77) - (int)(r_newrefdef.time * 0.77) ));
+		float sscroll, tscroll;
+
+		R_FlowingScroll(&r_newrefdef, pface->texinfo->flags, &sscroll, &tscroll);
+		sadjust += SHIFT16XYZ_MULT * 2 * sscroll;
+		tadjust += SHIFT16XYZ_MULT * 2 * tscroll;
 	}
 
 	//
@@ -880,7 +881,7 @@ D_TurbulentSurf(surf_t *s)
 
 	//============
 	// textures that aren't warping are just flowing. Use NonTurbulentPow2 instead
-	if(!(pface->texinfo->flags & SURF_WARP))
+	if (!(pface->texinfo->flags & SURF_WARP))
 		NonTurbulentPow2 (s->spans, s->d_ziorigin, s->d_zistepu, s->d_zistepv);
 	else
 		TurbulentPow2 (s->spans, s->d_ziorigin, s->d_zistepu, s->d_zistepv);
@@ -1029,7 +1030,7 @@ May be called more than once a frame if the surf list overflows (higher res)
 ==============
 */
 static void
-D_DrawSurfaces (entity_t *currententity, surf_t *surface)
+D_DrawSurfaces(entity_t *currententity, const surf_t *surface)
 {
 	VectorSubtract (r_origin, vec3_origin, modelorg);
 	TransformVector (modelorg, transformed_modelorg);

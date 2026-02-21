@@ -46,18 +46,23 @@ static float sky_min, sky_max;
  * Does a water warp on the pre-fragmented mpoly_t chain
  */
 void
-EmitWaterPolys(msurface_t *fa, image_t *texture, float *modelMatrix,
+EmitWaterPolys(msurface_t *fa, image_t *texture, const float *modelMatrix,
 			  const float *color, qboolean solid_surface)
 {
-	mpoly_t *p, *bp;
+	const mpoly_t *p;
+	mpoly_t *bp;
 	int i;
 
 	struct {
 		float model[16];
 		float color[4];
 		float time;
-		float scroll;
+		float sscroll;
+		float tscroll;
 	} polyUbo;
+
+	VkBuffer *buffer;
+	VkDeviceSize dstOffset;
 
 	polyUbo.color[0] = color[0];
 	polyUbo.color[1] = color[1];
@@ -65,14 +70,9 @@ EmitWaterPolys(msurface_t *fa, image_t *texture, float *modelMatrix,
 	polyUbo.color[3] = color[3];
 	polyUbo.time = r_newrefdef.time;
 
-	if (fa->texinfo->flags & SURF_FLOWING)
-	{
-		polyUbo.scroll = (-64 * ((r_newrefdef.time * 0.5) - (int)(r_newrefdef.time * 0.5))) / 64.f;
-	}
-	else
-	{
-		polyUbo.scroll = 0;
-	}
+	R_FlowingScroll(&r_newrefdef, fa->texinfo->flags, &polyUbo.sscroll, &polyUbo.tscroll);
+	polyUbo.sscroll /= 64.f;
+	polyUbo.tscroll /= 64.f;
 
 	if (modelMatrix)
 	{
@@ -105,11 +105,12 @@ EmitWaterPolys(msurface_t *fa, image_t *texture, float *modelMatrix,
 		texture->vk_texture.descriptorSet,
 		uboDescriptorSet
 	};
+	int pos_vect = 0, index_pos = 0;
 
 	float gamma = 2.1F - vid_gamma->value;
 
 	vkCmdPushConstants(vk_activeCmdbuffer, vk_drawTexQuadPipeline[vk_state.current_renderpass].layout,
-		VK_SHADER_STAGE_FRAGMENT_BIT, 17 * sizeof(float), sizeof(gamma), &gamma);
+		VK_SHADER_STAGE_FRAGMENT_BIT, PUSH_CONSTANT_VERTEX_SIZE * sizeof(float), sizeof(gamma), &gamma);
 
 	if (solid_surface)
 	{
@@ -132,25 +133,31 @@ EmitWaterPolys(msurface_t *fa, image_t *texture, float *modelMatrix,
 	{
 		p = bp;
 
-		if (Mesh_VertsRealloc(p->numverts))
+		if (Mesh_VertsRealloc(pos_vect + p->numverts))
 		{
 			Com_Error(ERR_FATAL, "%s: can't allocate memory", __func__);
+			return;
 		}
 
-		memcpy(verts_buffer, p->verts, sizeof(mvtx_t) * p->numverts);
+		memcpy(verts_buffer + pos_vect, p->verts, sizeof(mvtx_t) * p->numverts);
 		for (i = 0; i < p->numverts; i++)
 		{
-			verts_buffer[i].texCoord[0] /= 64.f;
-			verts_buffer[i].texCoord[1] /= 64.f;
+			verts_buffer[i + pos_vect].texCoord[0] /= 64.f;
+			verts_buffer[i + pos_vect].texCoord[1] /= 64.f;
 		}
-
-		uint8_t *vertData = QVk_GetVertexBuffer(sizeof(mvtx_t) * p->numverts, &vbo, &vboOffset);
-		memcpy(vertData, verts_buffer, sizeof(mvtx_t) * p->numverts);
-
-		vkCmdBindVertexBuffers(vk_activeCmdbuffer, 0, 1, &vbo, &vboOffset);
-		vkCmdBindIndexBuffer(vk_activeCmdbuffer, QVk_GetTriangleFanIbo((p->numverts - 2) * 3), 0, VK_INDEX_TYPE_UINT16);
-		vkCmdDrawIndexed(vk_activeCmdbuffer, (p->numverts - 2) * 3, 1, 0, 0, 0);
+		R_GenFanIndexes(vertIdxData + index_pos,
+			pos_vect, p->numverts - 2 + pos_vect);
+		pos_vect += p->numverts;
+		index_pos += (p->numverts - 2) * 3;
 	}
+
+	uint8_t *vertData = QVk_GetVertexBuffer(sizeof(mvtx_t) * pos_vect, &vbo, &vboOffset);
+	memcpy(vertData, verts_buffer, sizeof(mvtx_t) * pos_vect);
+
+	buffer = UpdateIndexBuffer(vertIdxData, index_pos * sizeof(uint16_t), &dstOffset);
+	vkCmdBindVertexBuffers(vk_activeCmdbuffer, 0, 1, &vbo, &vboOffset);
+	vkCmdBindIndexBuffer(vk_activeCmdbuffer, *buffer, dstOffset, VK_INDEX_TYPE_UINT16);
+	vkCmdDrawIndexed(vk_activeCmdbuffer, index_pos, 1, 0, 0, 0);
 }
 
 void
@@ -168,8 +175,14 @@ RE_ClearSkyBox(void)
 void
 R_DrawSkyBox(void)
 {
-	int i;
+	VkDeviceSize dstOffset;
+	mvtx_t skyVerts[4] = {0};
+	float model[16] = {0};
+	uint32_t uboOffset;
+	uint8_t *uboData;
+	VkBuffer *buffer;
 	qboolean farsee;
+	unsigned i;
 
 	farsee = (r_farsee->value == 0);
 
@@ -190,22 +203,25 @@ R_DrawSkyBox(void)
 		}
 	}
 
-	float model[16];
 	Mat_Identity(model);
 	Mat_Rotate(model, (skyautorotate ? r_newrefdef.time : 1.f) * skyrotate,
 		skyaxis[0], skyaxis[1], skyaxis[2]);
 	Mat_Translate(model, r_origin[0], r_origin[1], r_origin[2]);
 
-	mvtx_t skyVerts[4];
-
 	QVk_BindPipeline(&vk_drawSkyboxPipeline);
-	uint32_t uboOffset;
 	VkDescriptorSet uboDescriptorSet;
-	uint8_t *uboData = QVk_GetUniformBuffer(sizeof(model), &uboOffset, &uboDescriptorSet);
+	uboData = QVk_GetUniformBuffer(sizeof(model), &uboOffset, &uboDescriptorSet);
 	memcpy(uboData, model, sizeof(model));
+
+	Mesh_VertsRealloc(6);
+	R_GenFanIndexes(vertIdxData, 0, 4);
+	buffer = UpdateIndexBuffer(vertIdxData, 6 * sizeof(uint16_t), &dstOffset);
 
 	for (i = 0; i < 6; i++)
 	{
+		uint8_t *vertData;
+		float gamma;
+
 		if (skyrotate)
 		{
 			skymins[0][i] = -1;
@@ -231,36 +247,33 @@ R_DrawSkyBox(void)
 
 		VkBuffer vbo;
 		VkDeviceSize vboOffset;
-		uint8_t *vertData = QVk_GetVertexBuffer(sizeof(mvtx_t) * 6, &vbo, &vboOffset);
-		memcpy(vertData + sizeof(mvtx_t) * 0, &skyVerts[0], sizeof(mvtx_t));
-		memcpy(vertData + sizeof(mvtx_t) * 1, &skyVerts[1], sizeof(mvtx_t));
-		memcpy(vertData + sizeof(mvtx_t) * 2, &skyVerts[2], sizeof(mvtx_t));
-		memcpy(vertData + sizeof(mvtx_t) * 3, &skyVerts[0], sizeof(mvtx_t));
-		memcpy(vertData + sizeof(mvtx_t) * 4, &skyVerts[2], sizeof(mvtx_t));
-		memcpy(vertData + sizeof(mvtx_t) * 5, &skyVerts[3], sizeof(mvtx_t));
+		vertData = QVk_GetVertexBuffer(sizeof(mvtx_t) * 4, &vbo, &vboOffset);
+		memcpy(vertData, skyVerts, sizeof(mvtx_t) * 4);
 
 		VkDescriptorSet descriptorSets[] = {
 			sky_images[skytexorder[i]]->vk_texture.descriptorSet,
 			uboDescriptorSet
 		};
 
-		float gamma = 2.1F - vid_gamma->value;
+		gamma = 2.1F - vid_gamma->value;
 
 		vkCmdPushConstants(vk_activeCmdbuffer, vk_drawTexQuadPipeline[vk_state.current_renderpass].layout,
-			VK_SHADER_STAGE_FRAGMENT_BIT, 17 * sizeof(float), sizeof(gamma), &gamma);
+			VK_SHADER_STAGE_FRAGMENT_BIT, PUSH_CONSTANT_VERTEX_SIZE * sizeof(float), sizeof(gamma), &gamma);
 
 		vkCmdBindDescriptorSets(vk_activeCmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
 			vk_drawSkyboxPipeline.layout, 0, 2, descriptorSets, 1, &uboOffset);
 		vkCmdBindVertexBuffers(vk_activeCmdbuffer, 0, 1, &vbo, &vboOffset);
-		vkCmdDraw(vk_activeCmdbuffer, 6, 1, 0, 0);
+
+		vkCmdBindIndexBuffer(vk_activeCmdbuffer, *buffer, dstOffset, VK_INDEX_TYPE_UINT16);
+		vkCmdDrawIndexed(vk_activeCmdbuffer, 6, 1, 0, 0, 0);
 	}
 }
 
 void
 RE_SetSky(const char *name, float rotate, int autorotate, const vec3_t axis)
 {
-	char	skyname[MAX_QPATH];
-	int		i;
+	char skyname[MAX_QPATH];
+	unsigned i;
 
 	Q_strlcpy(skyname, name, sizeof(skyname));
 	skyrotate = rotate;
@@ -272,11 +285,11 @@ RE_SetSky(const char *name, float rotate, int autorotate, const vec3_t axis)
 		image_t	*image;
 
 		image = (image_t *)GetSkyImage(skyname, suf[i],
-			r_palettedtexture->value, (findimage_t)Vk_FindImage);
+			r_palettedtextures->value, (findimage_t)Vk_FindImage);
 
 		if (!image)
 		{
-			R_Printf(PRINT_ALL, "%s: can't load %s:%s sky\n",
+			Com_Printf("%s: can't load %s:%s sky\n",
 				__func__, skyname, suf[i]);
 			image = r_notexture;
 		}

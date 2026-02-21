@@ -42,7 +42,7 @@ void trigger_push_active(edict_t *self);
 void hurt_touch(edict_t *self, edict_t *other, cplane_t *plane /* unused */,
 		csurface_t *surf /* unused */);
 
-void
+static void
 InitTrigger(edict_t *self)
 {
 	if (!self)
@@ -145,7 +145,7 @@ Use_Multi(edict_t *ent, edict_t *other /* unused */, edict_t *activator)
 
 void
 Touch_Multi(edict_t *self, edict_t *other, cplane_t *plane /* unused */,
-	   	csurface_t *surf /* unused */)
+		csurface_t *surf /* unused */)
 {
 	if (!self || !other)
 	{
@@ -207,7 +207,7 @@ Touch_Multi(edict_t *self, edict_t *other, cplane_t *plane /* unused */,
  */
 void
 trigger_enable(edict_t *self, edict_t *other /* unused */,
-	   	edict_t *activator /* unused */)
+		edict_t *activator /* unused */)
 {
 	if (!self)
 	{
@@ -320,7 +320,7 @@ SP_trigger_once(edict_t *ent)
  */
 void
 trigger_relay_use(edict_t *self, edict_t *other /* unused */,
-	   	edict_t *activator)
+		edict_t *activator)
 {
 	if (!self || !activator)
 	{
@@ -519,7 +519,7 @@ SP_trigger_key(edict_t *self)
 
 void
 trigger_counter_use(edict_t *self, edict_t *other /* unused */,
-	   	edict_t *activator)
+		edict_t *activator)
 {
 	if (!self || !activator)
 	{
@@ -846,7 +846,7 @@ hurt_use(edict_t *self, edict_t *other /* unused */,
 
 		self->solid = SOLID_TRIGGER;
 		num = gi.BoxEdicts(self->absmin, self->absmax,
-			   	touch, MAX_EDICTS, AREA_SOLID);
+				touch, MAX_EDICTS, AREA_SOLID);
 
 		/* Check for idle monsters in
 		   trigger hurt */
@@ -1123,4 +1123,546 @@ SP_trigger_monsterjump(edict_t *self)
 	InitTrigger(self);
 	self->touch = trigger_monsterjump_touch;
 	self->movedir[2] = st.height;
+}
+
+/* QUAKED trigger_flashlight (.5 .5 .5) ?
+ * Players moving against this trigger will have their flashlight turned on or off.
+ * "style" default to 0, set to 1 to always turn flashlight on, 2 to always turn off,
+ *      otherwise "angles" are used to control on/off state
+ */
+
+#define SPAWNFLAG_FLASHLIGHT_CLIPPED 1
+
+void
+trigger_flashlight_touch(edict_t *self, edict_t *other, cplane_t *plane /* unused */,
+		csurface_t *surf /* unused */)
+{
+	if (!other->client)
+	{
+		return;
+	}
+
+	if (self->style == 1)
+	{
+		P_ToggleFlashlight(other, true);
+	}
+	else if (self->style == 2)
+	{
+		P_ToggleFlashlight(other, false);
+	}
+	else if (VectorLength(other->velocity) > 6)
+	{
+		vec3_t forward;
+
+		VectorNormalize2(other->velocity, forward);
+
+		P_ToggleFlashlight(other, _DotProduct(forward, self->movedir) > 0);
+	}
+}
+
+void
+SP_trigger_flashlight(edict_t *self)
+{
+	if (self->s.angles[YAW] == 0)
+	{
+		self->s.angles[YAW] = 360;
+	}
+
+	InitTrigger(self);
+	self->touch = trigger_flashlight_touch;
+	self->movedir[2] = (float) st.height;
+
+	gi.linkentity(self);
+}
+
+/*
+ * QUAKED trigger_fog (.5 .5 .5) ? AFFECT_FOG AFFECT_HEIGHTFOG INSTANTANEOUS FORCE BLEND
+ *
+ * Players moving against this trigger will have their fog settings changed.
+ * Fog/heightfog will be adjusted if the spawnflags are set. Instantaneous
+ * ignores any delays. Force causes it to ignore movement dir and always use
+ * the "on" values. Blend causes it to change towards how far you are into the trigger
+ * with respect to angles.
+ * "target" can target an info_notnull to pull the keys below from.
+ * "delay" default to 0.5; time in seconds a change in fog will occur over
+ * "wait" default to 0.0; time in seconds before a re-trigger can be executed
+ *
+ * "fog_density"; density value of fog, 0-1
+ * "fog_color"; color value of fog, 3d vector with values between 0-1 (r g b)
+ * "fog_density_off"; transition density value of fog, 0-1
+ * "fog_color_off"; transition color value of fog, 3d vector with values between 0-1 (r g b)
+ * "fog_sky_factor"; sky factor value of fog, 0-1
+ * "fog_sky_factor_off"; transition sky factor value of fog, 0-1
+ *
+ * "heightfog_falloff"; falloff value of heightfog, 0-1
+ * "heightfog_density"; density value of heightfog, 0-1
+ * "heightfog_start_color"; the start color for the fog (r g b, 0-1)
+ * "heightfog_start_dist"; the start distance for the fog (units)
+ * "heightfog_end_color"; the start color for the fog (r g b, 0-1)
+ * "heightfog_end_dist"; the end distance for the fog (units)
+ *
+ * "heightfog_falloff_off"; transition falloff value of heightfog, 0-1
+ * "heightfog_density_off"; transition density value of heightfog, 0-1
+ * "heightfog_start_color_off"; transition the start color for the fog (r g b, 0-1)
+ * "heightfog_start_dist_off"; transition the start distance for the fog (units)
+ * "heightfog_end_color_off"; transition the start color for the fog (r g b, 0-1)
+ * "heightfog_end_dist_off"; transition the end distance for the fog (units)
+ */
+
+#define SPAWNFLAG_FOG_AFFECT_FOG 1
+#define SPAWNFLAG_FOG_AFFECT_HEIGHTFOG 2
+#define SPAWNFLAG_FOG_INSTANTANEOUS 4
+#define SPAWNFLAG_FOG_FORCE 8
+#define SPAWNFLAG_FOG_BLEND 16
+
+void
+trigger_fog_touch(edict_t *self, edict_t *other, cplane_t *plane /* unused */, csurface_t *surf /* unused */)
+{
+	edict_t *fog_value_storage;
+
+	if (!other->client)
+	{
+		return;
+	}
+
+	if (self->timestamp > level.time)
+	{
+		return;
+	}
+
+	self->timestamp = level.time + self->wait;
+
+	fog_value_storage = self;
+
+	if (self->movetarget)
+	{
+		fog_value_storage = self->movetarget;
+	}
+
+	if (self->spawnflags & SPAWNFLAG_FOG_INSTANTANEOUS)
+	{
+		other->client->pers.fog_transition_time = 0;
+	}
+	else
+	{
+		other->client->pers.fog_transition_time = fog_value_storage->delay;
+	}
+
+	if (self->spawnflags & SPAWNFLAG_FOG_BLEND)
+	{
+		vec3_t center, half_size, start, end, player_dist,
+			player_dist_diff, start_end;
+		float dist;
+		int i;
+
+		VectorAdd(self->absmin, self->absmax, center);
+		VectorScale(center, 0.5, center);
+		VectorAdd(self->size, other->size, half_size);
+		VectorScale(half_size, 0.5, half_size);
+
+		VectorScale(self->movedir, -1.0, start);
+		VectorScale(self->movedir, 1.0, end);
+		for (i = 0; i < 3; i++)
+		{
+			start[i] *= half_size[i];
+			end[i] *= half_size[i];
+		}
+
+		VectorSubtract(other->s.origin, center, player_dist);
+		for (i = 0; i < 3; i++)
+		{
+			player_dist[i] *= fabs(self->movedir[i]);
+		}
+
+		VectorSubtract(player_dist, start, player_dist_diff);
+		dist = VectorLength(player_dist_diff);
+		VectorSubtract(start, end, start_end);
+		dist /= VectorLength(start_end);
+		dist = Q_clamp(dist, 0.f, 1.f);
+
+		if (self->spawnflags & SPAWNFLAG_FOG_AFFECT_FOG)
+		{
+			other->client->pers.wanted_fog[0] = Q_lerp(
+				fog_value_storage->fog.density_off, fog_value_storage->fog.density, dist);
+			other->client->pers.wanted_fog[1] = Q_lerp(
+				fog_value_storage->fog.color_off[0], fog_value_storage->fog.color[0], dist);
+			other->client->pers.wanted_fog[2] = Q_lerp(
+				fog_value_storage->fog.color_off[1], fog_value_storage->fog.color[1], dist);
+			other->client->pers.wanted_fog[3] = Q_lerp(
+				fog_value_storage->fog.color_off[2], fog_value_storage->fog.color[2], dist);
+			other->client->pers.wanted_fog[4] = Q_lerp(
+				fog_value_storage->fog.sky_factor_off, fog_value_storage->fog.sky_factor, dist);
+		}
+
+		if (self->spawnflags & SPAWNFLAG_FOG_AFFECT_HEIGHTFOG)
+		{
+			VectorLerp(
+				fog_value_storage->heightfog.start_color_off,
+				fog_value_storage->heightfog.start_color,
+				dist,
+				other->client->pers.wanted_heightfog.start
+			);
+
+			VectorLerp(
+				fog_value_storage->heightfog.end_color_off,
+				fog_value_storage->heightfog.end_color,
+				dist,
+				other->client->pers.wanted_heightfog.end
+			);
+
+			other->client->pers.wanted_heightfog.start[3] = Q_lerp(
+				fog_value_storage->heightfog.start_dist_off,
+				fog_value_storage->heightfog.start_dist, dist);
+			other->client->pers.wanted_heightfog.end[3] = Q_lerp(
+				fog_value_storage->heightfog.end_dist_off,
+				fog_value_storage->heightfog.end_dist, dist);
+			other->client->pers.wanted_heightfog.falloff = Q_lerp(
+				fog_value_storage->heightfog.falloff_off,
+				fog_value_storage->heightfog.falloff, dist);
+			other->client->pers.wanted_heightfog.density = Q_lerp(
+				fog_value_storage->heightfog.density_off,
+				fog_value_storage->heightfog.density, dist);
+		}
+
+		return;
+	}
+
+	bool use_on = true;
+
+	if (!(self->spawnflags & SPAWNFLAG_FOG_FORCE))
+	{
+		float len;
+		vec3_t forward;
+
+		VectorCopy(other->velocity, forward);
+		len = VectorNormalize(forward);
+
+		// not moving enough to trip; this is so we don't trip
+		// the wrong direction when on an elevator, etc.
+		if (len <= 0.0001f)
+		{
+			return;
+		}
+
+		use_on = _DotProduct(forward, self->movedir) > 0;
+	}
+
+	if (self->spawnflags & SPAWNFLAG_FOG_AFFECT_FOG)
+	{
+		if (use_on)
+		{
+			int i;
+			other->client->pers.wanted_fog[0] = fog_value_storage->fog.density;
+			other->client->pers.wanted_fog[4] = fog_value_storage->fog.sky_factor;
+			for (i = 0; i < 3; i++)
+			{
+				other->client->pers.wanted_fog[i + 1] = fog_value_storage->fog.color[i];
+			}
+		}
+		else
+		{
+			int i;
+
+			other->client->pers.wanted_fog[0] = fog_value_storage->fog.density_off;
+			other->client->pers.wanted_fog[4] = fog_value_storage->fog.sky_factor_off;
+			for (i = 0; i < 3; i++)
+			{
+				other->client->pers.wanted_fog[i + 1] = fog_value_storage->fog.color_off[i];
+			}
+		}
+	}
+
+	if (self->spawnflags & SPAWNFLAG_FOG_AFFECT_HEIGHTFOG)
+	{
+		if (use_on)
+		{
+			/* start */
+			VectorCopy(
+				fog_value_storage->heightfog.start_color,
+				other->client->pers.wanted_heightfog.start
+			);
+			other->client->pers.wanted_heightfog.start[3] =
+				fog_value_storage->heightfog.start_dist;
+			/* end */
+			VectorCopy(
+				fog_value_storage->heightfog.end_color,
+				other->client->pers.wanted_heightfog.end
+			);
+			other->client->pers.wanted_heightfog.end[3] =
+				fog_value_storage->heightfog.end_dist;
+
+			/* falloff, density */
+			other->client->pers.wanted_heightfog.falloff =
+				fog_value_storage->heightfog.falloff;
+			other->client->pers.wanted_heightfog.density =
+				fog_value_storage->heightfog.density;
+		}
+		else
+		{
+			/* start */
+			VectorCopy(
+				fog_value_storage->heightfog.start_color_off,
+				other->client->pers.wanted_heightfog.start
+			);
+			other->client->pers.wanted_heightfog.start[3] =
+				fog_value_storage->heightfog.start_dist_off;
+			/* end */
+			VectorCopy(
+				fog_value_storage->heightfog.end_color_off,
+				other->client->pers.wanted_heightfog.end
+			);
+			other->client->pers.wanted_heightfog.end[3] =
+				fog_value_storage->heightfog.end_dist_off;
+
+			/* falloff, density */
+			other->client->pers.wanted_heightfog.falloff =
+				fog_value_storage->heightfog.falloff_off;
+			other->client->pers.wanted_heightfog.density =
+				fog_value_storage->heightfog.density_off;
+		}
+	}
+}
+
+void
+SP_trigger_fog(edict_t *self)
+{
+	if (self->s.angles[YAW] == 0)
+	{
+		self->s.angles[YAW] = 360;
+	}
+
+	InitTrigger(self);
+
+	if (!(self->spawnflags & (SPAWNFLAG_FOG_AFFECT_FOG | SPAWNFLAG_FOG_AFFECT_HEIGHTFOG)))
+	{
+		Com_Printf("WARNING: %s with no fog spawnflags set\n", self->classname);
+	}
+
+	if (self->target)
+	{
+		self->movetarget = G_PickTarget(self->target);
+
+		if (self->movetarget)
+		{
+			if (!self->movetarget->delay)
+			{
+				self->movetarget->delay = 0.5f;
+			}
+		}
+	}
+
+	if (!self->delay)
+	{
+		self->delay = 0.5f;
+	}
+
+	self->touch = trigger_fog_touch;
+}
+
+/*
+ * QUAKED trigger_fogdensity (.5 .5 .5) ?
+ * Heretic 2: Sets r_fog_density
+ *
+ * target: Fog density (.01 - .0001)
+ */
+void
+trigger_fogdensity_touch(edict_t *self, edict_t *other, cplane_t *plane /* unused */,
+		csurface_t *surf /* unused */)
+{
+	float density;
+	int i;
+
+	if (!self || !other || !other->client)
+	{
+		return;
+	}
+
+	density = (float)strtod(self->target, (char **)NULL) * 10;
+	other->client->pers.wanted_fog[0] = density;
+	other->client->pers.wanted_fog[4] = 1.0;
+	for (i = 0; i < 3; i++)
+	{
+		other->client->pers.wanted_fog[i + 1] = 0.75;
+	}
+}
+
+void
+SP_trigger_fogdensity(edict_t *self)
+{
+	if (!self)
+	{
+		return;
+	}
+
+	InitTrigger(self);
+	self->touch = trigger_fogdensity_touch;
+}
+
+/*
+ * QUAKED choose_cdtrack (.5 .5 .5) ?
+ * Heretic 2: Sets CD track
+ *
+ * style: CD Track Id
+ */
+void
+choose_cdtrack_touch(edict_t *self, edict_t *other, cplane_t *plane /* unused */,
+		csurface_t *surf /* unused */)
+{
+	if (!self)
+	{
+		return;
+	}
+
+	gi.configstring(CS_CDTRACK, va("%i", self->style));
+}
+
+void
+SP_choose_cdtrack(edict_t *self)
+{
+	if (!self)
+	{
+		return;
+	}
+
+	InitTrigger(self);
+	self->touch = choose_cdtrack_touch;
+}
+
+/*
+ * QUAKED trigger_mission_give (.5 .5 .5) ?
+ * Heretic 2: Gives mission objectives
+ *
+ * message: "Message (index in strings.txt)"
+ */
+void
+trigger_mission_give_touch(edict_t *self, edict_t *other, cplane_t *plane /* unused */,
+		csurface_t *surf /* unused */)
+{
+	const char *message;
+
+	if (!self)
+	{
+		return;
+	}
+
+	message = gi.LocalizationMessage(self->message, NULL);
+
+	if (strncmp(message, game.helpmessage1, sizeof(game.helpmessage1)) &&
+		strncmp(message, game.helpmessage2, sizeof(game.helpmessage2)))
+	{
+		if (!game.helpmessage1[0])
+		{
+			Q_strlcpy(game.helpmessage1, message, sizeof(game.helpmessage1));
+		}
+		else
+		{
+			Q_strlcpy(game.helpmessage2, message, sizeof(game.helpmessage2));
+		}
+
+		gi.centerprintf(other, message);
+	}
+
+	G_UseTargets(self, self);
+}
+
+void
+SP_trigger_mission_give(edict_t *self)
+{
+	if (!self)
+	{
+		return;
+	}
+
+	InitTrigger(self);
+	self->touch = trigger_mission_give_touch;
+}
+
+/*
+ * QUAKED trigger_mission_take (.5 .5 .5) ?
+ * Heretic 2: Removes mission objectives
+ *
+ * spawnflags:
+ *  16: Take objective 1
+ *  32: Take objective 2
+ */
+void
+trigger_mission_take_touch(edict_t *self, edict_t *other, cplane_t *plane /* unused */,
+		csurface_t *surf /* unused */)
+{
+	if (!self)
+	{
+		return;
+	}
+
+	if (self->spawnflags & 16)
+	{
+		game.helpmessage1[0] = 0;
+	}
+
+	if (self->spawnflags & 32)
+	{
+		game.helpmessage2[0] = 0;
+	}
+
+	G_UseTargets(self, self);
+}
+
+void
+SP_trigger_mission_take(edict_t *self)
+{
+	if (!self)
+	{
+		return;
+	}
+
+	InitTrigger(self);
+	self->touch = trigger_mission_take_touch;
+}
+
+/*
+ * QUAKED misc_update_spawner (.5 .5 .5) ?
+ *
+ * Heretic 2: Updates level spawn point to trigger's position. Relevant for
+ * teleport spell.
+ *
+ * Replaced spawn points to map submodel position.
+ */
+void
+misc_update_spawner_touch(edict_t *self, edict_t *other, cplane_t *plane /* unused */,
+		csurface_t *surf /* unused */)
+{
+	edict_t	*spot = NULL;
+	int i;
+
+	if (!self || !other || !other->client)
+	{
+		return;
+	}
+
+	spot = SP_GetSpawnPoint();
+
+	if (spot)
+	{
+		/* copy trigger position and angles to spawn point */
+		for (i = 0; i < 3; i++)
+		{
+			spot->s.origin[i] = (self->mins[i] + self->maxs[i]) / 2;
+		}
+
+		VectorCopy(self->s.angles, spot->s.angles);
+	}
+
+	G_FreeEdict(self);
+}
+
+void
+SP_misc_update_spawner(edict_t *self)
+{
+	if (!self)
+	{
+		return;
+	}
+
+	InitTrigger(self);
+	self->touch = misc_update_spawner_touch;
 }

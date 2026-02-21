@@ -26,10 +26,6 @@
 
 #include "../ref_shared.h"
 
-static const float r_avertexnormals[NUMVERTEXNORMALS][3] = {
-#include "../constants/anorms.h"
-};
-
 static vec4_t *lerpbuff = NULL;
 static int lerpbuffnum = 0;
 
@@ -45,10 +41,9 @@ R_VertBufferRealloc(int num)
 
 	lerpbuffnum = num * 2;
 	ptr = realloc(lerpbuff, lerpbuffnum * sizeof(vec4_t));
+	YQ2_COM_CHECK_OOM(ptr, "realloc()", lerpbuffnum * sizeof(vec4_t))
 	if (!ptr)
 	{
-		Com_Error(ERR_FATAL, "%s: can't allocate memory", __func__);
-
 		return NULL;
 	}
 
@@ -76,65 +71,43 @@ R_VertBufferFree(void)
 	lerpbuffnum = 0;
 }
 
-/* compressed vertex normals used by mdl and md2 model formats */
-byte
-R_CompressNormalMDL(const float *normal)
-{
-	byte i, besti;
-	float bestdot;
-
-	bestdot = normal[0] * r_avertexnormals[0][0] +
-		normal[1] * r_avertexnormals[0][1] +
-		normal[2] * r_avertexnormals[0][2];
-	besti = 0;
-
-	for (i = 1; i < NUMVERTEXNORMALS; i++)
-	{
-		float dot;
-
-		dot = normal[0] * r_avertexnormals[i][0] +
-			normal[1] * r_avertexnormals[i][1] +
-			normal[2] * r_avertexnormals[i][2];
-
-		if (dot > bestdot)
-		{
-			bestdot = dot;
-			besti = i;
-		}
-	}
-
-	return besti;
-}
-
 void
 R_LerpVerts(qboolean powerUpEffect, int nverts,
 		const dxtrivertx_t *v, const dxtrivertx_t *ov,
-		const dxtrivertx_t *verts, float *lerp,
-		const float move[3], const float frontv[3], const float backv[3])
+		float *lerp, const float move[3],
+		const float frontv[3], const float backv[3], const float *scale)
 {
-	int i;
-
 	if (powerUpEffect)
 	{
+		int i;
+
 		for (i = 0; i < nverts; i++, v++, ov++, lerp += 4)
 		{
-			const float *normal = r_avertexnormals[verts[i].lightnormalindex];
+			int n;
 
-			lerp[0] = move[0] + ov->v[0] * backv[0] + v->v[0] * frontv[0] +
-					  normal[0] * POWERSUIT_SCALE;
-			lerp[1] = move[1] + ov->v[1] * backv[1] + v->v[1] * frontv[1] +
-					  normal[1] * POWERSUIT_SCALE;
-			lerp[2] = move[2] + ov->v[2] * backv[2] + v->v[2] * frontv[2] +
-					  normal[2] * POWERSUIT_SCALE;
+			for (n = 0; n < 3; n ++)
+			{
+				float normal;
+
+				normal = v->normal[n] / 127.f;
+
+				lerp[n] = scale[n] * (move[n] + ov->v[n] * backv[n] + v->v[n] * frontv[n]) +
+						  normal * POWERSUIT_SCALE;
+			}
 		}
 	}
 	else
 	{
+		int i;
+
 		for (i = 0; i < nverts; i++, v++, ov++, lerp += 4)
 		{
-			lerp[0] = move[0] + ov->v[0] * backv[0] + v->v[0] * frontv[0];
-			lerp[1] = move[1] + ov->v[1] * backv[1] + v->v[1] * frontv[1];
-			lerp[2] = move[2] + ov->v[2] * backv[2] + v->v[2] * frontv[2];
+			int n;
+
+			for (n = 0; n < 3; n++)
+			{
+				lerp[n] = scale[n] * (move[n] + ov->v[n] * backv[n] + v->v[n] * frontv[n]);
+			}
 		}
 	}
 }
@@ -273,4 +246,57 @@ R_CullAliasMeshModel(dmdx_t *paliashdr, cplane_t *frustum, int frame, int oldfra
 	}
 
 	return false;
+}
+
+void
+R_GenFanIndexes(unsigned short *data, unsigned from, unsigned to)
+{
+	int i;
+
+	/* fill the index buffer so that we can emulate triangle fans via triangle lists */
+	for (i = from; i < to; i++)
+	{
+		*data = from;
+		data ++;
+		*data = i + 1;
+		data++;
+		*data = i + 2;
+		data ++;
+	}
+}
+
+void
+R_GenStripIndexes(unsigned short *data, unsigned from, unsigned to)
+{
+	size_t i;
+
+	/* fill the index buffer so that we can emulate triangle strips via triangle lists */
+	for (i = from + 2; i < to + 1; i += 2)
+	{
+		/* add two triangles at once, because the vertex order is different
+		 * for odd vs even triangles */
+		*data =  i - 2;
+		data ++;
+		*data =  i - 1;
+		data ++;
+		*data =  i;
+		data ++;
+		*data = i + 1;
+		data ++;
+		*data =  i;
+		data ++;
+		*data =  i - 1;
+		data ++;
+	}
+
+	if (i < to + 2)
+	{
+		/* add remaining triangle, if any */
+		*data =  i - 2;
+		data ++;
+		*data =  i - 1;
+		data ++;
+		*data =  i;
+		data ++;
+	}
 }

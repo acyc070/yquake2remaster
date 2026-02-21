@@ -63,6 +63,8 @@ typedef struct _tag_menuframework
 
 	const char *statusbar;
 
+	void (*draw)(void);
+	const char *(*key)(int k);
 	void (*cursordraw)(struct _tag_menuframework *m);
 } menuframework_s;
 
@@ -70,6 +72,7 @@ typedef struct
 {
 	int type;
 	const char *name;
+	const char *alttext;
 	int x, y;
 	menuframework_s *parent;
 	int cursor_offset;
@@ -101,7 +104,6 @@ typedef struct
 	int cursor;
 	int length;
 	int visible_length;
-	int visible_offset;
 } menufield_s;
 
 typedef struct
@@ -135,6 +137,15 @@ typedef struct
 	menucommon_s generic;
 } menuseparator_s;
 
+void IN_ApplyJoyPreset(void);
+qboolean IN_MatchJoyPreset(void);
+float CalcFov(float fov_x, float w, float h);
+
+void M_PopMenu(void);
+void M_ForceMenuOff(void);
+void M_PushMenu(menuframework_s* menu);
+
+void Field_ResetCursor(menuframework_s *m);
 qboolean Field_Key(menufield_s *field, int key);
 
 void Menu_AddItem(menuframework_s *menu, void *item);

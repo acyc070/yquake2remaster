@@ -50,9 +50,21 @@ PMenu_Open(edict_t *ent, pmenu_t *entries, int cur, int num, void *arg)
 	}
 
 	hnd = malloc(sizeof(*hnd));
+	if (!hnd)
+	{
+		gi.error("%s: cant allocate menu\n", __func__);
+		return NULL;
+	}
 
 	hnd->arg = arg;
 	hnd->entries = malloc(sizeof(pmenu_t) * num);
+	if (!hnd->entries)
+	{
+		free(hnd);
+		gi.error("%s: cant allocate menu\n", __func__);
+		return NULL;
+	}
+
 	memcpy(hnd->entries, entries, sizeof(pmenu_t) * num);
 
 	/* duplicate the strings since they may be from static memory */
@@ -156,7 +168,6 @@ PMenu_Do_Update(edict_t *ent)
 	char string[1400];
 	int i;
 	pmenu_t *p;
-	int x;
 	pmenuhnd_t *hnd;
 	char *t;
 	qboolean alt = false;
@@ -173,6 +184,8 @@ PMenu_Do_Update(edict_t *ent)
 
 	for (i = 0, p = hnd->entries; i < hnd->num; i++, p++)
 	{
+		int x;
+
 		if (!p->text || !*(p->text))
 		{
 			continue; /* blank line */

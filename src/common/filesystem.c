@@ -36,6 +36,7 @@
 #include "../client/sound/header/vorbis.h"
 
 #define MAX_HANDLES 512
+#define MAX_FILENAME 128
 #define MAX_MODS 32
 #define MAX_PAKS 100
 
@@ -45,12 +46,21 @@
  #endif
 #endif
 
+typedef enum
+{
+	PAK_MODE_Q2,
+	PAK_MODE_DK,
+	PAK_MODE_DAT,
+} fsPackCompress_t;
+
 typedef struct
 {
-	char name[MAX_QPATH];
+	char name[MAX_FILENAME];
 	fsMode_t mode;
 	FILE *file;           /* Only one will be used. */
 	unzFile *zip;        /* (file or zip) */
+	int compressed_size; /* Should be zero for original PAK files */
+	fsPackCompress_t format;
 } fsHandle_t;
 
 typedef struct fsLink_s
@@ -63,9 +73,11 @@ typedef struct fsLink_s
 
 typedef struct
 {
-	char name[MAX_QPATH];
+	char name[MAX_FILENAME];
 	int size;
 	int offset;     /* Ignored in PK3 files. */
+	int compressed_size; /* Should be zero for original PAK files */
+	fsPackCompress_t format;
 } fsPackFile_t;
 
 typedef struct
@@ -87,6 +99,9 @@ typedef struct fsSearchPath_s
 
 typedef enum
 {
+	WAD,
+	DAT,
+	SIN,
 	PAK,
 	PK3
 } fsPackFormat_t;
@@ -104,6 +119,9 @@ fsSearchPath_t *fs_baseSearchPaths = NULL;
 
 /* Pack formats / suffixes. */
 fsPackTypes_t fs_packtypes[] = {
+	{"wad", WAD},
+	{"dat", DAT},
+	{"sin", SIN},
 	{"pak", PAK},
 	{"pk2", PK3},
 	{"pk3", PK3},
@@ -150,7 +168,7 @@ static voidpf ZCALLBACK fopen_file_func_utf(voidpf opaque, const char *filename,
 {
 	FILE* file = NULL;
 	WCHAR *mode_fopen = NULL;
-	WCHAR wfilename[MAX_OSPATH];
+	WCHAR wfilename[MAX_OSPATH * 2];
 
 	if ((mode & ZLIB_FILEFUNC_MODE_READWRITEFILTER) == ZLIB_FILEFUNC_MODE_READ)
 	{
@@ -167,7 +185,8 @@ static voidpf ZCALLBACK fopen_file_func_utf(voidpf opaque, const char *filename,
 
 	if (!((filename == NULL) || (mode_fopen == NULL)))
 	{
-		MultiByteToWideChar(CP_UTF8, 0, filename, -1, wfilename, sizeof(wfilename));
+		MultiByteToWideChar(CP_UTF8, 0, filename, -1, wfilename,
+			sizeof(wfilename) / sizeof(*wfilename));
 		file = _wfopen((const wchar_t *) wfilename, mode_fopen);
 	}
 
@@ -204,9 +223,25 @@ FS_FileLength(FILE *f)
 	int end; /* End of file. */
 
 	pos = ftell(f);
-	fseek(f, 0, SEEK_END);
+	if (pos < 0)
+	{
+		Com_Printf("%s: refusing to ftell\n", __func__);
+		return -1;
+	}
+
+	if (fseek(f, 0, SEEK_END))
+	{
+		Com_Printf("%s: seek failed", __func__);
+		return -1;
+	}
+
 	end = ftell(f);
-	fseek(f, pos, SEEK_SET);
+
+	if (fseek(f, pos, SEEK_SET))
+	{
+		Com_Printf("%s: seek failed", __func__);
+		return -1;
+	}
 
 	return end;
 }
@@ -215,12 +250,13 @@ FS_FileLength(FILE *f)
  * Creates any directories needed to store the given filename.
  */
 void
-FS_CreatePath(char *path)
+FS_CreatePath(const char *path)
 {
 	char *cur; /* Current '/'. */
 	char *old; /* Old '/'. */
+	char dir_path[MAX_OSPATH];
 
-	FS_DPrintf("FS_CreatePath(%s)\n", path);
+	FS_DPrintf("%s(%s)\n", __func__, path);
 
 	if (strstr(path, "..") != NULL)
 	{
@@ -228,14 +264,16 @@ FS_CreatePath(char *path)
 		return;
 	}
 
-	cur = old = path;
+	Q_strlcpy(dir_path, path, sizeof(dir_path));
+
+	cur = old = dir_path;
 
 	while (cur != NULL)
 	{
 		if ((cur - old) > 1)
 		{
 			*cur = '\0';
-			Sys_Mkdir(path);
+			Sys_Mkdir(dir_path);
 			*cur = '/';
 		}
 
@@ -262,7 +300,7 @@ FS_DPrintf(const char *format, ...)
 	Com_Printf("%s", msg);
 }
 
-char *
+const char *
 FS_Gamedir(void)
 {
 	return fs_gamedir;
@@ -290,7 +328,7 @@ FS_HandleForFile(const char *path, fileHandle_t *f)
 	}
 
 	/* Failed. */
-	Com_Error(ERR_DROP, "FS_HandleForFile: none free");
+	Com_Error(ERR_DROP, "%s: none free", __func__);
 
 	return NULL;
 }
@@ -303,7 +341,8 @@ FS_GetFileByHandle(fileHandle_t f)
 {
 	if ((f < 0) || (f > MAX_HANDLES))
 	{
-		Com_Error(ERR_DROP, "FS_GetFileByHandle: out of range");
+		Com_Error(ERR_DROP, "%s: out of range", __func__);
+		return NULL;
 	}
 
 	if (f == 0)
@@ -337,6 +376,54 @@ FS_FCloseFile(fileHandle_t f)
 	memset(handle, 0, sizeof(*handle));
 }
 
+static int
+FS_SortPackCompare(const void *p1, const void *p2)
+{
+	fsPackFile_t *file1, *file2;
+
+	file1 = (fsPackFile_t*)p1;
+	file2 = (fsPackFile_t*)p2;
+	return Q_stricmp(file1->name, file2->name);
+}
+
+static void
+FS_SortPack(fsPack_t *pak)
+{
+	qsort(pak->files, pak->numFiles, sizeof(fsPackFile_t), FS_SortPackCompare);
+}
+
+static int
+FS_PackQuickSearch(const fsPack_t *pak, const char *name)
+{
+	int start, end;
+
+	start = 0;
+	end = pak->numFiles - 1;
+
+	while (start <= end)
+	{
+		int i, res;
+
+		i = start + (end - start) / 2;
+
+		res = Q_stricmp(pak->files[i].name, name);
+		if (res == 0)
+		{
+			return i;
+		}
+		else if (res < 0)
+		{
+			start = i + 1;
+		}
+		else
+		{
+			end = i - 1;
+		}
+	}
+
+	return -1;
+}
+
 /*
  * Finds the file in the search path. Returns filesize and an open FILE *. Used
  * for streaming data out of either a pak file or a seperate file.
@@ -348,14 +435,20 @@ FS_FOpenFile(const char *rawname, fileHandle_t *f, qboolean gamedir_only)
 	fsHandle_t *handle;
 	fsPack_t *pack;
 	fsSearchPath_t *search;
-	int i;
+	int input, output;
 
 	// Remove self references and empty dirs from the requested path.
 	// ZIPs and PAKs don't support them, but they may be hardcoded in
 	// some custom maps or models.
-	char name[MAX_QPATH] = {0};
+	char name[MAX_OSPATH] = {0};
 	size_t namelen = strlen(rawname);
-	for (int input = 0, output = 0; input < namelen; input++)
+	if (namelen > sizeof(name) - 1)
+	{
+		Com_Printf("%s: used unexpectly long name: %s\n", __func__, rawname);
+		return -1;
+	}
+
+	for (input = 0, output = 0; input < namelen; input++)
 	{
 		// Remove self reference.
 		if (rawname[input] == '.')
@@ -420,8 +513,10 @@ FS_FOpenFile(const char *rawname, fileHandle_t *f, qboolean gamedir_only)
 
 		// Evil hack for maps.lst and players/
 		// TODO: A flag to ignore paks would be better
-		if ((strcmp(fs_gamedirvar->string, "") == 0) && search->pack) {
-			if ((strcmp(name, "maps.lst") == 0) || (strncmp(name, "players/", 8) == 0)) {
+		if ((strcmp(fs_gamedirvar->string, "") == 0) && search->pack)
+		{
+			if ((!strcmp(name, "maps.lst")) || (!strncmp(name, "players/", 8)))
+			{
 				if (FS_FileInGamedir(name))
 				{
 					continue;
@@ -432,70 +527,80 @@ FS_FOpenFile(const char *rawname, fileHandle_t *f, qboolean gamedir_only)
 		/* Search inside a pack file. */
 		if (search->pack)
 		{
+			int i;
+
 			pack = search->pack;
+			i = FS_PackQuickSearch(pack, handle->name);
 
-			for (i = 0; i < pack->numFiles; i++)
+			if (i >= 0)
 			{
-				if (Q_stricmp(pack->files[i].name, handle->name) == 0)
+				/* Found it! */
+				if (fs_debug->value)
 				{
-					/* Found it! */
-					if (fs_debug->value)
+					Com_Printf("%s: '%s' (found in '%s').\n",
+						__func__, handle->name, pack->name);
+				}
+
+				// save the name with *correct case* in the handle
+				// (relevant for savegames, when starting map with wrong case but it's still found
+				//  because it's from pak, but save/bla/MAPname.sav/sv2 will have wrong case and can't be found then)
+				Q_strlcpy(handle->name, pack->files[i].name, sizeof(handle->name));
+				handle->compressed_size = 0;
+				handle->format = PAK_MODE_Q2;
+
+				if (pack->pak)
+				{
+					/* PAK and DAT */
+					if (pack->isProtectedPak)
 					{
-						Com_Printf("FS_FOpenFile: '%s' (found in '%s').\n",
-						           handle->name, pack->name);
+						file_from_protected_pak = true;
 					}
 
-					// save the name with *correct case* in the handle
-					// (relevant for savegames, when starting map with wrong case but it's still found
-					//  because it's from pak, but save/bla/MAPname.sav/sv2 will have wrong case and can't be found then)
-					Q_strlcpy(handle->name, pack->files[i].name, sizeof(handle->name));
+					handle->file = Q_fopen(pack->name, "rb");
 
-					if (pack->pak)
+					if (handle->file)
 					{
-						/* PAK */
-						if (pack->isProtectedPak)
+						handle->compressed_size = pack->files[i].compressed_size;
+						handle->format = pack->files[i].format;
+						if (fseek(handle->file, pack->files[i].offset, SEEK_SET))
 						{
-							file_from_protected_pak = true;
+							Com_Printf("%s: '%s' seek failed", __func__, handle->name);
+							return 0;
 						}
 
-						handle->file = Q_fopen(pack->name, "rb");
-
-						if (handle->file)
-						{
-							fseek(handle->file, pack->files[i].offset, SEEK_SET);
-							return pack->files[i].size;
-						}
+						return pack->files[i].size;
 					}
-					else if (pack->pk3)
+				}
+				else if (pack->pk3)
+				{
+					/* PK3 */
+					if (pack->isProtectedPak)
 					{
-						/* PK3 */
-						if (pack->isProtectedPak)
-						{
-							file_from_protected_pak = true;
-						}
+						file_from_protected_pak = true;
+					}
 
 #ifdef _WIN32
-						handle->zip = unzOpen2(pack->name, &zlib_file_api);
+					handle->zip = unzOpen2(pack->name, &zlib_file_api);
 #else
-						handle->zip = unzOpen(pack->name);
+					handle->zip = unzOpen(pack->name);
 #endif
 
-						if (handle->zip)
+					if (handle->zip)
+					{
+						if (unzLocateFile(handle->zip, handle->name, 2) == UNZ_OK)
 						{
-							if (unzLocateFile(handle->zip, handle->name, 2) == UNZ_OK)
+							if (unzOpenCurrentFile(handle->zip) == UNZ_OK)
 							{
-								if (unzOpenCurrentFile(handle->zip) == UNZ_OK)
-								{
-									return pack->files[i].size;
-								}
+								return pack->files[i].size;
 							}
-
-							unzClose(handle->zip);
 						}
-					}
 
-					Com_Error(ERR_FATAL, "Couldn't reopen '%s'", pack->name);
+						unzClose(handle->zip);
+					}
 				}
+
+				Com_Error(ERR_FATAL, "Couldn't reopen '%s'", pack->name);
+				return 0;
 			}
 		}
 		else
@@ -517,8 +622,8 @@ FS_FOpenFile(const char *rawname, fileHandle_t *f, qboolean gamedir_only)
 			{
 				if (fs_debug->value)
 				{
-					Com_Printf("FS_FOpenFile: '%s' (found in '%s').\n",
-							   handle->name, search->path);
+					Com_Printf("%s: '%s' (found in '%s').\n",
+						__func__, handle->name, search->path);
 				}
 
 				return FS_FileLength(handle->file);
@@ -527,13 +632,143 @@ FS_FOpenFile(const char *rawname, fileHandle_t *f, qboolean gamedir_only)
 	}
 	if (fs_debug->value)
 	{
-		Com_Printf("FS_FOpenFile: couldn't find '%s'.\n", handle->name);
+		Com_Printf("%s: couldn't find '%s'.\n", __func__, handle->name);
 	}
 
 	/* Couldn't open, so free the handle. */
 	memset(handle, 0, sizeof(*handle));
 	*f = 0;
 	return -1;
+}
+
+static int
+FS_DecompressFile(void *buffer, int size, const fsHandle_t *handle)
+{
+	if (handle->compressed_size)
+	{
+		unsigned long uncompressed_size;
+		byte *compressed_buffer;
+
+		compressed_buffer = malloc(handle->compressed_size);
+		uncompressed_size = size;
+		if (!compressed_buffer)
+		{
+			Com_Error(ERR_FATAL, "%s: can't allocate space for '%s'",
+				__func__, handle->name);
+			return 0;
+		}
+
+		memcpy(compressed_buffer, buffer, handle->compressed_size);
+
+		if (handle->format == PAK_MODE_DAT)
+		{
+			int status;
+
+			status = uncompress(buffer, &uncompressed_size, compressed_buffer,
+				handle->compressed_size);
+
+			free(compressed_buffer);
+
+			if (status != MZ_OK)
+			{
+				Com_Error(ERR_FATAL, "%s: can't decompress file '%s'",
+					__func__, handle->name);
+				return 0;
+			}
+		}
+		else if (handle->format == PAK_MODE_DK)
+		{
+			int read = 0;
+			int written = 0;
+
+			while ((read < handle->compressed_size) && (written < size))
+			{
+				byte x;
+
+				x = compressed_buffer[read];
+				++read;
+
+				/* x + 1 bytes of uncompressed data */
+				if (x < 64)
+				{
+					if ((written + x + 1) > size)
+					{
+						free(compressed_buffer);
+						Com_Error(ERR_FATAL, "%s: can't decompress file '%s'",
+							__func__, handle->name);
+						return 0;
+					}
+
+					memmove((byte *)buffer + written, compressed_buffer + read, x + 1);
+
+					read += x + 1;
+					written += x + 1;
+				}
+				/* x - 62 zeros */
+				else if (x < 128)
+				{
+					if ((written + x - 62) > size)
+					{
+						free(compressed_buffer);
+						Com_Error(ERR_FATAL, "%s: can't decompress file '%s'",
+							__func__, handle->name);
+						return 0;
+					}
+
+					memset((byte *)buffer + written, 0, x - 62);
+
+					written += x - 62;
+				}
+				/* x - 126 times the next byte */
+				else if (x < 192)
+				{
+					if ((written + x - 126) > size)
+					{
+						free(compressed_buffer);
+						Com_Error(ERR_FATAL, "%s: can't decompress file '%s'",
+							__func__, handle->name);
+						return 0;
+					}
+
+					memset((byte *)buffer + written, compressed_buffer[read], x - 126);
+
+					++read;
+					written += x - 126;
+				}
+				/* Reference previously uncompressed data */
+				else if (x < 254)
+				{
+					if ((written + x - 190) > size)
+					{
+						free(compressed_buffer);
+						Com_Error(ERR_FATAL, "%s: can't decompress file '%s'",
+							__func__, handle->name);
+						return 0;
+					}
+
+					memmove((byte *)buffer + written, ((byte *)buffer + written) - (
+						(int)compressed_buffer[read] + 2), x - 190);
+
+					++read;
+					written += x - 190;
+				}
+				/* Terminate */
+				else if (x == 255)
+				{
+					break;
+				}
+			}
+
+			free(compressed_buffer);
+		} else {
+			free(compressed_buffer);
+			Com_Error(ERR_FATAL, "%s: unknown compression format '%s'",
+				__func__, handle->name);
+			return 0;
+		}
+	}
+
+	return size;
 }
 
 /*
@@ -543,16 +778,39 @@ int
 FS_Read(void *buffer, int size, fileHandle_t f)
 {
 	qboolean tried = false;    /* Tried to read from a CD. */
-	byte *buf;        /* Buffer. */
+	byte *buf, *compressed_buf;        /* Buffer. */
 	int r;         /* Number of bytes read. */
 	int remaining;        /* Remaining bytes. */
 	fsHandle_t *handle;  /* File handle. */
 
 	handle = FS_GetFileByHandle(f);
 
-	/* Read. */
-	remaining = size;
 	buf = (byte *)buffer;
+	compressed_buf = (byte *)buffer;
+
+	/* Read. */
+	if (handle->compressed_size)
+	{
+		remaining = handle->compressed_size;
+		if (size < handle->compressed_size)
+		{
+			/* compressed chunk bigger than provided buffer */
+			compressed_buf = malloc(handle->compressed_size);
+			if (!compressed_buf)
+			{
+				Com_Error(ERR_DROP, "%s: can't allocate compressed buffer\n",
+				__func__);
+				return 0;
+			}
+
+			memset(compressed_buf, 0, handle->compressed_size);
+			buf = compressed_buf;
+		}
+	}
+	else
+	{
+		remaining = size;
+	}
 
 	while (remaining)
 	{
@@ -566,6 +824,10 @@ FS_Read(void *buffer, int size, fileHandle_t f)
 		}
 		else
 		{
+			if (buffer != compressed_buf)
+			{
+				free(compressed_buf);
+			}
 			return 0;
 		}
 
@@ -578,21 +840,40 @@ FS_Read(void *buffer, int size, fileHandle_t f)
 			}
 			else
 			{
+				if (buffer != compressed_buf)
+				{
+					free(compressed_buf);
+				}
+
 				/* Already tried once. */
-				Com_Error(ERR_FATAL, "FS_Read: 0 bytes read from '%s'", handle->name);
+				Com_Error(ERR_FATAL, "%s: 0 bytes read from '%s'",
+					__func__, handle->name);
 				return size - remaining;
 			}
 		}
 		else if (r == -1)
 		{
-			Com_Error(ERR_FATAL, "FS_Read: -1 bytes read from '%s'", handle->name);
+			if (buffer != compressed_buf)
+			{
+				free(compressed_buf);
+			}
+
+			Com_Error(ERR_FATAL, "%s: -1 bytes read from '%s'",
+				__func__, handle->name);
+			return 0;
 		}
 
 		remaining -= r;
 		buf += r;
 	}
 
-	return size;
+	remaining = FS_DecompressFile(compressed_buf, size, handle);
+	if (buffer != compressed_buf)
+	{
+		memcpy(buffer, compressed_buf, size);
+		free(compressed_buf);
+	}
+	return remaining;
 }
 
 /*
@@ -603,7 +884,7 @@ int
 FS_FRead(void *buffer, int size, int count, fileHandle_t f)
 {
 	qboolean tried = false;    /* Tried to read from a CD. */
-	byte *buf;        /* Buffer. */
+	byte *buf, *compressed_buf;        /* Buffer. */
 	int loops;         /* Loop indicator. */
 	int r;         /* Number of bytes read. */
 	int remaining;         /* Remaining bytes. */
@@ -614,11 +895,33 @@ FS_FRead(void *buffer, int size, int count, fileHandle_t f)
 	/* Read. */
 	loops = count;
 	buf = (byte *)buffer;
+	compressed_buf = (byte *)buffer;
+
+	if (handle->compressed_size && size < handle->compressed_size)
+	{
+		/* compressed chunk bigger than provided buffer */
+		compressed_buf = malloc(handle->compressed_size);
+		if (!compressed_buf)
+		{
+			Com_Error(ERR_DROP, "%s: can't allocate compressed buffer\n",
+			__func__);
+			return 0;
+		}
+
+		buf = compressed_buf;
+	}
 
 	while (loops)
 	{
 		/* Read in chunks. */
-		remaining = size;
+		if (handle->compressed_size)
+		{
+			remaining = handle->compressed_size;
+		}
+		else
+		{
+			remaining = size;
+		}
 
 		while (remaining)
 		{
@@ -632,6 +935,10 @@ FS_FRead(void *buffer, int size, int count, fileHandle_t f)
 			}
 			else
 			{
+				if (buffer != compressed_buf)
+				{
+					free(compressed_buf);
+				}
 				return 0;
 			}
 
@@ -644,15 +951,27 @@ FS_FRead(void *buffer, int size, int count, fileHandle_t f)
 				}
 				else
 				{
+					if (buffer != compressed_buf)
+					{
+						memcpy(buffer, compressed_buf, size - remaining);
+						free(compressed_buf);
+					}
+
 					/* Already tried once. */
 					return size - remaining;
 				}
 			}
 			else if (r == -1)
 			{
+				if (buffer != compressed_buf)
+				{
+					free(compressed_buf);
+				}
+
 				Com_Error(ERR_FATAL,
-						"FS_FRead: -1 bytes read from '%s'",
-						handle->name);
+						"%s: -1 bytes read from '%s'",
+						__func__, handle->name);
+				return 0;
 			}
 
 			remaining -= r;
@@ -662,7 +981,13 @@ FS_FRead(void *buffer, int size, int count, fileHandle_t f)
 		loops--;
 	}
 
-	return size;
+	remaining = FS_DecompressFile(compressed_buf, size, handle);
+	if (buffer != compressed_buf)
+	{
+		memcpy(buffer, compressed_buf, size);
+		free(compressed_buf);
+	}
+	return remaining;
 }
 
 /*
@@ -681,6 +1006,12 @@ FS_LoadFile(const char *path, void **buffer)
 
 	if (size <= 0)
 	{
+		if (size == 0)
+		{
+			/* empty file, close before exit*/
+			FS_FCloseFile(f);
+		}
+
 		if (buffer)
 		{
 			*buffer = NULL;
@@ -764,22 +1095,17 @@ FS_FreeSearchPaths(fsSearchPath_t *start, fsSearchPath_t *end)
 	return cur;
 }
 
-/*
- * Takes an explicit (not game tree related) path to a pak file.
- *
- * Loads the header and directory, adding the files at the beginning of the
- * list so they override previous pack files.
- */
 static fsPack_t *
-FS_LoadPAK(const char *packPath)
+FS_LoadWAD(const char *packPath)
 {
-	int i; /* Loop counter. */
-	int numFiles; /* Number of files in PAK. */
+	int i, curr = 0; /* Loop counter. */
+	int numFiles; /* Number of files in WAD. */
 	FILE *handle; /* File handle. */
-	fsPackFile_t *files; /* List of files in PAK. */
-	fsPack_t *pack; /* PAK file. */
-	dpackheader_t header; /* PAK file header. */
-	dpackfile_t *info = NULL; /* PAK info. */
+	fsPackFile_t *files; /* List of files in WAD. */
+	fsPack_t *pack; /* WAD file. */
+	dwadheader_t header; /* WAD file header. */
+	dwadfile_t *info = NULL; /* WAD info. */
+	char prefix[MAX_QPATH] = {0}, path[MAX_QPATH] = {0};
 
 	handle = Q_fopen(packPath, "rb");
 
@@ -788,24 +1114,33 @@ FS_LoadPAK(const char *packPath)
 		return NULL;
 	}
 
-	fread(&header, 1, sizeof(dpackheader_t), handle);
-
-	if (LittleLong(header.ident) != IDPAKHEADER)
+	if (fread(&header, sizeof(dwadheader_t), 1, handle) != 1)
 	{
 		fclose(handle);
-		Com_Error(ERR_FATAL, "%s: '%s' is not a pack file", __func__, packPath);
+		Com_Printf("%s: '%s' too short file\n",
+			__func__, packPath);
+		return NULL;
+	}
+
+	if (LittleLong(header.ident) != IWADHEADER &&
+		LittleLong(header.ident) != PWADHEADER)
+	{
+		fclose(handle);
+		Com_Printf("%s: '%s' is not a wad file\n",
+			__func__, packPath);
+		return NULL;
 	}
 
 	header.dirofs = LittleLong(header.dirofs);
-	header.dirlen = LittleLong(header.dirlen);
-
-	numFiles = header.dirlen / sizeof(dpackfile_t);
+	numFiles = LittleLong(header.dirlen);
+	header.dirlen = numFiles * sizeof(dwadfile_t);
 
 	if ((numFiles == 0) || (header.dirlen < 0) || (header.dirofs < 0))
 	{
 		fclose(handle);
 		Com_Error(ERR_FATAL, "%s: '%s' is too short.",
-				__func__, packPath);
+			__func__, packPath);
+		return NULL;
 	}
 
 	if (numFiles > MAX_FILES_IN_PACK)
@@ -817,21 +1152,583 @@ FS_LoadPAK(const char *packPath)
 	info = malloc(header.dirlen);
 	if (!info)
 	{
+		fclose(handle);
 		Com_Error(ERR_FATAL, "%s: '%s' is to big for read %d",
 				__func__, packPath, header.dirlen);
+		return NULL;
 	}
 
 	files = Z_Malloc(numFiles * sizeof(fsPackFile_t));
 
-	fseek(handle, header.dirofs, SEEK_SET);
-	fread(info, 1, header.dirlen, handle);
+	if (fseek(handle, header.dirofs, SEEK_SET))
+	{
+		free(info);
+		Z_Free(files);
+		Com_Error(ERR_FATAL, "%s: '%s' seek failed", __func__, packPath);
+		return NULL;
+	}
+
+	if (fread(info, header.dirlen, 1, handle) != 1)
+	{
+		free(info);
+		Z_Free(files);
+		Com_Error(ERR_FATAL, "%s: '%s' is too short", __func__, packPath);
+		return NULL;
+	}
 
 	/* Parse the directory. */
 	for (i = 0; i < numFiles; i++)
 	{
-		Q_strlcpy(files[i].name, info[i].name, sizeof(files[i].name));
+		char name[9], finalname[MAX_QPATH];
+		memcpy(name, info[i].name, 8);
+		name[8] = '\0';
+		info[i].filepos = LittleLong(info[i].filepos);
+		info[i].filelen = LittleLong(info[i].filelen);
+
+		if (!strcmp(path, "maps") &&
+			prefix[0] &&
+			strcmp(name, "THINGS") &&
+			strcmp(name, "LINEDEFS") &&
+			strcmp(name, "SIDEDEFS") &&
+			strcmp(name, "VERTEXES") &&
+			strcmp(name, "SEGS") &&
+			strcmp(name, "SSECTORS") &&
+			strcmp(name, "NODES") &&
+			strcmp(name, "SECTORS") &&
+			strcmp(name, "REJECT") &&
+			strcmp(name, "BLOCKMAP"))
+		{
+			/* not maps, reset path and prefix */
+			prefix[0] = 0;
+			path[0] = 0;
+		}
+
+		if (info[i].filelen == 0)
+		{
+			int len;
+
+			if ((i + 1) < numFiles)
+			{
+				char nextname[9];
+				memcpy(nextname, info[i + 1].name, 8);
+				nextname[8] = '\0'; // Ensure null-termination
+
+				if (!strcmp(nextname, "THINGS"))
+				{
+					strcpy(prefix, name);
+					strcpy(path, "maps");
+
+					Com_sprintf(finalname, sizeof(finalname), "%s/%s.bsp",
+						path, name);
+					/* add empty bsp file */
+					Q_strlcpy(files[curr].name, finalname,
+						Q_min(sizeof(files[curr].name), sizeof(finalname)));
+					files[curr].offset = info[i].filepos;
+					files[curr].size = info[i].filelen;
+					files[curr].compressed_size = 0;
+					files[curr].format = PAK_MODE_Q2;
+					curr++;
+					continue;
+				}
+			}
+
+			len = strlen(name);
+			if (len > 6 && !strcmp(name + len - 6, "_START"))
+			{
+				int path_len;
+
+				len -= 6;
+				path_len = strlen(path);
+				if (path_len)
+				{
+					path[path_len] = '/';
+					path_len ++;
+				}
+				else if (len == 1)
+				{
+					switch (name[0])
+					{
+						case 'S': strcpy(name, "sprites"); break;
+						case 'F': strcpy(name, "flat"); break;
+						case 'P': strcpy(name, "patches"); break;
+						default: break;
+					}
+					len = strlen(name);
+				}
+				memcpy(path + path_len, name, len);
+				path[path_len + len] = 0;
+				continue;
+			}
+			else if (len > 4 && !strcmp(name + len - 4, "_END"))
+			{
+				name[len - 4] = 0;
+
+				if ((!strcmp(name, "S") && !strcmp(path, "sprites")) ||
+					(!strcmp(name, "F") && !strcmp(path, "flat")) ||
+					(!strcmp(name, "P") && !strcmp(path, "patches")))
+				{
+					path[0] = 0;
+				}
+				else
+				{
+					int path_len;
+
+					path_len = strlen(path);
+					if (strcmp(path + path_len - strlen(name), name))
+					{
+						Com_Printf("%s: different path %s != %s\n",
+							__func__, path, name);
+					}
+					path[path_len - strlen(name)] = 0;
+					if (strlen(path))
+					{
+						path[path_len - strlen(name) - 1] = 0;
+					}
+				}
+				continue;
+			}
+			else
+			{
+				prefix[0] = 0;
+				strcpy(path, name);
+			}
+		}
+
+		if (!strcmp(path, "maps"))
+		{
+			Com_sprintf(finalname, sizeof(finalname), "%s/%s/%s.lmp",
+				path, prefix, name);
+		}
+		else if (path[0])
+		{
+			Com_sprintf(finalname, sizeof(finalname), "%s/%s.lmp",
+				path, name);
+		}
+		else
+		{
+			Com_sprintf(finalname, sizeof(finalname), "custom/%s.lmp",
+				name);
+		}
+
+		Q_strlcpy(files[curr].name, finalname,
+			Q_min(sizeof(files[curr].name), sizeof(finalname)));
+		files[curr].offset = info[i].filepos;
+		files[curr].size = info[i].filelen;
+		files[curr].compressed_size = 0;
+		files[curr].format = PAK_MODE_Q2;
+		curr++;
+	}
+	free(info);
+
+	pack = Z_Malloc(sizeof(fsPack_t));
+	Q_strlcpy(pack->name, packPath, sizeof(pack->name));
+	pack->pak = handle;
+	pack->pk3 = NULL;
+	pack->numFiles = curr;
+	pack->files = files;
+
+	Com_Printf("Added wadfile '%s' (%i / %i files).\n",
+		pack->name, curr, numFiles);
+
+	return pack;
+}
+
+static fsPack_t *
+FS_LoadDAT(const char *packPath)
+{
+	int i; /* Loop counter. */
+	int numFiles; /* Number of files in DAT. */
+	FILE *handle; /* File handle. */
+	fsPackFile_t *files; /* List of files in DAT. */
+	fsPack_t *pack; /* DAT file. */
+	ddatheader_t header; /* DAT file header. */
+	ddatfile_t *info = NULL; /* DAT info. */
+	const char *prefixpos, *pos;
+	char prefix[MAX_QPATH];
+	size_t prefix_size;
+
+	handle = Q_fopen(packPath, "rb");
+
+	if (handle == NULL)
+	{
+		return NULL;
+	}
+
+	if (fread(&header, sizeof(ddatheader_t), 1, handle) != 1)
+	{
+		fclose(handle);
+		Com_Printf("%s: '%s' too short file\n",
+			__func__, packPath);
+		return NULL;
+	}
+
+	if (LittleLong(header.ident) != DATHEADER ||
+		LittleLong(header.version) != DATVERSION)
+	{
+		fclose(handle);
+		Com_Printf("%s: '%s' is not a dat file\n",
+			__func__, packPath);
+		return NULL;
+	}
+
+	header.dirofs = LittleLong(header.dirofs);
+	header.dirlen = LittleLong(header.dirlen);
+
+	numFiles = header.dirlen / sizeof(*info);
+
+	if ((numFiles == 0) || (header.dirlen < 0) || (header.dirofs < 0))
+	{
+		fclose(handle);
+		Com_Error(ERR_FATAL, "%s: '%s' is too short.",
+				__func__, packPath);
+		return NULL;
+	}
+
+	if (numFiles > MAX_FILES_IN_PACK)
+	{
+		Com_Printf("%s: '%s' has %i > %i files\n",
+				__func__, packPath, numFiles, MAX_FILES_IN_PACK);
+	}
+
+	info = malloc(header.dirlen);
+	if (!info)
+	{
+		fclose(handle);
+		Com_Error(ERR_FATAL, "%s: '%s' is to big for read %d",
+				__func__, packPath, header.dirlen);
+		return NULL;
+	}
+
+	files = Z_Malloc(numFiles * sizeof(fsPackFile_t));
+
+	if (fseek(handle, header.dirofs, SEEK_SET))
+	{
+		free(info);
+		Z_Free(files);
+		Com_Error(ERR_FATAL, "%s: '%s' seek failed", __func__, packPath);
+		return NULL;
+	}
+
+	if (fread(info, header.dirlen, 1, handle) != 1)
+	{
+		free(info);
+		Z_Free(files);
+		Com_Error(ERR_FATAL, "%s: '%s' is too short", __func__, packPath);
+		return NULL;
+	}
+
+	prefixpos = pos = packPath;
+	while (*pos)
+	{
+		if (*pos == '\\' || *pos == '/')
+		{
+			prefixpos = pos;
+		}
+		pos++;
+	}
+
+	/* '/' + '.dat' */
+	memset(prefix, 0, sizeof(prefix));
+	Q_strlcpy(prefix, prefixpos + 1,
+		Q_min(strlen(prefixpos) - 4, sizeof(prefix)));
+
+	Q_strlwr(prefix);
+	prefix_size = strlen(prefix);
+
+	/* Parse the directory. */
+	for (i = 0; i < numFiles; i++)
+	{
+		size_t name_len;
+
+		/* name */
+		memcpy(files[i].name, prefix, prefix_size);
+		files[i].name[prefix_size] = '/';
+		name_len = Q_min(sizeof(info[i].name), sizeof(files[i].name) - prefix_size - 2);
+		memcpy(files[i].name + prefix_size + 1, info[i].name, name_len);
+		files[i].name[prefix_size + name_len + 1] = 0;
+
+		/* fix naming */
+		Q_replacebackslash(files[i].name);
+
+		/* copy length */
 		files[i].offset = LittleLong(info[i].filepos);
 		files[i].size = LittleLong(info[i].filelen);
+		files[i].compressed_size = LittleLong(info[i].compressed_size);
+		files[i].format = files[i].compressed_size ? PAK_MODE_DAT : PAK_MODE_Q2;
+	}
+	free(info);
+
+	pack = Z_Malloc(sizeof(fsPack_t));
+	Q_strlcpy(pack->name, packPath, sizeof(pack->name));
+	pack->pak = handle;
+	pack->pk3 = NULL;
+	pack->numFiles = numFiles;
+	pack->files = files;
+
+	Com_Printf("Added datfile '%s' (%i files).\n", pack->name, numFiles);
+
+	return pack;
+}
+
+static fsPack_t *
+FS_LoadSIN(const char *packPath)
+{
+	int i; /* Loop counter. */
+	int numFiles; /* Number of files in SIN. */
+	FILE *handle; /* File handle. */
+	fsPackFile_t *files; /* List of files in PAK. */
+	fsPack_t *pack; /* SIN file. */
+	dpackheader_t header; /* SIN file header. */
+	dsinfile_t *info = NULL; /* SIN info. */
+
+	handle = Q_fopen(packPath, "rb");
+
+	if (handle == NULL)
+	{
+		return NULL;
+	}
+
+	if (fread(&header, sizeof(dpackheader_t), 1, handle) != 1)
+	{
+		fclose(handle);
+		Com_Error(ERR_FATAL, "%s: '%s' too short file",
+			__func__, packPath);
+		return NULL;
+	}
+
+	if (LittleLong(header.ident) != SINHEADER)
+	{
+		fclose(handle);
+		Com_Error(ERR_FATAL, "%s: '%s' is not a pack file", __func__, packPath);
+		return NULL;
+	}
+
+	header.dirofs = LittleLong(header.dirofs);
+	header.dirlen = LittleLong(header.dirlen);
+
+	if ((header.dirlen <= 0) ||
+		(header.dirofs < 0) ||
+		((header.dirlen % sizeof(*info)) != 0))
+	{
+		fclose(handle);
+		Com_Error(ERR_FATAL, "%s: '%s' is too short.",
+				__func__, packPath);
+		return NULL;
+	}
+
+	numFiles = header.dirlen / sizeof(*info);
+
+	if (numFiles > MAX_FILES_IN_PACK)
+	{
+		Com_Printf("%s: '%s' has %i > %i files\n",
+			__func__, packPath, numFiles, MAX_FILES_IN_PACK);
+	}
+
+	info = malloc(header.dirlen);
+	if (!info)
+	{
+		fclose(handle);
+		Com_Error(ERR_FATAL, "%s: '%s' is to big for read %d",
+				__func__, packPath, header.dirlen);
+		return NULL;
+	}
+
+	files = Z_Malloc(numFiles * sizeof(fsPackFile_t));
+
+	if (fseek(handle, header.dirofs, SEEK_SET))
+	{
+		free(info);
+		Z_Free(files);
+		Com_Error(ERR_FATAL, "%s: '%s' seek failed", __func__, packPath);
+		return NULL;
+	}
+
+	if (fread(info, header.dirlen, 1, handle) != 1)
+	{
+		free(info);
+		Z_Free(files);
+		Com_Error(ERR_FATAL, "%s: '%s' is too short", __func__, packPath);
+		return NULL;
+	}
+
+	/* Parse the directory. */
+	for (i = 0; i < numFiles; i++)
+	{
+		/* files.name: 128, info.name: 120 */
+		memcpy(files[i].name, info[i].name, sizeof(info[i].name));
+		files[i].name[sizeof(info[i].name)] = 0;
+		files[i].offset = LittleLong(info[i].filepos);
+		files[i].size = LittleLong(info[i].filelen);
+		files[i].compressed_size = 0;
+		files[i].format = PAK_MODE_Q2;
+	}
+	free(info);
+
+	pack = Z_Malloc(sizeof(fsPack_t));
+	Q_strlcpy(pack->name, packPath, sizeof(pack->name));
+	pack->pak = handle;
+	pack->pk3 = NULL;
+	pack->numFiles = numFiles;
+	pack->files = files;
+
+	Com_Printf("Added sinfile '%s' (%i files).\n", pack->name, numFiles);
+
+	return pack;
+}
+
+/*
+ * Takes an explicit (not game tree related) path to a pak file.
+ *
+ * Loads the header and directory, adding the files at the beginning of the
+ * list so they override previous pack files.
+ */
+static fsPack_t *
+FS_LoadPAKQ2(dpackheader_t *header, FILE *handle, const char *packPath)
+{
+	int i; /* Loop counter. */
+	int numFiles; /* Number of files in PAK. */
+	fsPackFile_t *files; /* List of files in PAK. */
+	fsPack_t *pack; /* PAK file. */
+	dpackfile_t *info = NULL; /* PAK info. */
+
+	numFiles = header->dirlen / sizeof(*info);
+
+	if (numFiles == 0)
+	{
+		fclose(handle);
+		Com_Error(ERR_FATAL, "%s: '%s' is too short.",
+				__func__, packPath);
+		return NULL;
+	}
+
+	if (numFiles > MAX_FILES_IN_PACK)
+	{
+		Com_Printf("%s: '%s' has %i > %i files\n",
+				__func__, packPath, numFiles, MAX_FILES_IN_PACK);
+	}
+
+	info = malloc(header->dirlen);
+	if (!info)
+	{
+		fclose(handle);
+		Com_Error(ERR_FATAL, "%s: '%s' is to big for read %d",
+				__func__, packPath, header->dirlen);
+		return NULL;
+	}
+
+	files = Z_Malloc(numFiles * sizeof(fsPackFile_t));
+
+	if (fseek(handle, header->dirofs, SEEK_SET))
+	{
+		free(info);
+		Z_Free(files);
+		Com_Error(ERR_FATAL, "%s: '%s' seek failed", __func__, packPath);
+		return NULL;
+	}
+
+	if (fread(info, header->dirlen, 1, handle) != 1)
+	{
+		free(info);
+		Z_Free(files);
+		Com_Error(ERR_FATAL, "%s: '%s' is too short", __func__, packPath);
+		return NULL;
+	}
+
+	/* Parse the directory. */
+	for (i = 0; i < numFiles; i++)
+	{
+		/* files.name: 128, info.name: 56 */
+		memcpy(files[i].name, info[i].name, sizeof(info[i].name));
+		files[i].name[sizeof(info[i].name)] = 0;
+		files[i].offset = LittleLong(info[i].filepos);
+		files[i].size = LittleLong(info[i].filelen);
+		files[i].compressed_size = 0;
+		files[i].format = PAK_MODE_Q2;
+	}
+	free(info);
+
+	pack = Z_Malloc(sizeof(fsPack_t));
+	Q_strlcpy(pack->name, packPath, sizeof(pack->name));
+	pack->pak = handle;
+	pack->pk3 = NULL;
+	pack->numFiles = numFiles;
+	pack->files = files;
+
+	Com_Printf("Added packfile '%s' (%i files).\n", pack->name, numFiles);
+
+	return pack;
+}
+
+static fsPack_t *
+FS_LoadPAKDK(dpackheader_t *header, FILE *handle, const char *packPath)
+{
+	int i; /* Loop counter. */
+	int numFiles; /* Number of files in PAK. */
+	fsPackFile_t *files; /* List of files in PAK. */
+	fsPack_t *pack; /* PAK file. */
+	dpackdkfile_t *info = NULL; /* PAK info. */
+
+	numFiles = header->dirlen / sizeof(*info);
+
+	if (numFiles == 0)
+	{
+		fclose(handle);
+		Com_Error(ERR_FATAL, "%s: '%s' is too short.",
+				__func__, packPath);
+		return NULL;
+	}
+
+	if (numFiles > MAX_FILES_IN_PACK)
+	{
+		Com_Printf("%s: '%s' has %i > %i files\n",
+				__func__, packPath, numFiles, MAX_FILES_IN_PACK);
+	}
+
+	info = malloc(header->dirlen);
+	if (!info)
+	{
+		fclose(handle);
+		Com_Error(ERR_FATAL, "%s: '%s' is to big for read %d",
+				__func__, packPath, header->dirlen);
+		return NULL;
+	}
+
+	files = Z_Malloc(numFiles * sizeof(fsPackFile_t));
+
+	if (fseek(handle, header->dirofs, SEEK_SET))
+	{
+		free(info);
+		Z_Free(files);
+		Com_Error(ERR_FATAL, "%s: '%s' seek failed", __func__, packPath);
+		return NULL;
+	}
+
+	if (fread(info, header->dirlen, 1, handle) != 1)
+	{
+		free(info);
+		Z_Free(files);
+		Com_Error(ERR_FATAL, "%s: '%s' is too short", __func__, packPath);
+		return NULL;
+	}
+
+	/* Parse the directory. */
+	for (i = 0; i < numFiles; i++)
+	{
+		/* files.name: 128, info.name: 56 */
+		memcpy(files[i].name, info[i].name, sizeof(info[i].name));
+		files[i].name[sizeof(info[i].name)] = 0;
+		files[i].offset = LittleLong(info[i].filepos);
+		files[i].size = LittleLong(info[i].filelen);
+		if (info[i].is_compressed)
+		{
+			files[i].compressed_size = LittleLong(info[i].compressed_size);
+			files[i].format = PAK_MODE_DK;
+		}
+		else
+		{
+			files[i].compressed_size = 0;
+			files[i].format = PAK_MODE_Q2;
+		}
 	}
 	free(info);
 
@@ -848,6 +1745,70 @@ FS_LoadPAK(const char *packPath)
 }
 
 /*
+ * Takes an explicit (not game tree related) path to a pak file.
+ *
+ * Loads the header and directory, adding the files at the beginning of the
+ * list so they override previous pack files.
+ */
+static fsPack_t *
+FS_LoadPAK(const char *packPath)
+{
+	FILE *handle; /* File handle. */
+	dpackheader_t header; /* PAK file header. */
+
+	handle = Q_fopen(packPath, "rb");
+
+	if (handle == NULL)
+	{
+		return NULL;
+	}
+
+	if (fread(&header, sizeof(dpackheader_t), 1, handle) != 1)
+	{
+		fclose(handle);
+		Com_Error(ERR_FATAL, "%s: '%s' too short file",
+			__func__, packPath);
+		return NULL;
+	}
+
+	if (LittleLong(header.ident) != IDPAKHEADER)
+	{
+		fclose(handle);
+		Com_Error(ERR_FATAL, "%s: '%s' is not a pack file",
+			__func__, packPath);
+		return NULL;
+	}
+
+	header.dirofs = LittleLong(header.dirofs);
+	header.dirlen = LittleLong(header.dirlen);
+
+	if ((header.dirlen <= 0) || (header.dirofs < 0))
+	{
+		fclose(handle);
+		Com_Error(ERR_FATAL, "%s: '%s' is too short.",
+				__func__, packPath);
+		return NULL;
+	}
+
+	if ((header.dirlen % sizeof(dpackfile_t)) == 0)
+	{
+		return FS_LoadPAKQ2(&header, handle, packPath);
+	}
+
+	if ((header.dirlen % sizeof(dpackdkfile_t)) == 0)
+	{
+		return FS_LoadPAKDK(&header, handle, packPath);
+	}
+
+	fclose(handle);
+
+	Com_Printf("WARNING: skipped unsupported '%s' PAK format.\n",
+			packPath);
+
+	return NULL;
+}
+
+/*
  * Takes an explicit (not game tree related) path to a pack file.
  *
  * Loads the header and directory, adding the files at the beginning of the list
@@ -856,7 +1817,6 @@ FS_LoadPAK(const char *packPath)
 static fsPack_t *
 FS_LoadPK3(const char *packPath)
 {
-	char fileName[MAX_QPATH]; /* File name. */
 	int i = 0; /* Loop counter. */
 	int numFiles; /* Number of files in PK3. */
 	int status; /* Error indicator. */
@@ -881,6 +1841,7 @@ FS_LoadPK3(const char *packPath)
 	{
 		unzClose(handle);
 		Com_Error(ERR_FATAL, "%s: '%s' is not a pack file", __func__, packPath);
+		return NULL;
 	}
 
 	numFiles = global.number_entry;
@@ -890,6 +1851,7 @@ FS_LoadPK3(const char *packPath)
 		unzClose(handle);
 		Com_Error(ERR_FATAL, "%s: '%s' has %i files",
 				__func__, packPath, numFiles);
+		return NULL;
 	}
 
 	files = Z_Malloc(numFiles * sizeof(fsPackFile_t));
@@ -899,8 +1861,9 @@ FS_LoadPK3(const char *packPath)
 
 	while (status == UNZ_OK)
 	{
-		fileName[0] = '\0';
-		unzGetCurrentFileInfo(handle, &info, fileName, MAX_QPATH,
+		char fileName[MAX_FILENAME] = {0}; /* File name. */
+
+		unzGetCurrentFileInfo(handle, &info, fileName, sizeof(fileName),
 				NULL, 0, NULL, 0);
 		Q_strlcpy(files[i].name, fileName, sizeof(files[i].name));
 		files[i].offset = -1; /* Not used in ZIP files */
@@ -924,7 +1887,7 @@ FS_LoadPK3(const char *packPath)
 /*
  * Allows enumerating all of the directories in the search path.
  */
-char *
+const char *
 FS_NextPath(const char *prevPath)
 {
 	char *prev;
@@ -1098,6 +2061,11 @@ FS_ListFiles(const char *findname, int *numfiles,
 	/* Allocate the list. */
 	list = calloc(nfiles, sizeof(char *));
 	YQ2_COM_CHECK_OOM(list, "calloc()", (size_t)nfiles*sizeof(char*))
+	if (!list)
+	{
+		/* unaware about YQ2_ATTR_NORETURN_FUNCPTR? */
+		return NULL;
+	}
 
 	/* Fill the list. */
 	s = Sys_FindFirst(findname, musthave, canthave);
@@ -1201,11 +2169,18 @@ FS_ListFiles2(const char *findname, int *numfiles,
 	nfiles = 0;
 	list = malloc(sizeof(char *));
 	YQ2_COM_CHECK_OOM(list, "malloc()", sizeof(char*))
+	if (!list)
+	{
+		/* unaware about YQ2_ATTR_NORETURN_FUNCPTR? */
+		return NULL;
+	}
 
 	for (search = fs_searchPaths; search != NULL; search = search->next)
 	{
 		if (search->pack != NULL)
 		{
+			char **tmp;
+
 			if (canthave & SFF_INPACK)
 			{
 				continue;
@@ -1226,8 +2201,16 @@ FS_ListFiles2(const char *findname, int *numfiles,
 			}
 
 			nfiles += j;
-			list = realloc(list, nfiles * sizeof(char *));
-			YQ2_COM_CHECK_OOM(list, "realloc()", (size_t)nfiles*sizeof(char*))
+			tmp = realloc(list, nfiles * sizeof(char *));
+			if (!tmp)
+			{
+				free(list);
+				YQ2_COM_CHECK_OOM(tmp, "realloc()", (size_t)nfiles*sizeof(char*))
+				/* unaware about YQ2_ATTR_NORETURN_FUNCPTR? */
+				return NULL;
+			}
+
+			list = tmp;
 
 			for (i = 0, j = nfiles - j; i < search->pack->numFiles; i++)
 			{
@@ -1249,10 +2232,21 @@ FS_ListFiles2(const char *findname, int *numfiles,
 
 		if (tmplist != NULL)
 		{
+			char **tmp;
+
 			tmpnfiles--;
 			nfiles += tmpnfiles;
-			list = realloc(list, nfiles * sizeof(char *));
-			YQ2_COM_CHECK_OOM(list, "2nd realloc()", (size_t)nfiles*sizeof(char*))
+			tmp = realloc(list, nfiles * sizeof(char *));
+			if (!tmp)
+			{
+				FS_FreeList(tmplist, tmpnfiles + 1);
+				free(list);
+				YQ2_COM_CHECK_OOM(tmp, "2nd realloc()", (size_t)nfiles*sizeof(char*))
+				/* unaware about YQ2_ATTR_NORETURN_FUNCPTR? */
+				return NULL;
+			}
+
+			list = tmp;
 
 			for (i = 0, j = nfiles - tmpnfiles; i < tmpnfiles; i++, j++)
 			{
@@ -1289,7 +2283,13 @@ FS_ListFiles2(const char *findname, int *numfiles,
 	{
 		nfiles -= tmpnfiles;
 		tmplist = malloc(nfiles * sizeof(char *));
-		YQ2_COM_CHECK_OOM(tmplist, "malloc()", (size_t)nfiles*sizeof(char*))
+		if (!tmplist)
+		{
+			free(list);
+			YQ2_COM_CHECK_OOM(tmplist, "malloc()", (size_t)nfiles*sizeof(char*))
+			/* unaware about YQ2_ATTR_NORETURN_FUNCPTR? */
+			return NULL;
+		}
 
 		for (i = 0, j = 0; i < nfiles + tmpnfiles; i++)
 		{
@@ -1306,9 +2306,19 @@ FS_ListFiles2(const char *findname, int *numfiles,
 	/* Add a guard. */
 	if (nfiles > 0)
 	{
+		char **tmp;
+
 		nfiles++;
-		list = realloc(list, nfiles * sizeof(char *));
-		YQ2_COM_CHECK_OOM(list, "3rd realloc()", (size_t)nfiles*sizeof(char*))
+		tmp = realloc(list, nfiles * sizeof(char *));
+		if (!tmp)
+		{
+			free(list);
+			YQ2_COM_CHECK_OOM(tmp, "3rd realloc()", (size_t)nfiles*sizeof(char*))
+			/* unaware about YQ2_ATTR_NORETURN_FUNCPTR? */
+			return NULL;
+		}
+
+		list = tmp;
 		list[nfiles - 1] = NULL;
 	}
 
@@ -1331,14 +2341,17 @@ FS_FreeList(char **list, int nfiles)
 {
 	int i;
 
+	if (!list)
+	{
+		return;
+	}
+
 	for (i = 0; i < nfiles - 1; i++)
 	{
 		free(list[i]);
-		list[i] = 0;
 	}
 
 	free(list);
-	list = 0;
 }
 
 /*
@@ -1374,24 +2387,31 @@ Q_sort_modcmp(const void *p1, const void *p2)
 char**
 FS_ListMods(int *nummods)
 {
-	int nmods = 0, numdirchildren, numpacksinchilddir, searchpathlength;
+	int nmods = 0, numdirchildren, numpacksinchilddir;
+	size_t searchpathlength;
 	char findnamepattern[MAX_OSPATH], modname[MAX_QPATH], searchpath[MAX_OSPATH];
 	char **dirchildren, **packsinchilddir, **modnames;
 
 	modnames = malloc((MAX_QPATH + 1) * (MAX_MODS + 1));
+	if (!modnames)
+	{
+		YQ2_COM_CHECK_OOM(modnames, "malloc()", (MAX_QPATH + 1) * (MAX_MODS + 1))
+		/* unaware about YQ2_ATTR_NORETURN_FUNCPTR? */
+		return NULL;
+	}
 	memset(modnames, 0, (MAX_QPATH + 1) * (MAX_MODS + 1));
 
 	// iterate over all Raw paths
 	for (fsRawPath_t *search = fs_rawPath; search; search = search->next)
 	{
 		searchpathlength = strlen(search->path);
-		if(!searchpathlength)
+		if (!searchpathlength)
 		{
 			continue;
 		}
 
 		// make sure this Raw path ends with a '/' otherwise FS_ListFiles will open its parent dir
-		if(search->path[searchpathlength - 1] != '/')
+		if (search->path[searchpathlength - 1] != '/')
 		{
 			Com_sprintf(searchpath, sizeof(searchpath), "%s/*", search->path);
 		}
@@ -1410,7 +2430,7 @@ FS_ListMods(int *nummods)
 		// iterate over the children of this Raw path (unless we've already got enough mods)
 		for (int i = 0; i < numdirchildren && nmods < MAX_MODS; i++)
 		{
-			if(dirchildren[i] == NULL)
+			if (dirchildren[i] == NULL)
 			{
 				continue;
 			}
@@ -1418,7 +2438,7 @@ FS_ListMods(int *nummods)
 			numpacksinchilddir = 0;
 
 			// iterate over supported pack types, but ignore ZIP files (they cause false positives)
-			for (int j = 0; j < sizeof(fs_packtypes) / sizeof(fs_packtypes[0]); j++)
+			for (int j = 0; j < ARRLEN(fs_packtypes); j++)
 			{
 				if (strcmp("zip", fs_packtypes[j].suffix) != 0)
 				{
@@ -1446,6 +2466,11 @@ FS_ListMods(int *nummods)
 						if (!matchfound)
 						{
 							modnames[nmods] = malloc(strlen(modname) + 1);
+							if (!modnames[nmods])
+							{
+								break;
+							}
+
 							strcpy(modnames[nmods], modname);
 
 							nmods++;
@@ -1476,7 +2501,8 @@ FS_Dir_f(void)
 {
 	char **dirnames; /* File list. */
 	char findname[1024]; /* File search path and pattern. */
-	char *path = NULL; /* Search path. */
+	const char *path = NULL; /* Search path. */
+	char *lastsep;
 	char wildcard[1024] = "*.*"; /* File pattern. */
 	int i; /* Loop counter. */
 	int ndirs; /* Number of files in list. */
@@ -1498,9 +2524,10 @@ FS_Dir_f(void)
 		{
 			for (i = 0; i < ndirs - 1; i++)
 			{
-				if (strrchr(dirnames[i], '/'))
+				lastsep = strrchr(dirnames[i], '/');
+				if (lastsep)
 				{
-					Com_Printf("%s\n", strrchr(dirnames[i], '/') + 1);
+					Com_Printf("%s\n", lastsep + 1);
 				}
 				else
 				{
@@ -1519,26 +2546,39 @@ FS_Dir_f(void)
 
 /*
  * This function returns true if a real file (e.g. not something
- * in a pak, somthing in the file system itself) exists in the
+ * in a pak, something in the file system itself) exists in the
  * current gamedir.
  */
 qboolean
 FS_FileInGamedir(const char *file)
 {
-	char path[MAX_OSPATH];
-	FILE *fd;
+	const char *path;
 
-	Com_sprintf(path, sizeof(path), "%s/%s", fs_gamedir, file);
+	/* now run through the search paths */
+	path = NULL;
 
-	if ((fd = Q_fopen(path, "rb")) != NULL)
+	while (1)
 	{
-		fclose(fd);
-		return true;
+		char name[MAX_OSPATH];
+		FILE *fd;
+
+		path = FS_NextPath(path);
+
+		if (!path)
+		{
+			return false;     /* couldn't find one anywhere */
+		}
+
+		Com_sprintf(name, MAX_OSPATH, "%s/%s", path, file);
+
+		if ((fd = Q_fopen(name, "rb")) != NULL)
+		{
+			fclose(fd);
+			return true;
+		}
 	}
-	else
-	{
-		return false;
-	}
+
+	return false;
 }
 
 /*
@@ -1566,7 +2606,7 @@ FS_AddPAKFromGamedir(const char *pak)
 	}
 
 	// Depending on filetype we must load it as .pak or .pk3.
-	for (int i = 0; i < sizeof(fs_packtypes) / sizeof(fs_packtypes[0]); i++)
+	for (int i = 0; i < ARRLEN(fs_packtypes); i++)
 	{
 		// Not the current filetype, next one please.
 		if (strncmp(pak + strlen(pak) - strlen(fs_packtypes[i].suffix), fs_packtypes[i].suffix, strlen(fs_packtypes[i].suffix)))
@@ -1578,6 +2618,15 @@ FS_AddPAKFromGamedir(const char *pak)
 
 		switch (fs_packtypes[i].format)
 		{
+			case WAD:
+				pakfile = FS_LoadWAD(path);
+				break;
+			case DAT:
+				pakfile = FS_LoadDAT(path);
+				break;
+			case SIN:
+				pakfile = FS_LoadSIN(path);
+				break;
 			case PAK:
 				pakfile = FS_LoadPAK(path);
 				break;
@@ -1593,8 +2642,12 @@ FS_AddPAKFromGamedir(const char *pak)
 		}
 		else
 		{
+			fsSearchPath_t *search;
+
+			FS_SortPack(pakfile);
+
 			// Add it.
-			fsSearchPath_t *search = Z_Malloc(sizeof(fsSearchPath_t));
+			search = Z_Malloc(sizeof(fsSearchPath_t));
 			search->pack = pakfile;
 			search->next = fs_searchPaths;
 			fs_searchPaths = search;
@@ -1648,6 +2701,27 @@ static char* basename( char* n )
 #endif // _MSC_VER
 
 static void
+FS_AddKPFpack(void)
+{
+	fsPack_t *pack = NULL;
+	fsSearchPath_t *search;
+
+	/* remaster additional files */
+	pack = FS_LoadPK3("Q2Game.kpf");
+	if (pack)
+	{
+		pack->isProtectedPak = true;
+
+		FS_SortPack(pack);
+
+		search = Z_Malloc(sizeof(fsSearchPath_t));
+		search->pack = pack;
+		search->next = fs_searchPaths;
+		fs_searchPaths = search;
+	}
+}
+
+static void
 FS_AddDirToSearchPath(char *dir, qboolean create) {
 	char *file;
 	char **list;
@@ -1683,12 +2757,11 @@ FS_AddDirToSearchPath(char *dir, qboolean create) {
 	search->next = fs_searchPaths;
 	fs_searchPaths = search;
 
-
 	// Numbered paks contain the official game data, they
 	// need to be added first and are marked protected.
 	// Files from protected paks are never offered for
 	// download.
-	for (i = 0; i < sizeof(fs_packtypes) / sizeof(fs_packtypes[0]); i++)
+	for (i = 0; i < ARRLEN(fs_packtypes); i++)
 	{
 		for (j = 0; j < MAX_PAKS; j++)
 		{
@@ -1696,6 +2769,33 @@ FS_AddDirToSearchPath(char *dir, qboolean create) {
 
 			switch (fs_packtypes[i].format)
 			{
+				case WAD:
+					pack = FS_LoadWAD(path);
+
+					if (pack)
+					{
+						pack->isProtectedPak = true;
+					}
+
+					break;
+				case DAT:
+					pack = FS_LoadDAT(path);
+
+					if (pack)
+					{
+						pack->isProtectedPak = true;
+					}
+
+					break;
+				case SIN:
+					pack = FS_LoadSIN(path);
+
+					if (pack)
+					{
+						pack->isProtectedPak = true;
+					}
+
+					break;
 				case PAK:
 					pack = FS_LoadPAK(path);
 
@@ -1721,6 +2821,8 @@ FS_AddDirToSearchPath(char *dir, qboolean create) {
 				continue;
 			}
 
+			FS_SortPack(pack);
+
 			search = Z_Malloc(sizeof(fsSearchPath_t));
 			search->pack = pack;
 			search->next = fs_searchPaths;
@@ -1733,7 +2835,7 @@ FS_AddDirToSearchPath(char *dir, qboolean create) {
 	// sequence as they're returned by FS_ListFiles. This is
 	// fragile and file system dependend. We cannot change
 	// this, since it might break existing installations.
-	for (i = 0; i < sizeof(fs_packtypes) / sizeof(fs_packtypes[0]); i++)
+	for (i = 0; i < ARRLEN(fs_packtypes); i++)
 	{
 		Com_sprintf(path, sizeof(path), "%s/*.%s", dir, fs_packtypes[i].suffix);
 
@@ -1776,6 +2878,15 @@ FS_AddDirToSearchPath(char *dir, qboolean create) {
 
 			switch (fs_packtypes[i].format)
 			{
+				case WAD:
+					pack = FS_LoadWAD(list[j]);
+					break;
+				case DAT:
+					pack = FS_LoadDAT(list[j]);
+					break;
+				case SIN:
+					pack = FS_LoadSIN(list[j]);
+					break;
 				case PAK:
 					pack = FS_LoadPAK(list[j]);
 					break;
@@ -1788,6 +2899,8 @@ FS_AddDirToSearchPath(char *dir, qboolean create) {
 			{
 				continue;
 			}
+
+			FS_SortPack(pack);
 
 			pack->isProtectedPak = false;
 
@@ -1802,7 +2915,8 @@ FS_AddDirToSearchPath(char *dir, qboolean create) {
 }
 
 static void
-FS_BuildGenericSearchPath(void) {
+FS_BuildGenericSearchPath(void)
+{
 	// We may not use the va() function from shared.c
 	// since it's buffersize is 1024 while most OS have
 	// a maximum path size of 4096...
@@ -1859,7 +2973,7 @@ FS_BuildGameSpecificSearchPath(const char *dir)
 #endif
 
 	// empty string means baseq2
-	if(dir[0] == '\0')
+	if (dir[0] == '\0')
 	{
 		dir = BASEDIRNAME;
 	}
@@ -1935,16 +3049,7 @@ FS_BuildGameSpecificSearchPath(const char *dir)
 
 	// ...and the current list of maps in the "start network server" menu is
 	// cleared so that it will be re-initialized when the menu is accessed
-	if (mapnames != NULL)
-	{
-		for (i = 0; i < nummaps; i++)
-		{
-			free(mapnames[i]);
-		}
-
-		free(mapnames);
-		mapnames = NULL;
-	}
+	CleanCachedMapsList();
 
 	// Start the demoloop, if requested. This is kind of hacky: Normaly the
 	// demo loop would be started by the menu, after changeing the 'game'
@@ -1968,7 +3073,7 @@ FS_BuildGameSpecificSearchPath(const char *dir)
 const char* FS_GetFilenameForHandle(fileHandle_t f)
 {
 	fsHandle_t* fsh = FS_GetFileByHandle(f);
-	if(fsh)
+	if (fsh)
 	{
 		return fsh->name;
 	}
@@ -1992,13 +3097,7 @@ static void FS_AddDirToRawPath (const char *rawdir, qboolean create, qboolean re
 	}
 
 	// Convert backslashes to forward slashes.
-	for (int i = 0; i < strlen(dir); i++)
-	{
-		if (dir[i] == '\\')
-		{
-			dir[i] = '/';
-		}
-	}
+	Q_replacebackslash(dir);
 
 	// Make sure that the dir doesn't end with a slash.
 	for (size_t s = strlen(dir) - 1; s > 0; s--)
@@ -2034,7 +3133,7 @@ static void FS_AddDirToRawPath (const char *rawdir, qboolean create, qboolean re
 static void
 FS_BuildRawPath(void)
 {
-	// Add $HOME/.yq2, MUST be the last dir! Required,
+	// Add homedir, MUST be the last dir! Required,
 	// otherwise the config cannot be written.
 	if (!is_portable) {
 		const char *homedir = Sys_GetHomeDir();
@@ -2048,7 +3147,7 @@ FS_BuildRawPath(void)
 	// libraries are loaded from it.
 	const char *binarydir = Sys_GetBinaryDir();
 
-	if(binarydir[0] != '\0')
+	if (binarydir[0] != '\0')
 	{
 		FS_AddDirToRawPath(binarydir, false, true);
 	}
@@ -2094,7 +3193,7 @@ FS_InitFilesystem(void)
 	if (strcmp(fs_basedir->string, ".") != 0)
 	{
 		Com_Printf("+set basedir is deprecated, use -datadir instead\n");
-		strcpy(datadir, fs_basedir->string);
+		Q_strlcpy(datadir, fs_basedir->string, sizeof(datadir));
 	}
 	else if (strlen(datadir) == 0)
 	{
@@ -2109,6 +3208,7 @@ FS_InitFilesystem(void)
 
 	// Build search path
 	FS_BuildRawPath();
+	FS_AddKPFpack();
 	FS_BuildGenericSearchPath();
 
 	if (fs_gamedirvar->string[0] != '\0')

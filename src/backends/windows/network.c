@@ -57,7 +57,7 @@ int ip6_sockets[2];
 int ipx_sockets[2];
 
 char *multicast_interface;
-char *NET_ErrorString(void);
+static const char *NET_ErrorString(void);
 
 static WSADATA winsockdata;
 
@@ -101,8 +101,8 @@ NetadrToSockadr(netadr_t *a, struct sockaddr_storage *s)
 
 			if (error)
 			{
-				Com_Printf("NET_NetadrToSockadr: inet_pton: %s",
-						gai_strerror(error));
+				Com_Printf("%s: inet_pton: %s",
+						__func__, gai_strerror(error));
 				return;
 			}
 
@@ -193,7 +193,7 @@ NET_CompareAdr(netadr_t a, netadr_t b)
 
 	if (a.type == NA_LOOPBACK)
 	{
-		return TRUE;
+		return true;
 	}
 
 	if (a.type == NA_IP)
@@ -240,7 +240,7 @@ NET_CompareBaseAdr(netadr_t a, netadr_t b)
 
 	if (a.type == NA_LOOPBACK)
 	{
-		return TRUE;
+		return true;
 	}
 
 	if (a.type == NA_IP)
@@ -385,9 +385,8 @@ NET_AdrToString(netadr_t a)
 static qboolean
 NET_StringToSockaddr(const char *s, struct sockaddr_storage *sadr)
 {
-	char copy[128];
-	char *addrs, *space;
-	char *ports = NULL;
+	const char *addrs, *ports = NULL;
+	char copy[128], *space;
 	int err;
 	struct addrinfo hints;
 	struct addrinfo *resultp;
@@ -410,8 +409,8 @@ NET_StringToSockaddr(const char *s, struct sockaddr_storage *sadr)
 
 		if (!*space)
 		{
-			Com_Printf("NET_StringToSockaddr: invalid IPv6 address %s\n", s);
-			return 0;
+			Com_Printf("%s: invalid IPv6 address %s\n", __func__, s);
+			return false;
 		}
 
 		*space++ = '\0';
@@ -429,9 +428,9 @@ NET_StringToSockaddr(const char *s, struct sockaddr_storage *sadr)
 	if ((err = getaddrinfo(addrs, ports, &hints, &resultp)))
 	{
 		/* Error */
-		Com_Printf("NET_StringToSockaddr: string %s:\n%s\n", s,
-				gai_strerror(err));
-		return 0;
+		Com_Printf("%s: string %s:\n%s\n", s,
+				__func__, gai_strerror(err));
+		return false;
 	}
 
 	switch (resultp->ai_family)
@@ -521,7 +520,7 @@ NET_GetLoopPacket(netsrc_t sock, netadr_t *net_from, sizebuf_t *net_message)
 }
 
 static void
-NET_SendLoopPacket(netsrc_t sock, int length, void *data, netadr_t to)
+NET_SendLoopPacket(netsrc_t sock, int length, const void *data, netadr_t to)
 {
 	int i;
 	loopback_t *loop;
@@ -597,13 +596,13 @@ NET_GetPacket(netsrc_t sock, netadr_t *net_from, sizebuf_t *net_message)
 
 			if (dedicated->value) /* let dedicated servers continue after errors */
 			{
-				Com_Printf("NET_GetPacket: %s from %s\n", NET_ErrorString(),
-						NET_AdrToString(*net_from));
+				Com_Printf("%s: %s from %s\n", NET_ErrorString(),
+						__func__, NET_AdrToString(*net_from));
 			}
 			else
 			{
-				Com_Printf("NET_GetPacket: %s from %s",
-						NET_ErrorString(), NET_AdrToString(*net_from));
+				Com_Printf("%s: %s from %s",
+						__func__, NET_ErrorString(), NET_AdrToString(*net_from));
 			}
 
 			continue;
@@ -625,7 +624,7 @@ NET_GetPacket(netsrc_t sock, netadr_t *net_from, sizebuf_t *net_message)
 /* ============================================================================= */
 
 void
-NET_SendPacket(netsrc_t sock, int length, void *data, netadr_t to)
+NET_SendPacket(netsrc_t sock, int length, const void *data, netadr_t to)
 {
 	int ret;
 	struct sockaddr_storage addr;
@@ -670,7 +669,7 @@ NET_SendPacket(netsrc_t sock, int length, void *data, netadr_t to)
 
 			break;
 		default:
-			Com_Printf("NET_SendPacket: bad address type");
+			Com_Printf("%s: bad address type", __func__);
 			return;
 			break;
 	}
@@ -717,8 +716,8 @@ NET_SendPacket(netsrc_t sock, int length, void *data, netadr_t to)
 
 			if (error)
 			{
-				Com_Printf("NET_SendPacket: getnameinfo: %s",
-						gai_strerror(error));
+				Com_Printf("%s: getnameinfo: %s",
+						__func__, gai_strerror(error));
 				return;
 			}
 
@@ -739,8 +738,8 @@ NET_SendPacket(netsrc_t sock, int length, void *data, netadr_t to)
 
 				if (error)
 				{
-					Com_Printf("NET_SendPacket: getaddrinfo: %s",
-							gai_strerror(error));
+					Com_Printf("%s: getaddrinfo: %s",
+							__func__, gai_strerror(error));
 					return;
 				}
 
@@ -749,8 +748,8 @@ NET_SendPacket(netsrc_t sock, int length, void *data, netadr_t to)
 			}
 			else
 			{
-				Com_Printf("NET_SendPacket: IPv6 multicast destination but +set multicast not specified: %s",
-						tmp);
+				Com_Printf("%s: IPv6 multicast destination but +set multicast not specified: %s",
+						__func__, tmp);
 				return;
 			}
 		}
@@ -779,20 +778,20 @@ NET_SendPacket(netsrc_t sock, int length, void *data, netadr_t to)
 
 		if (dedicated->value) /* let dedicated servers continue after errors */
 		{
-			Com_Printf("NET_SendPacket ERROR: %s to %s\n", NET_ErrorString(),
+			Com_Printf("%s ERROR: %s to %s\n", __func__, NET_ErrorString(),
 					NET_AdrToString(to));
 		}
 		else
 		{
 			if (err == WSAEADDRNOTAVAIL)
 			{
-				Com_DPrintf("NET_SendPacket Warning: %s : %s\n",
-						NET_ErrorString(), NET_AdrToString(to));
+				Com_DPrintf("%s Warning: %s : %s\n",
+						__func__, NET_ErrorString(), NET_AdrToString(to));
 			}
 			else
 			{
-				Com_Printf("NET_SendPacket ERROR: %s to %s\n",
-						NET_ErrorString(), NET_AdrToString(to));
+				Com_Printf("%s ERROR: %s to %s\n",
+						__func__, NET_ErrorString(), NET_AdrToString(to));
 			}
 		}
 	}
@@ -800,10 +799,11 @@ NET_SendPacket(netsrc_t sock, int length, void *data, netadr_t to)
 
 /* ============================================================================= */
 
-int
+static int
 NET_IPSocket(char *net_interface, int port, netsrc_t type, int family)
 {
-	char Buf[BUFSIZ], *Host, *Service;
+	const char *Host, *Service;
+	char Buf[BUFSIZ];
 	int newsocket, Error;
 	struct sockaddr_storage ss;
 	struct addrinfo hints, *res, *ai;
@@ -848,22 +848,22 @@ NET_IPSocket(char *net_interface, int port, netsrc_t type, int family)
 	{
 		if ((newsocket = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol)) == -1)
 		{
-			Com_Printf("NET_IPSocket: socket: %s\n", strerror(errno));
+			Com_Printf("%s: socket: %s\n", __func__, strerror(errno));
 			continue;
 		}
 
 		/* make it non-blocking */
 		if (ioctlsocket(newsocket, FIONBIO, &t) == -1)
 		{
-			Com_Printf("NET_IPSocket: ioctl FIONBIO: %s\n", strerror(errno));
+			Com_Printf("%s: ioctl FIONBIO: %s\n", __func__, strerror(errno));
 			continue;
 		}
 
 		if (setsockopt(newsocket, SOL_SOCKET, SO_REUSEADDR, (char *)&one,
 					sizeof(one)))
 		{
-			printf("NET_IPSocket: setsockopt(SO_REUSEADDR) failed: %u\n",
-					WSAGetLastError());
+			printf("%s: setsockopt(SO_REUSEADDR) failed: %u\n",
+					__func__, WSAGetLastError());
 			continue;
 		}
 
@@ -873,15 +873,15 @@ NET_IPSocket(char *net_interface, int port, netsrc_t type, int family)
 			if (setsockopt(newsocket, SOL_SOCKET, SO_BROADCAST, (char *)&one,
 						sizeof(one)))
 			{
-				Com_Printf("ERROR: NET_IPSocket: setsockopt SO_BROADCAST:%s\n",
-						strerror(errno));
+				Com_Printf("ERROR: %s: setsockopt SO_BROADCAST:%s\n",
+						__func__, strerror(errno));
 				return 0;
 			}
 		}
 
 		if (bind(newsocket, ai->ai_addr, ai->ai_addrlen) < 0)
 		{
-			Com_Printf("NET_IPSocket: bind: %s\n", strerror(errno));
+			Com_Printf("%s: bind: %s\n", __func__, strerror(errno));
 			closesocket(newsocket);
 		}
 		else
@@ -925,8 +925,8 @@ NET_IPSocket(char *net_interface, int port, netsrc_t type, int family)
 							(char *)&mreq.ipv6mr_interface,
 							sizeof(mreq.ipv6mr_interface)) < 0)
 				{
-					Com_Printf("NET_IPSocket: IPV6_MULTICAST_IF: %s\n",
-							strerror(errno));
+					Com_Printf("%s: IPV6_MULTICAST_IF: %s\n",
+							__func__, strerror(errno));
 				}
 
 				/* Join multicast group ONLY if server */
@@ -940,8 +940,8 @@ NET_IPSocket(char *net_interface, int port, netsrc_t type, int family)
 
 					if ((Error = getaddrinfo(QUAKE2MCAST, NULL, &hints, &res)))
 					{
-						Com_Printf("NET_IPSocket: getaddrinfo: %s\n",
-								gai_strerror(Error));
+						Com_Printf("%s: getaddrinfo: %s\n",
+								__func__, gai_strerror(Error));
 						break;
 					}
 
@@ -955,8 +955,8 @@ NET_IPSocket(char *net_interface, int port, netsrc_t type, int family)
 
 					if (Error)
 					{
-						Com_Printf("NET_IPSocket: IPV6_JOIN_GROUP: %s\n",
-								strerror(errno));
+						Com_Printf("%s: IPV6_JOIN_GROUP: %s\n",
+								__func__, strerror(errno));
 						break;
 					}
 				}
@@ -973,11 +973,11 @@ NET_OpenIP(void)
 {
 	cvar_t *ip;
 	int port;
-	int dedicated;
+	int dedicated_val;
 
 	ip = Cvar_Get("ip", "localhost", CVAR_NOSET);
 
-	dedicated = Cvar_VariableValue("dedicated");
+	dedicated_val = Cvar_VariableValue("dedicated");
 
 	if (!ip_sockets[NS_SERVER])
 	{
@@ -1001,11 +1001,12 @@ NET_OpenIP(void)
 		if (!ip_sockets[NS_SERVER] && !ip6_sockets[NS_SERVER] && dedicated)
 		{
 			Com_Error(ERR_FATAL, "Couldn't allocate dedicated server IP port");
+			return;
 		}
 	}
 
 	/* dedicated servers don't need client ports */
-	if (dedicated)
+	if (dedicated_val)
 	{
 		return;
 	}
@@ -1040,7 +1041,7 @@ NET_OpenIP(void)
 	}
 }
 
-int
+static int
 NET_IPXSocket(int port)
 {
 	int newsocket;
@@ -1055,7 +1056,7 @@ NET_IPXSocket(int port)
 
 		if (err != WSAEAFNOSUPPORT)
 		{
-			Com_Printf("WARNING: IPX_Socket: socket: %s\n", NET_ErrorString());
+			Com_Printf("WARNING: %s: socket: %s\n", __func__, NET_ErrorString());
 		}
 
 		return 0;
@@ -1064,7 +1065,8 @@ NET_IPXSocket(int port)
 	/* make it non-blocking */
 	if (ioctlsocket(newsocket, FIONBIO, &t) == -1)
 	{
-		Com_Printf("WARNING: IPX_Socket: ioctl FIONBIO: %s\n", NET_ErrorString());
+		Com_Printf("WARNING: %s: ioctl FIONBIO: %s\n",
+			__func__, NET_ErrorString());
 		return 0;
 	}
 
@@ -1072,8 +1074,8 @@ NET_IPXSocket(int port)
 	if (setsockopt(newsocket, SOL_SOCKET, SO_BROADCAST, (char *)&t,
 				sizeof(t)) == -1)
 	{
-		Com_Printf("WARNING: IPX_Socket: setsockopt SO_BROADCAST: %s\n",
-				NET_ErrorString());
+		Com_Printf("WARNING: %s: setsockopt SO_BROADCAST: %s\n",
+				__func__, NET_ErrorString());
 		return 0;
 	}
 
@@ -1092,7 +1094,7 @@ NET_IPXSocket(int port)
 
 	if (bind(newsocket, (void *)&address, sizeof(address)) == -1)
 	{
-		Com_Printf("WARNING: IPX_Socket: bind: %s\n", NET_ErrorString());
+		Com_Printf("WARNING: %s: bind: %s\n", __func__, NET_ErrorString());
 		closesocket(newsocket);
 		return 0;
 	}
@@ -1104,9 +1106,9 @@ static void
 NET_OpenIPX(void)
 {
 	int port;
-	int dedicated;
+	int dedicated_val;
 
-	dedicated = Cvar_VariableValue("dedicated");
+	dedicated_val = Cvar_VariableValue("dedicated");
 
 	if (!ipx_sockets[NS_SERVER])
 	{
@@ -1126,7 +1128,7 @@ NET_OpenIPX(void)
 	}
 
 	/* dedicated servers don't need client ports */
-	if (dedicated)
+	if (dedicated_val)
 	{
 		return;
 	}
@@ -1220,7 +1222,6 @@ NET_Sleep(int msec)
 {
 	struct timeval timeout;
 	fd_set fdset;
-	extern cvar_t *dedicated;
 	int i;
 
 	if (!dedicated || !dedicated->value)
@@ -1272,6 +1273,7 @@ NET_Init(void)
 	if (r)
 	{
 		Com_Error(ERR_FATAL, "Winsock initialization failed.");
+		return;
 	}
 
 	Com_Printf("Winsock Initialized\n");
@@ -1290,7 +1292,7 @@ NET_Shutdown(void)
 	WSACleanup();
 }
 
-char *
+static const char *
 NET_ErrorString(void)
 {
 	int code;

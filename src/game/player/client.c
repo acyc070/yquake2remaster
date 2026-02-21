@@ -28,11 +28,7 @@
 #include "../header/local.h"
 #include "../monster/misc/player.h"
 
-edict_t *pm_passent;
-
-void ClientUserinfoChanged(edict_t *ent, char *userinfo);
-void SP_misc_teleporter_dest(edict_t *ent);
-void Touch_Item(edict_t *ent, edict_t *other, cplane_t *plane, csurface_t *surf);
+static edict_t *pm_passent;
 
 /*
  * The ugly as hell coop spawnpoint fixup function.
@@ -62,12 +58,13 @@ SP_FixCoopSpots(edict_t *self)
 	   This unnamed info_player_start is selected as
 	   spawnpoint for player 0, therefor none of the
 	   named info_coop_start() matches... */
-	if(Q_stricmp(level.mapname, "xware") == 0)
+	if (Q_stricmp(level.mapname, "xware") == 0)
 	{
 		if (self->s.number == 292)
 		{
 			G_FreeEdict(self);
 			self = NULL;
+			return;
 		}
 	}
 
@@ -125,7 +122,7 @@ SP_CreateCoopSpots(edict_t *self)
 		spot->s.origin[1] = -164;
 		spot->s.origin[2] = 80;
 		spot->targetname = "jail3";
-		spot->s.angles[1] = 90;
+		spot->s.angles[YAW] = 90;
 
 		spot = G_Spawn();
 		spot->classname = "info_player_coop";
@@ -133,7 +130,7 @@ SP_CreateCoopSpots(edict_t *self)
 		spot->s.origin[1] = -164;
 		spot->s.origin[2] = 80;
 		spot->targetname = "jail3";
-		spot->s.angles[1] = 90;
+		spot->s.angles[YAW] = 90;
 
 		spot = G_Spawn();
 		spot->classname = "info_player_coop";
@@ -141,7 +138,7 @@ SP_CreateCoopSpots(edict_t *self)
 		spot->s.origin[1] = -164;
 		spot->s.origin[2] = 80;
 		spot->targetname = "jail3";
-		spot->s.angles[1] = 90;
+		spot->s.angles[YAW] = 90;
 
 		return;
 	}
@@ -156,143 +153,50 @@ SP_CreateCoopSpots(edict_t *self)
  * Therefore create an unnamed info_player_start
  * at the correct point.
  */
+static void
+CreateUnnamedSpawnpoint(const edict_t *self, const char *mapname, const char *spotname)
+{
+	edict_t *spot;
+
+	if (Q_stricmp(level.mapname, mapname) != 0)
+	{
+		return;
+	}
+
+	if (!self->targetname || Q_stricmp(self->targetname, spotname) != 0)
+	{
+		return;
+	}
+
+	spot = G_SpawnOptional();
+
+	if (!spot)
+	{
+		return;
+	}
+
+	spot->classname = "info_player_start";
+
+	VectorCopy(self->s.origin, spot->s.origin);
+	spot->s.angles[YAW] = self->s.angles[YAW];
+}
+
 void
 SP_CreateUnnamedSpawn(edict_t *self)
 {
-	edict_t *spot = G_Spawn();
-
 	if (!self)
 	{
 		return;
 	}
 
-	/* mine1 */
-    if (Q_stricmp(level.mapname, "mine1") == 0)
-	{
-		if (Q_stricmp(self->targetname, "mintro") == 0)
-		{
-			spot->classname = self->classname;
-			spot->s.origin[0] = self->s.origin[0];
-			spot->s.origin[1] = self->s.origin[1];
-			spot->s.origin[2] = self->s.origin[2];
-			spot->s.angles[1] = self->s.angles[1];
-			spot->targetname = NULL;
-
-			return;
-		}
-	}
-
-	/* mine2 */
-    if (Q_stricmp(level.mapname, "mine2") == 0)
-	{
-		if (Q_stricmp(self->targetname, "mine1") == 0)
-		{
-			spot->classname = self->classname;
-			spot->s.origin[0] = self->s.origin[0];
-			spot->s.origin[1] = self->s.origin[1];
-			spot->s.origin[2] = self->s.origin[2];
-			spot->s.angles[1] = self->s.angles[1];
-			spot->targetname = NULL;
-
-			return;
-		}
-	}
-
-	/* mine3 */
-    if (Q_stricmp(level.mapname, "mine3") == 0)
-	{
-		if (Q_stricmp(self->targetname, "mine2a") == 0)
-		{
-			spot->classname = self->classname;
-			spot->s.origin[0] = self->s.origin[0];
-			spot->s.origin[1] = self->s.origin[1];
-			spot->s.origin[2] = self->s.origin[2];
-			spot->s.angles[1] = self->s.angles[1];
-			spot->targetname = NULL;
-
-			return;
-		}
-	}
-
-	/* mine4 */
-    if (Q_stricmp(level.mapname, "mine4") == 0)
-	{
-		if (Q_stricmp(self->targetname, "mine3") == 0)
-		{
-			spot->classname = self->classname;
-			spot->s.origin[0] = self->s.origin[0];
-			spot->s.origin[1] = self->s.origin[1];
-			spot->s.origin[2] = self->s.origin[2];
-			spot->s.angles[1] = self->s.angles[1];
-			spot->targetname = NULL;
-
-			return;
-		}
-	}
-
- 	/* power2 */
-    if (Q_stricmp(level.mapname, "power2") == 0)
-	{
-		if (Q_stricmp(self->targetname, "power1") == 0)
-		{
-			spot->classname = self->classname;
-			spot->s.origin[0] = self->s.origin[0];
-			spot->s.origin[1] = self->s.origin[1];
-			spot->s.origin[2] = self->s.origin[2];
-			spot->s.angles[1] = self->s.angles[1];
-			spot->targetname = NULL;
-
-			return;
-		}
-	}
-
-	/* waste1 */
-    if (Q_stricmp(level.mapname, "waste1") == 0)
-	{
-		if (Q_stricmp(self->targetname, "power2") == 0)
-		{
-			spot->classname = self->classname;
-			spot->s.origin[0] = self->s.origin[0];
-			spot->s.origin[1] = self->s.origin[1];
-			spot->s.origin[2] = self->s.origin[2];
-			spot->s.angles[1] = self->s.angles[1];
-			spot->targetname = NULL;
-
-			return;
-		}
-	}
-
-	/* waste2 */
-    if (Q_stricmp(level.mapname, "waste2") == 0)
-	{
-		if (Q_stricmp(self->targetname, "waste1") == 0)
-		{
-			spot->classname = self->classname;
-			spot->s.origin[0] = self->s.origin[0];
-			spot->s.origin[1] = self->s.origin[1];
-			spot->s.origin[2] = self->s.origin[2];
-			spot->s.angles[1] = self->s.angles[1];
-			spot->targetname = NULL;
-
-			return;
-		}
-	}
-
-	/* city3 */
-    if (Q_stricmp(level.mapname, "city2") == 0)
-	{
-		if (Q_stricmp(self->targetname, "city2NL") == 0)
-		{
-			spot->classname = self->classname;
-			spot->s.origin[0] = self->s.origin[0];
-			spot->s.origin[1] = self->s.origin[1];
-			spot->s.origin[2] = self->s.origin[2];
-			spot->s.angles[1] = self->s.angles[1];
-			spot->targetname = NULL;
-
-			return;
-		}
-	}
+	CreateUnnamedSpawnpoint(self, "mine1",  "mintro");
+	CreateUnnamedSpawnpoint(self, "mine2",  "mine1");
+	CreateUnnamedSpawnpoint(self, "mine3",  "mine2a");
+	CreateUnnamedSpawnpoint(self, "mine4",  "mine3");
+	CreateUnnamedSpawnpoint(self, "power2", "power1");
+	CreateUnnamedSpawnpoint(self, "waste1", "power2");
+	CreateUnnamedSpawnpoint(self, "waste2", "waste1");
+	CreateUnnamedSpawnpoint(self, "city2",  "city2NL");
 }
 
 /*
@@ -308,16 +212,14 @@ SP_info_player_start(edict_t *self)
 		return;
 	}
 
+	DynamicResetSpawnModels(self);
+
 	/* Call function to hack unnamed spawn points */
 	self->think = SP_CreateUnnamedSpawn;
 	self->nextthink = level.time + FRAMETIME;
 
-	if (!coop->value)
-	{
-		return;
-	}
-
-	if (Q_stricmp(level.mapname, "security") == 0)
+	if (coop->value &&
+		Q_stricmp(level.mapname, "security") == 0)
 	{
 		/* invoke one of our gross, ugly, disgusting hacks */
 		self->think = SP_CreateCoopSpots;
@@ -347,6 +249,7 @@ SP_info_player_deathmatch(edict_t *self)
 		return;
 	}
 
+	DynamicResetSpawnModels(self);
 	SP_misc_teleporter_dest(self);
 }
 
@@ -367,6 +270,8 @@ SP_info_player_coop(edict_t *self)
 		G_FreeEdict(self);
 		return;
 	}
+
+	DynamicResetSpawnModels(self);
 
 	if ((Q_stricmp(level.mapname, "jail2") == 0) ||
 		(Q_stricmp(level.mapname, "jail4") == 0) ||
@@ -412,6 +317,8 @@ SP_info_player_coop_lava(edict_t *self)
 		G_FreeEdict(self);
 		return;
 	}
+
+	DynamicResetSpawnModels(self);
 }
 
 /*
@@ -428,13 +335,14 @@ SP_info_player_intermission(edict_t *self)
 	 * since the info_player_intermission
 	 * needs a callback function. Like
 	 * every entity. */
+	DynamicResetSpawnModels(self);
 }
 
 /* ======================================================================= */
 
 void
 player_pain(edict_t *self /* unused */, edict_t *other /* unused */,
-	   	float kick /* unused */, int damage /* unused */)
+		float kick /* unused */, int damage /* unused */)
 {
 	/* Player pain is handled at the end
 	 * of the frame in P_DamageFeedback.
@@ -443,7 +351,7 @@ player_pain(edict_t *self /* unused */, edict_t *other /* unused */,
 	 * a pain callback */
 }
 
-qboolean
+static qboolean
 IsFemale(edict_t *ent)
 {
 	char *info;
@@ -473,7 +381,7 @@ IsFemale(edict_t *ent)
 	return false;
 }
 
-qboolean
+static qboolean
 IsNeutral(edict_t *ent)
 {
 	char *info;
@@ -506,7 +414,7 @@ IsNeutral(edict_t *ent)
 
 void
 ClientObituary(edict_t *self, edict_t *inflictor /* unused */,
-	   	edict_t *attacker)
+		edict_t *attacker)
 {
 	int mod;
 	char *message;
@@ -634,6 +542,7 @@ ClientObituary(edict_t *self, edict_t *inflictor /* unused */,
 						message = "got caught in his own trap";
 					}
 
+					break;
 				case MOD_TRAP:
 					message = "sucked into his own trap";
 					break;
@@ -1062,8 +971,8 @@ player_die(edict_t *self, edict_t *inflictor, edict_t *attacker,
 	self->s.modelindex2 = 0; /* remove linked weapon model */
 	self->s.modelindex3 = 0; /* remove linked ctf flag */
 
-	self->s.angles[0] = 0;
-	self->s.angles[2] = 0;
+	self->s.angles[PITCH] = 0.0;
+	self->s.angles[ROLL] = 0.0;
 
 	self->s.sound = 0;
 	self->client->weapon_sound = 0;
@@ -1125,6 +1034,7 @@ player_die(edict_t *self, edict_t *inflictor, edict_t *attacker,
 	/* remove powerups */
 	self->client->quad_framenum = 0;
 	self->client->invincible_framenum = 0;
+	self->client->invisible_framenum = 0;
 	self->client->breather_framenum = 0;
 	self->client->enviro_framenum = 0;
 	self->flags &= ~FL_POWER_ARMOR;
@@ -1175,13 +1085,13 @@ player_die(edict_t *self, edict_t *inflictor, edict_t *attacker,
 			{
 				for (n = 0; n < 4; n++)
 				{
-					ThrowGib(self, "models/objects/gibs/sm_meat/tris.md2", damage, GIB_ORGANIC);
+					ThrowGib(self, NULL, damage, GIB_ORGANIC);
 				}
 			}
 
 			for (n = 0; n < 4; n++)
 			{
-				ThrowGib(self, "models/objects/gibs/sm_meat/tris.md2", damage, GIB_ORGANIC);
+				ThrowGib(self, NULL, damage, GIB_ORGANIC);
 			}
 		}
 
@@ -1196,36 +1106,43 @@ player_die(edict_t *self, edict_t *inflictor, edict_t *attacker,
 		/* normal death */
 		if (!self->deadflag)
 		{
-			static int i;
-
-			i = (i + 1) % 3;
+			int firstframe, lastframe, group = 0;
+			const char *action;
 
 			/* start a death animation */
 			self->client->anim_priority = ANIM_DEATH;
 
+			firstframe = FRAME_crdeath1;
+			lastframe = FRAME_crdeath5;
+
 			if (self->client->ps.pmove.pm_flags & PMF_DUCKED)
 			{
-				self->s.frame = FRAME_crdeath1 - 1;
-				self->client->anim_end = FRAME_crdeath5;
+				action = "crdeath";
 			}
 			else
 			{
-				switch (i)
+				group = randk() % 3;
+				switch (group)
 				{
 					case 0:
-						self->s.frame = FRAME_death101 - 1;
-						self->client->anim_end = FRAME_death106;
+						firstframe = FRAME_death101;
+						lastframe = FRAME_death106;
 						break;
 					case 1:
-						self->s.frame = FRAME_death201 - 1;
-						self->client->anim_end = FRAME_death206;
+						firstframe = FRAME_death201;
+						lastframe = FRAME_death206;
 						break;
 					case 2:
-						self->s.frame = FRAME_death301 - 1;
-						self->client->anim_end = FRAME_death308;
+						firstframe = FRAME_death301;
+						lastframe = FRAME_death308;
 						break;
 				}
+
+				action = "death";
 			}
+
+			P_SetAnimGroup(self, action, firstframe, lastframe, group);
+			self->s.frame --;
 
 			/* sound is played at end of server frame */
 			if (!self->sounds)
@@ -1243,15 +1160,85 @@ player_die(edict_t *self, edict_t *inflictor, edict_t *attacker,
 
 /* ======================================================================= */
 
+static void
+Player_GiveStartItems(edict_t *ent, const char *ptr)
+{
+	if (!ptr || !*ptr)
+	{
+		return;
+	}
+
+	while (*ptr)
+	{
+		char buffer[MAX_QPATH + 1] = {0};
+		const char *buffer_end = NULL, *item_name = NULL;
+		char *curr_buf;
+
+		buffer_end = strchr(ptr, ';');
+		if (!buffer_end)
+		{
+			buffer_end = ptr + strlen(ptr);
+		}
+		Q_strlcpy(buffer, ptr, Q_min(MAX_QPATH, buffer_end - ptr + 1));
+
+		curr_buf = buffer;
+		item_name = COM_Parse(&curr_buf);
+		if (item_name)
+		{
+			gitem_t *item;
+
+			item = FindItemByClassname(item_name);
+			if (!item || !item->pickup)
+			{
+				gi.dprintf("%s: Invalid g_start_item entry: %s\n", __func__, item_name);
+			}
+			else
+			{
+				edict_t *dummy;
+				int count = 1;
+
+				if (*curr_buf)
+				{
+					count = atoi(COM_Parse(&curr_buf));
+				}
+
+				if (count == 0)
+				{
+					ent->client->pers.inventory[ITEM_INDEX(item)] = 0;
+				}
+				else
+				{
+					dummy = G_Spawn();
+					dummy->item = item;
+					dummy->count = count;
+					dummy->spawnflags |= DROPPED_PLAYER_ITEM;
+					item->pickup(dummy, ent);
+					G_FreeEdict(dummy);
+				}
+			}
+		}
+
+		/* skip end of section */
+		ptr = buffer_end;
+		if (*ptr == ';')
+		{
+			ptr ++;
+		}
+	}
+}
+
 /*
  * This is only called when the game first
  * initializes in single player, but is called
  * after each death and level change in deathmatch
  */
 void
-InitClientPersistant(gclient_t *client)
+InitClientPersistant(edict_t *ent)
 {
+	gclient_t *client;
 	gitem_t *item;
+
+	client = ent->client;
 
 	if (!client)
 	{
@@ -1267,8 +1254,12 @@ InitClientPersistant(gclient_t *client)
 	client->pers.weapon = item;
 	client->pers.lastweapon = item;
 
-	item = FindItem("Grapple");
-	client->pers.inventory[ITEM_INDEX(item)] = 1;
+	if (ctf->value)
+	{
+		/* Provide Grapple for ctf only */
+		item = FindItem("Grapple");
+		client->pers.inventory[ITEM_INDEX(item)] = 1;
+	}
 
 	client->pers.health = 100;
 	client->pers.max_health = 100;
@@ -1291,6 +1282,26 @@ InitClientPersistant(gclient_t *client)
 
 	/* Default chasecam to off */
 	client->pers.chasetoggle = 0;
+
+	/* start items */
+	if (*g_start_items->string)
+	{
+		if ((deathmatch->value || coop->value) && !sv_cheats->value)
+		{
+			gi.cprintf(ent, PRINT_HIGH,
+				"You must run the server with '+set cheats 1' to enable 'g_start_items'.\n");
+			return;
+		}
+		else
+		{
+			Player_GiveStartItems(ent, g_start_items->string);
+		}
+	}
+
+	if (level.start_items && *level.start_items)
+	{
+		Player_GiveStartItems(ent, level.start_items);
+	}
 }
 
 void
@@ -1343,7 +1354,7 @@ SaveClientData(void)
 		game.clients[i].pers.health = ent->health;
 		game.clients[i].pers.max_health = ent->max_health;
 		game.clients[i].pers.savedFlags =
-			(ent->flags & (FL_GODMODE | FL_NOTARGET | FL_POWER_ARMOR));
+			(ent->flags & (FL_FLASHLIGHT | FL_GODMODE | FL_NOTARGET | FL_POWER_ARMOR));
 
 		if (coop->value)
 		{
@@ -1352,7 +1363,7 @@ SaveClientData(void)
 	}
 }
 
-void
+static void
 FetchClientEntData(edict_t *ent)
 {
 	if (!ent)
@@ -1527,7 +1538,7 @@ SelectFarthestDeathmatchSpawnPoint(void)
 	return spot;
 }
 
-edict_t *
+static edict_t *
 SelectDeathmatchSpawnPoint(void)
 {
 	if ((int)(dmflags->value) & DF_SPAWN_FARTHEST)
@@ -1540,8 +1551,8 @@ SelectDeathmatchSpawnPoint(void)
 	}
 }
 
-edict_t *
-SelectLavaCoopSpawnPoint(edict_t *ent)
+static edict_t *
+SelectLavaCoopSpawnPoint(const edict_t *ent)
 {
 	int index;
 	edict_t *spot = NULL;
@@ -1646,12 +1657,12 @@ SelectLavaCoopSpawnPoint(edict_t *ent)
 	return NULL;
 }
 
-edict_t *
+static edict_t *
 SelectCoopSpawnPoint(edict_t *ent)
 {
 	int index;
 	edict_t *spot = NULL;
-	char *target;
+	const char *target;
 
 	if (!ent)
 	{
@@ -1706,6 +1717,61 @@ SelectCoopSpawnPoint(edict_t *ent)
 	return spot;
 }
 
+static edict_t *
+SelectSpawnPointByTarget(const char *spawnpoint)
+{
+	edict_t *spot = NULL;
+	while ((spot = G_Find(spot, FOFS(classname), "info_player_start")) != NULL)
+	{
+		if (!spawnpoint[0] && !spot->targetname)
+		{
+			break;
+		}
+
+		if (!spawnpoint[0] || !spot->targetname)
+		{
+			continue;
+		}
+
+		if (Q_stricmp(spawnpoint, spot->targetname) == 0)
+		{
+			break;
+		}
+	}
+
+	return spot;
+}
+
+edict_t *
+SP_GetSpawnPoint(void)
+{
+	edict_t *spot = NULL;
+
+	spot = SelectSpawnPointByTarget(game.spawnpoint);
+	if (!spot)
+	{
+		/* previous map use incorrect target, use default */
+		spot = SelectSpawnPointByTarget("");
+	}
+
+	if (!spot)
+	{
+		if (!game.spawnpoint[0])
+		{
+			/* there wasn't a spawnpoint without a target, so use any */
+			spot = G_Find(spot, FOFS(classname), "info_player_start");
+		}
+
+		if (!spot)
+		{
+			gi.error("Couldn't find spawn point '%s'\n", game.spawnpoint);
+			return NULL;
+		}
+	}
+
+	return spot;
+}
+
 /*
  * Chooses a player start, deathmatch start, coop start, etc
  */
@@ -1713,11 +1779,6 @@ void
 SelectSpawnPoint(edict_t *ent, vec3_t origin, vec3_t angles)
 {
 	edict_t *spot = NULL;
-	edict_t *coopspot = NULL;
-	int dist;
-	int index;
-	int counter = 0;
-	vec3_t d;
 
 	if (!ent)
 	{
@@ -1743,37 +1804,7 @@ SelectSpawnPoint(edict_t *ent, vec3_t origin, vec3_t angles)
 	/* find a single player start spot */
 	if (!spot)
 	{
-		while ((spot = G_Find(spot, FOFS(classname), "info_player_start")) != NULL)
-		{
-			if (!game.spawnpoint[0] && !spot->targetname)
-			{
-				break;
-			}
-
-			if (!game.spawnpoint[0] || !spot->targetname)
-			{
-				continue;
-			}
-
-			if (Q_stricmp(game.spawnpoint, spot->targetname) == 0)
-			{
-				break;
-			}
-		}
-
-		if (!spot)
-		{
-			if (!game.spawnpoint[0])
-			{
-				/* there wasn't a spawnpoint without a target, so use any */
-				spot = G_Find(spot, FOFS(classname), "info_player_start");
-			}
-
-			if (!spot)
-			{
-				gi.error("Couldn't find spawn point %s\n", game.spawnpoint);
-			}
-		}
+		spot = SP_GetSpawnPoint();
 	}
 
 	/* If we are in coop and we didn't find a coop
@@ -1783,12 +1814,20 @@ SelectSpawnPoint(edict_t *ent, vec3_t origin, vec3_t angles)
 	   client) use one in 550 units radius. */
 	if (coop->value)
 	{
+		int index;
+
 		index = ent->client - game.clients;
 
 		if (Q_stricmp(spot->classname, "info_player_start") == 0 && index != 0)
 		{
-			while(counter < 3)
+			int counter = 0;
+
+			while (counter < 3)
 			{
+				edict_t *coopspot = NULL;
+				int dist;
+				vec3_t d;
+
 				coopspot = G_Find(coopspot, FOFS(classname), "info_player_coop");
 
 				if (!coopspot)
@@ -1853,11 +1892,9 @@ InitBodyQue(void)
 
 void
 body_die(edict_t *self, edict_t *inflictor /* unused */,
-	   	edict_t *attacker /* unused */, int damage,
+		edict_t *attacker /* unused */, int damage,
 		vec3_t point /* unused */)
 {
-	int n;
-
 	if (!self)
 	{
 		return;
@@ -1865,13 +1902,14 @@ body_die(edict_t *self, edict_t *inflictor /* unused */,
 
 	if (self->health < -40)
 	{
+		int n;
+
 		gi.sound(self, CHAN_BODY, gi.soundindex(
 						"misc/udeath.wav"), 1, ATTN_NORM, 0);
 
 		for (n = 0; n < 4; n++)
 		{
-			ThrowGib(self, "models/objects/gibs/sm_meat/tris.md2",
-					damage, GIB_ORGANIC);
+			ThrowGib(self, NULL, damage, GIB_ORGANIC);
 		}
 
 		self->s.origin[2] -= 48;
@@ -1926,18 +1964,25 @@ respawn(edict_t *self)
 
 	if (self->client->oldplayer)
 	{
-			G_FreeEdict (self->client->oldplayer);
+			G_FreeEdict(self->client->oldplayer);
 	}
 	self->client->oldplayer = NULL;
 
 	if (self->client->chasecam)
 	{
-			G_FreeEdict (self->client->chasecam);
+			G_FreeEdict(self->client->chasecam);
 	}
 	self->client->chasecam = NULL;
 
 	if (deathmatch->value || coop->value)
 	{
+//JABot[start]
+		if (self->ai && self->ai->is_bot){
+			BOT_Respawn (self);
+			return;
+		}
+//JABot[end]
+
 		/* spectator's don't leave bodies */
 		if (self->movetype != MOVETYPE_NOCLIP)
 		{
@@ -1971,8 +2016,6 @@ respawn(edict_t *self)
 void
 spectator_respawn(edict_t *ent)
 {
-	int i, numspec;
-
 	if (!ent)
 	{
 		return;
@@ -1982,7 +2025,9 @@ spectator_respawn(edict_t *ent)
 	   make sure he doesn't exceed max_spectators */
 	if (ent->client->pers.spectator)
 	{
-		char *value = Info_ValueForKey(ent->client->pers.userinfo, "spectator");
+		int i, numspec;
+
+		const char *value = Info_ValueForKey(ent->client->pers.userinfo, "spectator");
 
 		if (*spectator_password->string &&
 			strcmp(spectator_password->string, "none") &&
@@ -2017,6 +2062,12 @@ spectator_respawn(edict_t *ent)
 			return;
 		}
 
+		if (ctf->value)
+		{
+			CTFDeadDropFlag(ent);
+			CTFDeadDropTech(ent);
+		}
+
 		/* Third person view */
 		if (ent->client->chasetoggle)
 		{
@@ -2032,7 +2083,7 @@ spectator_respawn(edict_t *ent)
 	{
 		/* he was a spectator and wants to join the
 		   game he must have the right password */
-		char *value = Info_ValueForKey(ent->client->pers.userinfo, "password");
+		const char *value = Info_ValueForKey(ent->client->pers.userinfo, "password");
 
 		if (*password->string && strcmp(password->string, "none") &&
 			strcmp(password->string, value))
@@ -2078,6 +2129,242 @@ spectator_respawn(edict_t *ent)
 		gi.bprintf(PRINT_HIGH, "%s joined the game\n",
 				ent->client->pers.netname);
 	}
+}
+
+/*
+ * [Paril-KEX] force the fog transition on the given player,
+ * optionally instantaneously (ignore any transition time)
+ */
+void
+ForceFogTransition(edict_t *ent, qboolean instant)
+{
+	const height_fog_t *wanted_hf;
+	svc_fog_data_t fog = {0};
+	unsigned bits = 0;
+	height_fog_t *hf;
+
+	hf = &ent->client->heightfog;
+	wanted_hf = &ent->client->pers.wanted_heightfog;
+
+	if (instant)
+	{
+		memset(&ent->client->fog, 0, sizeof(ent->client->fog));
+		memset(hf, 0, sizeof(*hf));
+	}
+	else if (!memcmp(ent->client->fog, ent->client->pers.wanted_fog, sizeof(ent->client->pers.wanted_fog)) &&
+		!memcmp(hf, wanted_hf, sizeof(*wanted_hf)))
+	{
+		/* sanity check; if we're not changing the values, don't bother */
+		return;
+	}
+
+	// check regular fog
+	if (ent->client->pers.wanted_fog[0] != ent->client->fog[0] ||
+		ent->client->pers.wanted_fog[4] != ent->client->fog[4])
+	{
+		bits |= FOGBIT_DENSITY;
+		fog.density = ent->client->pers.wanted_fog[0];
+		fog.skyfactor = ent->client->pers.wanted_fog[4] * 255.f;
+	}
+
+	if (ent->client->pers.wanted_fog[1] != ent->client->fog[1])
+	{
+		bits |= FOGBIT_R;
+		fog.red = ent->client->pers.wanted_fog[1] * 255.f;
+	}
+
+	if (ent->client->pers.wanted_fog[2] != ent->client->fog[2])
+	{
+		bits |= FOGBIT_G;
+		fog.green = ent->client->pers.wanted_fog[2] * 255.f;
+	}
+
+	if (ent->client->pers.wanted_fog[3] != ent->client->fog[3])
+	{
+		bits |= FOGBIT_B;
+		fog.blue = ent->client->pers.wanted_fog[3] * 255.f;
+	}
+
+	if (!instant && ent->client->pers.fog_transition_time)
+	{
+		bits |= FOGBIT_TIME;
+		fog.time = Q_clamp(ent->client->pers.fog_transition_time * 1000,
+			0, 65535);
+	}
+
+	/* check heightfog stuff */
+	if (hf->falloff != wanted_hf->falloff)
+	{
+		bits |= FOGBIT_HEIGHTFOG_FALLOFF;
+		if (!wanted_hf->falloff)
+		{
+			fog.hf_falloff = 0;
+		}
+		else
+		{
+			fog.hf_falloff = wanted_hf->falloff;
+		}
+	}
+
+	if (hf->density != wanted_hf->density)
+	{
+		bits |= FOGBIT_HEIGHTFOG_DENSITY;
+
+		if (!wanted_hf->density)
+		{
+			fog.hf_density = 0;
+		}
+		else
+		{
+			fog.hf_density = wanted_hf->density;
+		}
+	}
+
+	if (hf->start[0] != wanted_hf->start[0])
+	{
+		bits |= FOGBIT_HEIGHTFOG_START_R;
+		fog.hf_start_r = wanted_hf->start[0] * 255.f;
+	}
+
+	if (hf->start[1] != wanted_hf->start[1])
+	{
+		bits |= FOGBIT_HEIGHTFOG_START_G;
+		fog.hf_start_g = wanted_hf->start[1] * 255.f;
+	}
+
+	if (hf->start[2] != wanted_hf->start[2])
+	{
+		bits |= FOGBIT_HEIGHTFOG_START_B;
+		fog.hf_start_b = wanted_hf->start[2] * 255.f;
+	}
+
+	if (hf->start[3] != wanted_hf->start[3])
+	{
+		bits |= FOGBIT_HEIGHTFOG_START_DIST;
+		fog.hf_start_dist = wanted_hf->start[3];
+	}
+
+	if (hf->end[0] != wanted_hf->end[0])
+	{
+		bits |= FOGBIT_HEIGHTFOG_END_R;
+		fog.hf_end_r = wanted_hf->end[0] * 255.f;
+	}
+
+	if (hf->end[1] != wanted_hf->end[1])
+	{
+		bits |= FOGBIT_HEIGHTFOG_END_G;
+		fog.hf_end_g = wanted_hf->end[1] * 255.f;
+	}
+
+	if (hf->end[2] != wanted_hf->end[2])
+	{
+		bits |= FOGBIT_HEIGHTFOG_END_B;
+		fog.hf_end_b = wanted_hf->end[2] * 255.f;
+	}
+
+	if (hf->end[3] != wanted_hf->end[3])
+	{
+		bits |= FOGBIT_HEIGHTFOG_END_DIST;
+		fog.hf_end_dist = wanted_hf->end[3];
+	}
+
+	if (bits & 0xFF00)
+	{
+		bits |= FOGBIT_MORE_BITS;
+	}
+
+	gi.WriteByte(svc_fog);
+
+	if (bits & FOGBIT_MORE_BITS)
+	{
+		gi.WriteShort(bits);
+	}
+	else
+	{
+		gi.WriteByte(bits);
+	}
+
+	if (bits & FOGBIT_DENSITY)
+	{
+		gi.WriteFloat(fog.density);
+		gi.WriteByte(fog.skyfactor);
+	}
+
+	if (bits & FOGBIT_R)
+	{
+		gi.WriteByte(fog.red);
+	}
+
+	if (bits & FOGBIT_G)
+	{
+		gi.WriteByte(fog.green);
+	}
+
+	if (bits & FOGBIT_B)
+	{
+		gi.WriteByte(fog.blue);
+	}
+
+	if (bits & FOGBIT_TIME)
+	{
+		gi.WriteShort(fog.time);
+	}
+
+	if (bits & FOGBIT_HEIGHTFOG_FALLOFF)
+	{
+		gi.WriteFloat(fog.hf_falloff);
+	}
+
+	if (bits & FOGBIT_HEIGHTFOG_DENSITY)
+	{
+		gi.WriteFloat(fog.hf_density);
+	}
+
+	if (bits & FOGBIT_HEIGHTFOG_START_R)
+	{
+		gi.WriteByte(fog.hf_start_r);
+	}
+
+	if (bits & FOGBIT_HEIGHTFOG_START_G)
+	{
+		gi.WriteByte(fog.hf_start_g);
+	}
+
+	if (bits & FOGBIT_HEIGHTFOG_START_B)
+	{
+		gi.WriteByte(fog.hf_start_b);
+	}
+
+	if (bits & FOGBIT_HEIGHTFOG_START_DIST)
+	{
+		gi.WriteLong(fog.hf_start_dist);
+	}
+
+	if (bits & FOGBIT_HEIGHTFOG_END_R)
+	{
+		gi.WriteByte(fog.hf_end_r);
+	}
+
+	if (bits & FOGBIT_HEIGHTFOG_END_G)
+	{
+		gi.WriteByte(fog.hf_end_g);
+	}
+
+	if (bits & FOGBIT_HEIGHTFOG_END_B)
+	{
+		gi.WriteByte(fog.hf_end_b);
+	}
+
+	if (bits & FOGBIT_HEIGHTFOG_END_DIST)
+	{
+		gi.WriteLong(fog.hf_end_dist);
+	}
+
+	gi.unicast(ent, true);
+
+	memcpy(ent->client->fog, ent->client->pers.wanted_fog,
+		sizeof(ent->client->fog));
+	memcpy(hf, wanted_hf, sizeof(*wanted_hf));
 }
 
 /* ============================================================== */
@@ -2126,7 +2413,7 @@ PutClientInServer(edict_t *ent)
 
 		resp = client->resp;
 		memcpy(userinfo, client->pers.userinfo, sizeof(userinfo));
-		InitClientPersistant(client);
+		InitClientPersistant(ent);
 		ClientUserinfoChanged(ent, userinfo);
 	}
 	else if (coop->value)
@@ -2172,7 +2459,7 @@ PutClientInServer(edict_t *ent)
 
 	if (client->pers.health <= 0)
 	{
-		InitClientPersistant(client);
+		InitClientPersistant(ent);
 	}
 
 	client->resp = resp;
@@ -2213,9 +2500,9 @@ PutClientInServer(edict_t *ent)
 	/* clear playerstate values */
 	memset(&ent->client->ps, 0, sizeof(client->ps));
 
-	client->ps.pmove.origin[0] = spawn_origin[0] * 8;
-	client->ps.pmove.origin[1] = spawn_origin[1] * 8;
-	client->ps.pmove.origin[2] = spawn_origin[2] * 8;
+	/*
+	 * set ps.pmove.origin is not required as server uses ent.origin instead
+	 */
 	client->ps.pmove.pm_flags &= ~PMF_NO_PREDICTION;
 
 	if (deathmatch->value && ((int)dmflags->value & DF_FIXED_FOV))
@@ -2245,12 +2532,11 @@ PutClientInServer(edict_t *ent)
 		client->ps.gunindex = 0;
 	}
 
-
 	/* clear entity state values */
 	ent->s.effects = 0;
 	ent->s.skinnum = ent - g_edicts - 1;
-	ent->s.modelindex = 255; /* will use the skin specified model */
-	ent->s.modelindex2 = 255; /* custom gun model */
+	ent->s.modelindex = CUSTOM_PLAYER_MODEL; /* will use the skin specified model */
+	ent->s.modelindex2 = CUSTOM_PLAYER_MODEL; /* custom gun model */
 
 	/* sknum is player num and weapon number
 	   weapon number will be added in changeweapon */
@@ -2273,6 +2559,59 @@ PutClientInServer(edict_t *ent)
 	ent->s.angles[ROLL] = 0;
 	VectorCopy(ent->s.angles, client->ps.viewangles);
 	VectorCopy(ent->s.angles, client->v_angle);
+
+	//JABot[start]
+	if (ent->ai && ent->ai->is_bot)
+	{
+		return;
+	}
+	//JABot[end]
+
+	// [Paril-KEX] set up world fog & send it instantly
+	memset(ent->client->pers.wanted_fog, 0, sizeof(ent->client->pers.wanted_fog));
+	if (world->fog.density)
+	{
+		ent->client->pers.wanted_fog[0] = world->fog.density;
+		ent->client->pers.wanted_fog[1] = world->fog.color[0];
+		ent->client->pers.wanted_fog[2] = world->fog.color[1];
+		ent->client->pers.wanted_fog[3] = world->fog.color[2];
+	}
+	else if (world->fog.altdensity)
+	{
+		ent->client->pers.wanted_fog[0] = world->fog.altdensity;
+		ent->client->pers.wanted_fog[1] = world->fog.altcolor[0];
+		ent->client->pers.wanted_fog[2] = world->fog.altcolor[1];
+		ent->client->pers.wanted_fog[3] = world->fog.altcolor[2];
+	}
+	else if (world->fog.afog)
+	{
+		int res;
+
+		/* Anachronox: Fog value */
+		res = sscanf(world->fog.afog, "%f %f %f %f",
+			&ent->client->pers.wanted_fog[0],
+			&ent->client->pers.wanted_fog[1],
+			&ent->client->pers.wanted_fog[2],
+			&ent->client->pers.wanted_fog[3]);
+		ent->client->pers.wanted_fog[0] *= 200;
+		if (res != 4)
+		{
+			gi.dprintf("%s: Failed to load fog\n", __func__);
+			memset(ent->client->pers.wanted_fog, 0,
+				sizeof(ent->client->pers.wanted_fog));
+		}
+	}
+
+	ent->client->pers.wanted_fog[4] = world->fog.sky_factor;
+
+	VectorCopy(world->heightfog.start_color, ent->client->pers.wanted_heightfog.start);
+	ent->client->pers.wanted_heightfog.start[3] = world->heightfog.start_dist;
+	VectorCopy(world->heightfog.end_color, ent->client->pers.wanted_heightfog.end);
+	ent->client->pers.wanted_heightfog.end[3] = world->heightfog.end_dist;
+	ent->client->pers.wanted_heightfog.falloff = world->heightfog.falloff;
+	ent->client->pers.wanted_heightfog.density = world->heightfog.density;
+
+	ForceFogTransition(ent, true);
 
 	if (CTFStartClient(ent))
 	{
@@ -2320,7 +2659,7 @@ PutClientInServer(edict_t *ent)
 		   the player has the nuke key. (not in DM) */
 		if (!(deathmatch->value))
 		{
-			gitem_t *item;
+			const gitem_t *item;
 
 			item = FindItem("Antimatter Bomb");
 			client->pers.selected_item = ITEM_INDEX(item);
@@ -2370,6 +2709,10 @@ ClientBeginDeathmatch(edict_t *ent)
 		gi.multicast(ent->s.origin, MULTICAST_PVS);
 	}
 
+	//JABot[start]
+	AI_EnemyAdded(ent);
+	//[end]
+
 	gi.bprintf(PRINT_HIGH, "%s entered the game\n", ent->client->pers.netname);
 
 	/* make sure all view stuff is valid */
@@ -2383,8 +2726,6 @@ ClientBeginDeathmatch(edict_t *ent)
 void
 ClientBegin(edict_t *ent)
 {
-	int i;
-
 	if (!ent)
 	{
 		return;
@@ -2402,6 +2743,8 @@ ClientBegin(edict_t *ent)
 	   just take it, otherwise spawn one from scratch */
 	if (ent->inuse == true)
 	{
+		int i;
+
 		/* the client has cleared the client side viewangles upon
 		   connecting to the server, which is different than the
 		   state when the game is saved, so we need to compensate
@@ -2411,6 +2754,9 @@ ClientBegin(edict_t *ent)
 			ent->client->ps.pmove.delta_angles[i] = ANGLE2SHORT(
 					ent->client->ps.viewangles[i]);
 		}
+
+		/* Send fog one more time */
+		ForceFogTransition(ent, true);
 	}
 	else
 	{
@@ -2622,7 +2968,7 @@ ClientConnect(edict_t *ent, char *userinfo)
 
 		if (!game.autosaved || !ent->client->pers.weapon)
 		{
-			InitClientPersistant(ent->client);
+			InitClientPersistant(ent);
 		}
 	}
 
@@ -2657,7 +3003,7 @@ ClientDisconnect(edict_t *ent)
 		return;
 	}
 
-	if(ent->client->chasetoggle)
+	if (ent->client->chasetoggle)
 	{
 		ChasecamRemove(ent);
 	}
@@ -2709,6 +3055,10 @@ ClientDisconnect(edict_t *ent)
 
 	playernum = ent - g_edicts - 1;
 	gi.configstring(CS_PLAYERSKINS + playernum, "");
+
+	//JABot[start]
+	AI_EnemyRemoved (ent);
+	//[end]
 }
 
 /* ============================================================== */
@@ -2717,7 +3067,7 @@ ClientDisconnect(edict_t *ent)
  * pmove doesn't need to know
  * about passent and contentmask
  */
-trace_t
+static trace_t
 PM_trace(vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end)
 {
 	if (pm_passent->health > 0)
@@ -2730,41 +3080,6 @@ PM_trace(vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end)
 	}
 }
 
-unsigned
-CheckBlock(void *b, int c)
-{
-	int v, i;
-
-	if (!b)
-	{
-		return 0;
-	}
-
-	v = 0;
-
-	for (i = 0; i < c; i++)
-	{
-		v += ((byte *)b)[i];
-	}
-
-	return v;
-}
-
-void
-PrintPmove(pmove_t *pm)
-{
-	unsigned c1, c2;
-
-	if (!pm)
-	{
-		return;
-	}
-
-	c1 = CheckBlock(&pm->s, sizeof(pm->s));
-	c2 = CheckBlock(&pm->cmd, sizeof(pm->cmd));
-	gi.dprintf("sv %3i:%i %i\n", pm->cmd.impulse, c1, c2);
-}
-
 /*
  * This will be called once for each client frame, which will
  * usually be a couple times for each server frame.
@@ -2774,10 +3089,9 @@ ClientThink(edict_t *ent, usercmd_t *ucmd)
 {
 	gclient_t *client;
 	edict_t *other;
-	int i, j;
-	pmove_t pm;
+	int k;
 
-	if (!ent || !ucmd)
+	if (!ent || !ent->client || !ucmd)
 	{
 		return;
 	}
@@ -2832,8 +3146,10 @@ ClientThink(edict_t *ent, usercmd_t *ucmd)
 	{
 		if (client->oldplayer)
 		{
+			int i;
+
 			// set angles
-			for (i=0 ; i<3 ; i++)
+			for (i = 0 ; i < 3; i++)
 			{
 				ent->client->ps.pmove.delta_angles[i] = ANGLE2SHORT(
 					ent->client->oldplayer->s.angles[i] - ent->client->resp.cmd_angles[i]);
@@ -2852,14 +3168,15 @@ ClientThink(edict_t *ent, usercmd_t *ucmd)
 	}
 	else
 	{
-		/* set up for pmove */
-		memset(&pm, 0, sizeof(pm));
+		pmove_t pm = {0};
+		int origin[3], i;
 
+		/* set up for pmove */
 		if (ent->movetype == MOVETYPE_NOCLIP)
 		{
 			client->ps.pmove.pm_type = PM_SPECTATOR;
 		}
-		else if (ent->s.modelindex != 255)
+		else if (ent->s.modelindex != CUSTOM_PLAYER_MODEL)
 		{
 			client->ps.pmove.pm_type = PM_GIB;
 		}
@@ -2877,7 +3194,7 @@ ClientThink(edict_t *ent, usercmd_t *ucmd)
 
 		for (i = 0; i < 3; i++)
 		{
-			pm.s.origin[i] = ent->s.origin[i] * 8;
+			origin[i] = ent->s.origin[i] * 8;
 			/* save to an int first, in case the short overflows
 			 * so we get defined behavior (at least with -fwrapv) */
 			int tmpVel = ent->velocity[i] * 8;
@@ -2895,7 +3212,8 @@ ClientThink(edict_t *ent, usercmd_t *ucmd)
 		pm.pointcontents = gi.pointcontents;
 
 		/* perform a pmove */
-		gi.Pmove(&pm);
+		M_SetStandMinMax(ent, pm.mins, pm.maxs);
+		gi.PmoveEx(&pm, origin);
 
 		/* save results of pmove */
 		client->ps.pmove = pm.s;
@@ -2903,7 +3221,7 @@ ClientThink(edict_t *ent, usercmd_t *ucmd)
 
 		for (i = 0; i < 3; i++)
 		{
-			ent->s.origin[i] = pm.s.origin[i] * 0.125;
+			ent->s.origin[i] = origin[i] * 0.125;
 			ent->velocity[i] = pm.s.velocity[i] * 0.125;
 		}
 
@@ -2969,6 +3287,8 @@ ClientThink(edict_t *ent, usercmd_t *ucmd)
 		/* touch other objects */
 		for (i = 0; i < pm.numtouch; i++)
 		{
+			int j;
+
 			other = pm.touchents[i];
 
 			for (j = 0; j < i; j++)
@@ -3057,15 +3377,19 @@ ClientThink(edict_t *ent, usercmd_t *ucmd)
 	}
 
 	/* update chase cam if being followed */
-	for (i = 1; i <= maxclients->value; i++)
+	for (k = 1; k <= maxclients->value; k++)
 	{
-		other = g_edicts + i;
+		other = g_edicts + k;
 
 		if (other->inuse && (other->client->chase_target == ent))
 		{
 			UpdateChaseCam(other);
 		}
 	}
+
+	/* JABot[start] */
+	AITools_DropNodes(ent);
+	/* JABot[end] */
 
 	if (ctf->value && client->menudirty && (client->menutime <= level.time))
 	{

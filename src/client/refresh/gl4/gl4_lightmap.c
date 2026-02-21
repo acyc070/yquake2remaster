@@ -50,7 +50,7 @@ LM_UploadBlock(void)
 	GL4_BindLightmap(gl4_lms.current_lightmap_texture);
 
 	// upload all 4 lightmaps
-	for(map=0; map < MAX_LIGHTMAPS_PER_SURFACE; ++map)
+	for (map=0; map < MAX_LIGHTMAPS_PER_SURFACE; ++map)
 	{
 		GL4_SelectTMU(GL_TEXTURE1+map); // this relies on GL_TEXTURE2 being GL_TEXTURE1+1 etc
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -63,7 +63,7 @@ LM_UploadBlock(void)
 
 	if (++gl4_lms.current_lightmap_texture == MAX_LIGHTMAPS)
 	{
-		Com_Error(ERR_DROP, "LM_UploadBlock() - MAX_LIGHTMAPS exceeded\n");
+		Com_Error(ERR_DROP, "%s: MAX_LIGHTMAPS exceeded\n", __func__);
 	}
 }
 
@@ -120,9 +120,9 @@ LM_AllocBlock(int w, int h, int *x, int *y)
 void
 LM_BuildPolygonFromSurface(gl4model_t *currentmodel, msurface_t *fa)
 {
-	int i, lnumverts;
 	medge_t *pedges, *r_pedge;
-	float *vec;
+	int i, lnumverts;
+	const float *vec;
 	mpoly_t *poly;
 	vec3_t total;
 	vec3_t normal;
@@ -143,11 +143,14 @@ LM_BuildPolygonFromSurface(gl4model_t *currentmodel, msurface_t *fa)
 
 	VectorCopy(fa->plane->normal, normal);
 
-	if(fa->flags & SURF_PLANEBACK)
+	if (fa->flags & SURF_PLANEBACK)
 	{
 		// if for some reason the normal sticks to the back of the plane, invert it
 		// so it's usable for the shader
-		for (i=0; i<3; ++i)  normal[i] = -normal[i];
+		for (i=0; i<3; ++i)
+		{
+			normal[i] = -normal[i];
+		}
 	}
 
 	for (i = 0; i < lnumverts; i++)
@@ -177,6 +180,12 @@ LM_BuildPolygonFromSurface(gl4model_t *currentmodel, msurface_t *fa)
 		t = DotProduct(vec, fa->texinfo->vecs[1]) + fa->texinfo->vecs[1][3];
 		t /= fa->texinfo->image->height;
 
+		if (fa->texinfo->flags & SURF_N64_UV)
+		{
+			s *= 0.5;
+			t *= 0.5;
+		}
+
 		VectorAdd(total, vec, total);
 		VectorCopy(vec, vert->pos);
 		vert->texCoord[0] = s;
@@ -203,7 +212,7 @@ LM_BuildPolygonFromSurface(gl4model_t *currentmodel, msurface_t *fa)
 	}
 }
 
-void
+static void
 LM_CreateSurfaceLightmap(msurface_t *surf)
 {
 	int smax, tmax;
@@ -226,12 +235,28 @@ LM_CreateSurfaceLightmap(msurface_t *surf)
 			Com_Error(ERR_FATAL,
 				"%s: Consecutive calls to LM_AllocBlock(%d,%d) failed\n",
 					__func__, smax, tmax);
+			return;
 		}
 	}
 
 	surf->lightmaptexturenum = gl4_lms.current_lightmap_texture;
 
 	GL4_BuildLightMap(surf, (surf->light_t * BLOCK_WIDTH + surf->light_s) * LIGHTMAP_BYTES, BLOCK_WIDTH * LIGHTMAP_BYTES);
+}
+
+void
+LM_CreateLightmapsPoligon(gl4model_t *currentmodel, msurface_t *fa)
+{
+	/* create lightmaps and polygons */
+	if (!(fa->texinfo->flags & (SURF_SKY | SURF_TRANSPARENT | SURF_WARP)))
+	{
+		LM_CreateSurfaceLightmap(fa);
+	}
+
+	if (!(fa->texinfo->flags & SURF_WARP))
+	{
+		LM_BuildPolygonFromSurface(currentmodel, fa);
+	}
 }
 
 void
@@ -255,7 +280,7 @@ LM_BeginBuildingLightmaps(gl4model_t *m)
 		lightstyles[i].white = 3;
 	}
 
-	gl4_newrefdef.lightstyles = lightstyles;
+	r_newrefdef.lightstyles = lightstyles;
 
 	gl4_lms.current_lightmap_texture = 0;
 

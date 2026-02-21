@@ -103,6 +103,7 @@ PF_cprintf(edict_t *ent, int level, const char *fmt, ...)
 		if ((n < 1) || (n > maxclients->value))
 		{
 			Com_Error(ERR_DROP, "cprintf to a non-client");
+			return;
 		}
 	}
 
@@ -169,7 +170,6 @@ static void
 PF_setmodel(edict_t *ent, const char *name)
 {
 	int i;
-	cmodel_t *mod;
 
 	if (!name)
 	{
@@ -185,6 +185,8 @@ PF_setmodel(edict_t *ent, const char *name)
 	   the size information for it */
 	if (name[0] == '*')
 	{
+		cmodel_t *mod;
+
 		mod = CM_InlineModel(name);
 		VectorCopy(mod->mins, ent->mins);
 		VectorCopy(mod->maxs, ent->maxs);
@@ -192,12 +194,19 @@ PF_setmodel(edict_t *ent, const char *name)
 	}
 }
 
+/* Direct set value for config string, index in library range */
 static void
 PF_Configstring(int index, const char *val)
 {
-	if ((index < 0) || (index >= MAX_CONFIGSTRINGS))
+	int internal_index;
+	size_t len;
+	char *cs;
+
+	internal_index = P_ConvertConfigStringFrom(index, SV_GetRecomendedProtocol());
+	if ((internal_index < 0) || (internal_index >= MAX_CONFIGSTRINGS))
 	{
-		Com_Error(ERR_DROP, "configstring: bad index %i\n", index);
+		Com_Printf("%s: bad index %i\n", __func__, internal_index);
+		return;
 	}
 
 	if (!val)
@@ -205,19 +214,122 @@ PF_Configstring(int index, const char *val)
 		val = "";
 	}
 
-	/* change the string in sv */
-	strcpy(sv.configstrings[index], val);
+	len = strlen(val);
+	cs = sv.configstrings[internal_index];
+
+	/* statusbar code covers several configstring indices */
+	if ((internal_index >= CS_STATUSBAR) && (internal_index < CS_STATUSBAR_END))
+	{
+		size_t space;
+
+		space = CS_STATUSBAR_SPACE(internal_index);
+
+		if (len >= space)
+		{
+			Com_Printf("%s: statusbar code too big: " YQ2_COM_PRIdS " > " YQ2_COM_PRIdS "\n",
+				__func__, len, space - 1);
+			return;
+		}
+
+		memcpy(cs, val, len + 1);
+	}
+	else
+	{
+		size_t space;
+
+		space = sizeof(sv.configstrings[internal_index]);
+
+		if (len >= space)
+		{
+			Com_Printf("%s; value too big: " YQ2_COM_PRIdS " > " YQ2_COM_PRIdS "\n",
+				__func__, len, space - 1);
+			return;
+		}
+
+		strcpy(cs, val);
+	}
 
 	if (sv.state != ss_loading)
 	{
 		/* send the update to everyone */
 		SZ_Clear(&sv.multicast);
 		MSG_WriteChar(&sv.multicast, svc_configstring);
-		MSG_WriteShort(&sv.multicast, index);
-		MSG_WriteString(&sv.multicast, val);
+		/* index in protocol range */
+		MSG_WriteConfigString(&sv.multicast, index, val);
 
 		SV_Multicast(vec3_origin, MULTICAST_ALL_R);
 	}
+}
+
+/* Direct get value for config string, index in library range */
+static const char *
+PF_ConfigStringGet(int index)
+{
+	index = P_ConvertConfigStringFrom(index, SV_GetRecomendedProtocol());
+
+	if ((index < 0) || (index >= MAX_CONFIGSTRINGS))
+	{
+		Com_Error(ERR_DROP, "configstring: bad index %i\n", index);
+		return NULL;
+	}
+
+	/* change the string in sv */
+	return sv.configstrings[index];
+}
+
+static void
+PF_GetModelFrameInfo(int index, int num, float *mins, float *maxs)
+{
+	if (index < MAX_MODELS)
+	{
+		if (sv.configstrings[CS_MODELS + index][0] == '*')
+		{
+			if (maxs && mins)
+			{
+				cmodel_t *mod;
+
+				mod = CM_InlineModel(sv.configstrings[CS_MODELS + index]);
+				VectorCopy(mod->mins, mins);
+				VectorCopy(mod->maxs, maxs);
+			}
+		}
+		else
+		{
+			Mod_GetModelFrameInfo(sv.configstrings[CS_MODELS + index],
+				num, mins, maxs);
+		}
+	}
+}
+
+static const dmdxframegroup_t *
+PF_GetModelInfo(int index, int *num, float *mins, float *maxs)
+{
+	if (index < MAX_MODELS)
+	{
+		if (sv.configstrings[CS_MODELS + index][0] == '*')
+		{
+			if (maxs && mins)
+			{
+				cmodel_t *mod;
+
+				mod = CM_InlineModel(sv.configstrings[CS_MODELS + index]);
+				VectorCopy(mod->mins, mins);
+				VectorCopy(mod->maxs, maxs);
+			}
+		}
+		else
+		{
+			return Mod_GetModelInfo(sv.configstrings[CS_MODELS + index],
+				num, mins, maxs);
+		}
+	}
+
+	if (num)
+	{
+		*num = 0;
+	}
+
+	return NULL;
 }
 
 static void
@@ -257,13 +369,13 @@ PF_WriteString(const char *s)
 }
 
 static void
-PF_WritePos(vec3_t pos)
+PF_WritePos(const vec3_t pos)
 {
-	MSG_WritePos(&sv.multicast, pos);
+	MSG_WritePos(&sv.multicast, pos, SV_GetRecomendedProtocol());
 }
 
 static void
-PF_WriteDir(vec3_t dir)
+PF_WriteDir(const vec3_t dir)
 {
 	MSG_WriteDir(&sv.multicast, dir);
 }
@@ -283,12 +395,13 @@ PF_inPVS(vec3_t p1, vec3_t p2)
 	int leafnum;
 	int cluster;
 	int area1, area2;
-	byte *mask;
+	const byte *mask;
+	size_t mask_size;
 
 	leafnum = CM_PointLeafnum(p1);
 	cluster = CM_LeafCluster(leafnum);
 	area1 = CM_LeafArea(leafnum);
-	mask = CM_ClusterPVS(cluster);
+	mask = CM_ClusterPVS(cluster, &mask_size);
 
 	leafnum = CM_PointLeafnum(p2);
 	cluster = CM_LeafCluster(leafnum);
@@ -297,7 +410,8 @@ PF_inPVS(vec3_t p1, vec3_t p2)
 	// cluster -1 means "not in a visible leaf" or something like that (void?)
 	// so p1 and p2 probably don't "see" each other.
 	// either way, we must avoid using a negative index into mask[]!
-	if (cluster < 0 || (!(mask[cluster >> 3] & (1 << (cluster & 7)))))
+	if (cluster < 0 || (mask_size <= (cluster >> 3)) ||
+		(!(mask[cluster >> 3] & (1 << (cluster & 7)))))
 	{
 		return false;
 	}
@@ -319,12 +433,13 @@ PF_inPHS(vec3_t p1, vec3_t p2)
 	int leafnum;
 	int cluster;
 	int area1, area2;
-	byte *mask;
+	const byte *mask;
+	size_t mask_size;
 
 	leafnum = CM_PointLeafnum(p1);
 	cluster = CM_LeafCluster(leafnum);
 	area1 = CM_LeafArea(leafnum);
-	mask = CM_ClusterPHS(cluster);
+	mask = CM_ClusterPHS(cluster, &mask_size);
 
 	leafnum = CM_PointLeafnum(p2);
 	cluster = CM_LeafCluster(leafnum);
@@ -333,7 +448,8 @@ PF_inPHS(vec3_t p1, vec3_t p2)
 	// cluster -1 means "not in a visible leaf" or something like that (void?)
 	// so p1 and p2 probably don't "hear" each other.
 	// either way, we must avoid using a negative index into mask[]!
-	if (cluster < 0 || (!(mask[cluster >> 3] & (1 << (cluster & 7)))))
+	if (cluster < 0 || (mask_size <= (cluster >> 3)) ||
+		(!(mask[cluster >> 3] & (1 << (cluster & 7)))))
 	{
 		return false; /* more than one bounce away */
 	}
@@ -357,6 +473,21 @@ PF_StartSound(edict_t *entity, int channel, int sound_num,
 
 	SV_StartSound(NULL, entity, channel, sound_num,
 			volume, attenuation, timeofs);
+}
+
+static const char*
+PF_LocalizationMessage(const char *message, int *sound_index)
+{
+	const char *sound = NULL, *localmessage;
+
+	localmessage = SV_LocalizationMessage(message, &sound);
+
+	if (sound_index && sound)
+	{
+		*sound_index = SV_SoundIndex(sound);
+	}
+
+	return localmessage;
 }
 
 /*
@@ -449,17 +580,39 @@ SV_InitGameProgs(void)
 	import.SetAreaPortalState = CM_SetAreaPortalState;
 	import.AreasConnected = CM_AreasConnected;
 
+	/* Extension to classic Quake2 API */
+	import.LoadFile = FS_LoadFile;
+	import.FreeFile = FS_FreeFile;
+	import.Gamedir = FS_Gamedir;
+	import.CreatePath = FS_CreatePath;
+	import.GetConfigString = PF_ConfigStringGet;
+	import.GetModelInfo = PF_GetModelInfo;
+	import.GetModelFrameInfo = PF_GetModelFrameInfo;
+	import.PmoveEx = PmoveEx;
+	import.LocalizationMessage = PF_LocalizationMessage;
+	import.LocalizationUIMessage = SV_LocalizationUIMessage;
+	import.TagRealloc = Z_TagRealloc;
+
 	ge = (game_export_t *)Sys_GetGameAPI(&import);
 
 	if (!ge)
 	{
 		Com_Error(ERR_DROP, "failed to load game DLL");
+		return;
 	}
 
-	if (ge->apiversion != GAME_API_VERSION)
+	if (ge->apiversion != GAME_API_VERSION &&
+		ge->apiversion != GAME_API_R97_VERSION)
 	{
-		Com_Error(ERR_DROP, "game is version %i, not %i", ge->apiversion,
-				GAME_API_VERSION);
+		int version;
+
+		version = ge->apiversion;
+		Sys_UnloadGame();
+		ge = NULL;
+
+		Com_Error(ERR_DROP, "game is version %i, not %i",
+			version, GAME_API_VERSION);
+		return;
 	}
 
 	ge->Init();

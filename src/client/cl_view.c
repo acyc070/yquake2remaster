@@ -76,6 +76,8 @@ V_AddEntity(entity_t *ent)
 {
 	if (r_numentities >= MAX_ENTITIES)
 	{
+		Com_DPrintf("%s: game sends more than expected %d entities\n",
+			__func__, MAX_ENTITIES);
 		return;
 	}
 
@@ -89,6 +91,8 @@ V_AddParticle(vec3_t org, unsigned int color, float alpha)
 
 	if (r_numparticles >= MAX_PARTICLES)
 	{
+		Com_DPrintf("%s: game sends more than expected %d particles\n",
+			__func__, MAX_PARTICLES);
 		return;
 	}
 
@@ -105,6 +109,8 @@ V_AddLight(vec3_t org, float intensity, float r, float g, float b)
 
 	if (r_numdlights >= MAX_DLIGHTS)
 	{
+		Com_DPrintf("%s: game sends more than expected %d dlights\n",
+			__func__, MAX_DLIGHTS);
 		return;
 	}
 
@@ -116,14 +122,103 @@ V_AddLight(vec3_t org, float intensity, float r, float g, float b)
 	dl->color[2] = b;
 }
 
+static float
+smoothstep(float edge0, float edge1, float x)
+{
+	/* https://registry.khronos.org/OpenGL-Refpages/gl4/html/smoothstep.xhtml */
+	float t;
+
+	t = Q_clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
+	return t * t * (3.0f - 2.0f * t);
+}
+
+/* calculate the fade distance from screen to light */
+static float
+fade_distance_to_light(float fade_start, float fade_end, const vec3_t light_origin,
+	const vec3_t org)
+{
+	float dist_to_light, frac_to_end, min_frag_dist;
+	vec3_t diff;
+
+	if (fade_start <= 1.0f && fade_end <= 1.0f)
+	{
+		return 1.0f;
+	}
+	else if (fade_start > fade_end)
+	{
+		return 1.0f;
+	}
+
+	VectorSubtract(org, light_origin, diff);
+	dist_to_light = VectorLengthSquared(diff);
+	frac_to_end = Q_clamp(dist_to_light / fade_end, 0.0f, 1.0f);
+	min_frag_dist = fade_start / fade_end;
+
+	if (min_frag_dist > 1.0f)
+	{
+		return 1.0f;
+	}
+	else if (min_frag_dist <= 0)
+	{
+		return frac_to_end;
+	}
+
+	return 1.0f - smoothstep(min_frag_dist, 1.0f, frac_to_end);
+}
+
+void
+V_AddLightShadow(cl_shadow_light_t *light)
+{
+	YQ2_ALIGNAS_TYPE(unsigned) byte color[4];
+	dlight_t *dl;
+	float fade;
+
+	if (r_numdlights >= MAX_DLIGHTS)
+	{
+		Com_DPrintf("%s: game sends more than expected %d dlights\n",
+			__func__, MAX_DLIGHTS);
+		return;
+	}
+
+	fade = fade_distance_to_light(light->fade_start, light->fade_end,
+		light->origin, cl.refdef.vieworg);
+
+	if (fade <= 0.0f)
+	{
+		return;
+	}
+
+	dl = &r_dlights[r_numdlights++];
+	VectorCopy(light->origin, dl->origin);
+
+	dl->intensity = light->intensity * fade;
+	if (light->lightstyle != -1)
+	{
+		dl->intensity *= r_lightstyles[light->lightstyle].white;
+	}
+
+	*(int *) color = light->color;
+	dl->color[0] = color[0] / 255.f;
+	dl->color[1] = color[1] / 255.f;
+	dl->color[2] = color[2] / 255.f;
+
+	/* TODO: implement:
+	 *   radius,
+	 *   coneangle,
+	 *   conedirection,
+	 *   fade_start,
+	 *   fade_end */
+}
+
 void
 V_AddLightStyle(int style, float r, float g, float b)
 {
 	lightstyle_t *ls;
 
-	if ((style < 0) || (style > MAX_LIGHTSTYLES))
+	if ((style < 0) || (style >= MAX_LIGHTSTYLES))
 	{
 		Com_Error(ERR_DROP, "Bad light style %i", style);
+		return;
 	}
 
 	ls = &r_lightstyles[style];
@@ -159,7 +254,8 @@ V_TestParticles(void)
 						   cl.v_right[j] * r + cl.v_up[j] * u;
 		}
 
-		p->color = 8;
+		/* grey */
+		p->color = 0xFF7B7B7B;
 		p->alpha = cl_testparticles->value;
 	}
 }
@@ -308,6 +404,18 @@ CL_PrintInSameLine(const char *message)
 	Com_Printf("%s", emptyline);
 }
 
+void
+CL_SetSky(void)
+{
+	float rotate = 0;
+	int autorotate = 1;
+	vec3_t axis;
+
+	sscanf(cl.configstrings[CS_SKYROTATE], "%f %d", &rotate, &autorotate);
+	sscanf(cl.configstrings[CS_SKYAXIS], "%f %f %f", &axis[0], &axis[1], &axis[2]);
+	R_SetSky(cl.configstrings[CS_SKY], rotate, autorotate, axis);
+}
+
 /*
  * Call before entering a new level, or after changing dlls
  */
@@ -316,10 +424,6 @@ CL_PrepRefresh(void)
 {
 	char mapname[MAX_QPATH];
 	int i;
-	char name[MAX_QPATH];
-	float rotate = 0;
-	int autorotate = 1;
-	vec3_t axis;
 
 	if (!cl.configstrings[CS_MODELS + 1][0])
 	{
@@ -331,7 +435,7 @@ CL_PrepRefresh(void)
 	SCR_AddDirtyPoint(viddef.width - 1, viddef.height - 1);
 
 	/* let the refresher load the map */
-	strcpy(mapname, cl.configstrings[CS_MODELS + 1] + 5); /* skip "maps/" */
+	Q_strlcpy(mapname, cl.configstrings[CS_MODELS + 1] + 5, sizeof(mapname)); /* skip "maps/" */
 	mapname[strlen(mapname) - 4] = 0; /* cut off ".bsp" */
 
 	/* register models, pics, and skins */
@@ -352,20 +456,22 @@ CL_PrepRefresh(void)
 	strcpy(cl_weaponmodels[0], "weapon.md2");
 
 	CL_PrintInSameLine("Models");
+	SCR_UpdateScreen();
+
 	for (i = 1; i < MAX_MODELS && cl.configstrings[CS_MODELS + i][0]; i++)
 	{
-		strcpy(name, cl.configstrings[CS_MODELS + i]);
-		name[37] = 0; /* never go beyond one line */
+		const char *name;
 
-		if (name[0] != '*')
+		name = cl.configstrings[CS_MODELS + i];
+
+		if (developer->value && name[0] != '*')
 		{
 			CL_PrintInSameLine(name);
+			SCR_UpdateScreen();
+			IN_Update();
 		}
 
-		SCR_UpdateScreen();
-		IN_Update();
-
-		if (name[0] == '#')
+		if (*name == '#')
 		{
 			/* special player weapon model */
 			if (num_cl_weaponmodels < MAX_CLIENTWEAPONMODELS)
@@ -373,6 +479,7 @@ CL_PrepRefresh(void)
 				Q_strlcpy(cl_weaponmodels[num_cl_weaponmodels],
 						cl.configstrings[CS_MODELS + i] + 1,
 						sizeof(cl_weaponmodels[num_cl_weaponmodels]));
+
 				num_cl_weaponmodels++;
 			}
 		}
@@ -380,41 +487,49 @@ CL_PrepRefresh(void)
 		{
 			cl.model_draw[i] = R_RegisterModel(cl.configstrings[CS_MODELS + i]);
 
-			if (name[0] == '*')
-			{
-				cl.model_clip[i] = CM_InlineModel(cl.configstrings[CS_MODELS + i]);
-			}
-
-			else
-			{
-				cl.model_clip[i] = NULL;
-			}
+			cl.model_clip[i] = (*name == '*') ?
+				CM_InlineModel(name) :
+				NULL;
 		}
 	}
 
 	CL_PrintInSameLine("Images");
 	SCR_UpdateScreen();
+	IN_Update();
 
 	for (i = 1; i < MAX_IMAGES && cl.configstrings[CS_IMAGES + i][0]; i++)
 	{
 		cl.image_precache[i] = Draw_FindPic(cl.configstrings[CS_IMAGES + i]);
-		IN_Update();
 	}
 
 	CL_PrintInSameLine("Clients");
+	SCR_UpdateScreen();
 
 	for (i = 0; i < MAX_CLIENTS; i++)
 	{
-		if (!cl.configstrings[CS_PLAYERSKINS + i][0])
+		if (cl.configstrings[CS_PLAYERSKINS + i][0])
 		{
-			continue;
-		}
+			if (developer->value)
+			{
+				Com_Printf("Client %i\r", i);
+				SCR_UpdateScreen();
+				IN_Update();
+			}
 
-		Com_Printf("client %i\r", i);
-		SCR_UpdateScreen();
-		IN_Update();
-		CL_ParseClientinfo(i);
-		CL_PrintInSameLine("");
+			CL_ParseClientinfo(i);
+		}
+	}
+
+	/* load shadow lights configstrings */
+	for (i = 0; i < MAX_SHADOW_LIGHTS; i++)
+	{
+		int cs_idx;
+
+		cs_idx = CS_SHADOWLIGHTS + i;
+		if (cl.configstrings[cs_idx][0])
+		{
+			CL_LoadShadowLight(i, cl.configstrings[cs_idx]);
+		}
 	}
 
 	CL_LoadClientinfo(&cl.baseclientinfo, "unnamed\\male/grunt");
@@ -422,9 +537,7 @@ CL_PrepRefresh(void)
 	/* set sky textures and speed */
 	CL_PrintInSameLine("Sky");
 	SCR_UpdateScreen();
-	sscanf(cl.configstrings[CS_SKYROTATE], "%f %d", &rotate, &autorotate);
-	sscanf(cl.configstrings[CS_SKYAXIS], "%f %f %f", &axis[0], &axis[1], &axis[2]);
-	R_SetSky(cl.configstrings[CS_SKY], rotate, autorotate, axis);
+	CL_SetSky();
 	CL_PrintInSameLine("Cleanup.....");
 
 	/* the renderer can now free unneeded stuff */
@@ -439,9 +552,7 @@ CL_PrepRefresh(void)
 	cl.force_refdef = true; /* make sure we have a valid refdef */
 
 	/* start the cd track */
-	int track = (int)strtol(cl.configstrings[CS_CDTRACK], (char **)NULL, 10);
-
-	OGG_PlayTrack(track, true, true);
+	OGG_PlayTrack(cl.configstrings[CS_CDTRACK], true, true);
 }
 
 float
@@ -453,6 +564,7 @@ CalcFov(float fov_x, float width, float height)
 	if ((fov_x < 1) || (fov_x > 179))
 	{
 		Com_Error(ERR_DROP, "Bad fov: %f", fov_x);
+		return 90;
 	}
 
 	x = width / (float)tan(fov_x / 360 * M_PI);
@@ -526,7 +638,7 @@ V_Render3dCrosshair(void)
 
 
 	if(crosshair_3d->value || crosshair_3d_glow->value){
-		VectorMA(cl.refdef.vieworg,8192,cl.v_forward,end);
+		VectorMA(cl.refdef.vieworg, 8192, cl.v_forward,end);
 		crosshair_trace = CL_PMTrace(cl.refdef.vieworg, vec3_origin, vec3_origin, end);
 
 		if(crosshair_3d_glow->value){

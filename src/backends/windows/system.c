@@ -45,7 +45,7 @@ static HANDLE hinput, houtput;
 static HINSTANCE game_library;
 
 // Config dir
-char cfgdir[MAX_OSPATH] = CFGDIR;
+char cfgdir[MAX_OSPATH] = CFGDIRNAME;
 
 // Buffer for the dedicated server console
 static char console_text[256];
@@ -85,6 +85,7 @@ Sys_Error(const char *error, ...)
 void
 Sys_Quit(void)
 {
+	const qboolean free_console = (dedicated && dedicated->value);
 	timeEndPeriod(1);
 
 #ifndef DEDICATED_ONLY
@@ -93,7 +94,7 @@ Sys_Quit(void)
 
 	Qcommon_Shutdown();
 
-	if (dedicated && dedicated->value)
+	if (free_console)
 	{
 		FreeConsole();
 	}
@@ -112,7 +113,7 @@ Sys_Quit(void)
 void
 Sys_Init(void)
 {
-	OSVERSIONINFO vinfo;
+	OSVERSIONINFO vinfo = {0};
 
 	timeBeginPeriod(1);
 	vinfo.dwOSVersionInfoSize = sizeof(vinfo);
@@ -231,15 +232,12 @@ Sys_ConsoleInput(void)
 }
 
 void
-Sys_ConsoleOutput(char *string)
+Sys_ConsoleOutput(const char *string)
 {
-	char text[256];
-	DWORD dummy;
-
 	if ((string[0] == 0x01) || (string[0] == 0x02))
 	{
-		// remove color marker
-		string[0] = ' ';
+		/* remove color marker */
+		string++;
 	}
 
 	if (!dedicated || !dedicated->value)
@@ -248,8 +246,12 @@ Sys_ConsoleOutput(char *string)
 	}
 	else
 	{
+		DWORD dummy;
+
 		if (console_textlen)
 		{
+			char text[256] = {0};
+
 			text[0] = '\r';
 			memset(&text[1], ' ', console_textlen);
 			text[console_textlen + 1] = '\r';
@@ -274,7 +276,7 @@ Sys_Microseconds(void)
 	static LARGE_INTEGER freq = { 0 };
 	static LARGE_INTEGER base = { 0 };
 
-    if (!freq.QuadPart)
+	if (!freq.QuadPart)
 	{
 		QueryPerformanceFrequency(&freq);
 	}
@@ -301,7 +303,7 @@ void
 Sys_Nanosleep(int nanosec)
 {
 	HANDLE timer;
-	LARGE_INTEGER li;
+	LARGE_INTEGER li = {0};
 
 	timer = CreateWaitableTimer(NULL, TRUE, NULL);
 
@@ -326,7 +328,7 @@ static char findpath[MAX_OSPATH];
 static HANDLE findhandle;
 
 char *
-Sys_FindFirst(const char *path, unsigned musthave, unsigned canthave)
+Sys_FindFirst(const char *path, unsigned musthave, unsigned canhave)
 {
 	if (findhandle)
 	{
@@ -354,7 +356,7 @@ Sys_FindFirst(const char *path, unsigned musthave, unsigned canthave)
 }
 
 char *
-Sys_FindNext(unsigned musthave, unsigned canthave)
+Sys_FindNext(unsigned musthave, unsigned canhave)
 {
 	WIN32_FIND_DATAW findinfo;
 
@@ -393,7 +395,7 @@ Sys_UnloadGame(void)
 {
 	if (!FreeLibrary(game_library))
 	{
-		Com_Error(ERR_FATAL, "FreeLibrary failed for game library");
+		Com_Error(ERR_FATAL, "%s failed for game library", __func__);
 	}
 
 	game_library = NULL;
@@ -405,11 +407,12 @@ Sys_GetGameAPI(void *parms)
 	void *(*GetGameAPI)(void *);
 	char name[MAX_OSPATH];
 	WCHAR wname[MAX_OSPATH];
-	char *path = NULL;
+	const char *path = NULL;
 
 	if (game_library)
 	{
-		Com_Error(ERR_FATAL, "Sys_GetGameAPI without Sys_UnloadingGame");
+		Com_Error(ERR_FATAL, "%s without Sys_UnloadingGame", __func__);
+		return NULL;
 	}
 
 	/* now run through the search paths */
@@ -511,7 +514,7 @@ char *
 Sys_GetHomeDir(void)
 {
 	char *cur;
-	char *old;
+	const char *old;
 	char profile[MAX_PATH];
 	static char gdir[MAX_OSPATH];
 	WCHAR uprofile[MAX_PATH];
@@ -574,7 +577,6 @@ Sys_RemoveDir(const char *path)
 {
 	WCHAR wpath[MAX_OSPATH] = {0};
 	WCHAR wpathwithwildcard[MAX_OSPATH] = {0};
-	WCHAR wpathwithfilename[MAX_OSPATH] = {0};
 	WIN32_FIND_DATAW fd;
 
 	if (MultiByteToWideChar(CP_UTF8, 0, path, -1, wpath, MAX_OSPATH) >= MAX_QPATH)
@@ -594,6 +596,8 @@ Sys_RemoveDir(const char *path)
 	{
 		do
 		{
+			WCHAR wpathwithfilename[MAX_OSPATH] = {0};
+
 			if (wcslen(wpath) + wcslen(fd.cFileName) >= MAX_QPATH)
 			{
 				// Same as above.
@@ -649,7 +653,7 @@ Sys_FreeLibrary(void *handle)
 
 	if (!FreeLibrary(handle))
 	{
-		Com_Error(ERR_FATAL, "FreeLibrary failed on %p", handle);
+		Com_Error(ERR_FATAL, "%s failed for game library", __func__);
 	}
 }
 
@@ -713,7 +717,7 @@ Sys_GetWorkDir(char *buffer, size_t len)
 }
 
 qboolean
-Sys_SetWorkDir(char *path)
+Sys_SetWorkDir(const char *path)
 {
 	WCHAR wpath[MAX_OSPATH];
 

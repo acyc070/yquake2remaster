@@ -29,7 +29,11 @@
 
 #include "header/local.h"
 
+#ifdef USE_SDL3
+#include <SDL3/SDL.h>
+#else
 #include <SDL2/SDL.h>
+#endif
 
 static SDL_Window* window = NULL;
 static SDL_GLContext context = NULL;
@@ -49,7 +53,7 @@ enum {
  */
 static void APIENTRY
 DebugCallback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,
-              const GLchar *message, const void *userParam)
+	const GLchar *message, const void *userParam)
 {
 	const char* sourceStr = "Source: Unknown";
 	const char* typeStr = "Type: Unknown";
@@ -90,7 +94,7 @@ DebugCallback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei le
 	}
 
 	// use PRINT_ALL - this is only called with gl4_debugcontext != 0 anyway.
-	R_Printf(PRINT_ALL, "GLDBG %s %s %s: %s\n", sourceStr, typeStr, severityStr, message);
+	Com_Printf("GLDBG %s %s %s: %s\n", sourceStr, typeStr, severityStr, message);
 }
 
 // ---------
@@ -100,7 +104,7 @@ DebugCallback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei le
  */
 void GL4_EndFrame(void)
 {
-	if(gl4config.useBigVBO)
+	if (gl4config.useBigVBO)
 	{
 		// I think this is a good point to orphan the VBO and get a fresh one
 		GL4_BindVAO(gl4state.vao3D);
@@ -138,18 +142,35 @@ void GL4_SetVsync(void)
 		vsync = -1;
 	}
 
+#ifdef USE_SDL3
+	if (!SDL_GL_SetSwapInterval(vsync))
+#else
 	if (SDL_GL_SetSwapInterval(vsync) == -1)
+#endif
 	{
 		if (vsync == -1)
 		{
 			// Not every system supports adaptive
 			// vsync, fallback to normal vsync.
-			R_Printf(PRINT_ALL, "Failed to set adaptive vsync, reverting to normal vsync.\n");
+			Com_Printf("Failed to set adaptive vsync, reverting to normal vsync.\n");
 			SDL_GL_SetSwapInterval(1);
 		}
 	}
 
+#ifdef USE_SDL3
+	int vsyncState;
+	if (!SDL_GL_GetSwapInterval(&vsyncState))
+	{
+		Com_Printf("Failed to get vsync state, assuming vsync inactive.\n");
+		vsyncActive = false;
+	}
+	else
+	{
+		vsyncActive = vsyncState ? true : false;
+	}
+#else
 	vsyncActive = SDL_GL_GetSwapInterval() != 0;
+#endif
 }
 
 /*
@@ -174,7 +195,11 @@ int GL4_PrepareForWindow(void)
 
 	while (1)
 	{
+#ifdef USE_SDL3
+		if (!SDL_GL_LoadLibrary(libgl))
+#else
 		if (SDL_GL_LoadLibrary(libgl) < 0)
+#endif
 		{
 			if (libgl == NULL)
 			{
@@ -185,9 +210,9 @@ int GL4_PrepareForWindow(void)
 			}
 			else
 			{
-				R_Printf(PRINT_ALL, "%s: Couldn't load libGL: %s!\n",
+				Com_Printf("%s: Couldn't load libGL: %s!\n",
 					__func__, SDL_GetError());
-				R_Printf(PRINT_ALL, "Retrying with default...\n");
+				Com_Printf("Retrying with default...\n");
 
 				ri.Cvar_Set("gl4_libgl", "");
 				libgl = NULL;
@@ -206,7 +231,11 @@ int GL4_PrepareForWindow(void)
 	SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
 	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 
+#ifdef USE_SDL3
+	if (SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8))
+#else
 	if (SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8) == 0)
+#endif
 	{
 		gl4config.stencil = true;
 	}
@@ -215,8 +244,20 @@ int GL4_PrepareForWindow(void)
 		gl4config.stencil = false;
 	}
 
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 6);
+	if (gl_version_override->value)
+	{
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, gl_version_override->value);
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+	}
+	else
+	{
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
+#if !defined(__APPLE__)
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 6);
+#else
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+#endif
+	}
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
 
 	// Set GL context flags.
@@ -237,22 +278,30 @@ int GL4_PrepareForWindow(void)
 	// Let's see if the driver supports MSAA.
 	int msaa_samples = 0;
 
-	if (gl_msaa_samples->value)
+	if (r_msaa_samples->value)
 	{
-		msaa_samples = gl_msaa_samples->value;
+		msaa_samples = r_msaa_samples->value;
 
+#ifdef USE_SDL3
+		if (!SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1))
+#else
 		if (SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1) < 0)
+#endif
 		{
-			R_Printf(PRINT_ALL, "MSAA is unsupported: %s\n", SDL_GetError());
+			Com_Printf("MSAA is unsupported: %s\n", SDL_GetError());
 
 			ri.Cvar_SetValue ("r_msaa_samples", 0);
 
 			SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 0);
 			SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 0);
 		}
+#ifdef USE_SDL3
+		else if (!SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, msaa_samples))
+#else
 		else if (SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, msaa_samples) < 0)
+#endif
 		{
-			R_Printf(PRINT_ALL, "MSAA %ix is unsupported: %s\n", msaa_samples, SDL_GetError());
+			Com_Printf("MSAA %ix is unsupported: %s\n", msaa_samples, SDL_GetError());
 
 			ri.Cvar_SetValue("r_msaa_samples", 0);
 
@@ -278,7 +327,8 @@ int GL4_InitContext(void* win)
 	// Coders are stupid.
 	if (win == NULL)
 	{
-		Com_Error(ERR_FATAL, "R_InitContext() must not be called with NULL argument!");
+		Com_Error(ERR_FATAL, "%s() must not be called with NULL argument!",
+			__func__);
 
 		return false;
 	}
@@ -288,9 +338,10 @@ int GL4_InitContext(void* win)
 	// Initialize GL context.
 	context = SDL_GL_CreateContext(window);
 
-	if(context == NULL)
+	if (context == NULL)
 	{
-		R_Printf(PRINT_ALL, "GL4_InitContext(): Creating OpenGL Context failed: %s\n", SDL_GetError());
+		Com_Printf("%s(): Creating OpenGL Context failed: %s\n",
+			__func__, SDL_GetError());
 
 		window = NULL;
 
@@ -300,9 +351,13 @@ int GL4_InitContext(void* win)
 	// Check if we've got the requested MSAA.
 	int msaa_samples = 0;
 
-	if (gl_msaa_samples->value)
+	if (r_msaa_samples->value)
 	{
+#ifdef USE_SDL3
+		if (SDL_GL_GetAttribute(SDL_GL_MULTISAMPLESAMPLES, &msaa_samples))
+#else
 		if (SDL_GL_GetAttribute(SDL_GL_MULTISAMPLESAMPLES, &msaa_samples) == 0)
+#endif
 		{
 			ri.Cvar_SetValue("r_msaa_samples", msaa_samples);
 		}
@@ -313,7 +368,11 @@ int GL4_InitContext(void* win)
 
 	if (gl4config.stencil)
 	{
+#ifdef USE_SDL3
+		if (!SDL_GL_GetAttribute(SDL_GL_STENCIL_SIZE, &stencil_bits) || stencil_bits < 8)
+#else
 		if (SDL_GL_GetAttribute(SDL_GL_STENCIL_SIZE, &stencil_bits) < 0 || stencil_bits < 8)
+#endif
 		{
 			gl4config.stencil = false;
 		}
@@ -323,21 +382,36 @@ int GL4_InitContext(void* win)
 	GL4_SetVsync();
 
 	// Load GL pointrs through GLAD and check context.
-	if( !gladLoadGLLoader(SDL_GL_GetProcAddress))
+	if (!gladLoadGLLoader((void *)SDL_GL_GetProcAddress))
 	{
-		R_Printf(PRINT_ALL, "GL4_InitContext(): ERROR: loading OpenGL function pointers failed!\n");
+		Com_Printf("%s(): ERROR: loading OpenGL function pointers failed!\n",
+			__func__);
 
 		return false;
 	}
 	else if (GLVersion.major < 4 || (GLVersion.major == 4 && GLVersion.minor < 6))
 	{
-		R_Printf(PRINT_ALL, "GL4_InitContext(): ERROR: glad only got GL version %d.%d!\n", GLVersion.major, GLVersion.minor);
+#if !defined(__APPLE__)
+		if ((!gl_version_override->value) ||
+			(GLVersion.major < gl_version_override->value))
+		{
+			Com_Printf("%s(): ERROR: glad only got GL version %d.%d!\n",
+				__func__, GLVersion.major, GLVersion.minor);
 
-		return false;
+			return false;
+		}
+		else
+#endif
+		{
+			Com_Printf("%s(): Warning: glad only got GL version %d.%d.\n"
+				"Some functionality could be broken.\n",
+				__func__, GLVersion.major, GLVersion.minor);
+
+		}
 	}
 	else
 	{
-		R_Printf(PRINT_ALL, "Successfully loaded OpenGL function pointers using glad, got version %d.%d!\n", GLVersion.major, GLVersion.minor);
+		Com_Printf("Successfully loaded OpenGL function pointers using glad, got version %d.%d!\n", GLVersion.major, GLVersion.minor);
 	}
 
 	gl4config.debug_output = GLAD_GL_ARB_debug_output != 0;
@@ -361,7 +435,11 @@ int GL4_InitContext(void* win)
 #if SDL_VERSION_ATLEAST(2, 26, 0)
 	// Figure out if we are high dpi aware.
 	int flags = SDL_GetWindowFlags(win);
+#ifdef USE_SDL3
+	IsHighDPIaware = (flags & SDL_WINDOW_HIGH_PIXEL_DENSITY) ? true : false;
+#else
 	IsHighDPIaware = (flags & SDL_WINDOW_ALLOW_HIGHDPI) ? true : false;
+#endif
 #endif
 
 	return true;
@@ -372,7 +450,11 @@ int GL4_InitContext(void* win)
  */
 void GL4_GetDrawableSize(int* width, int* height)
 {
+#ifdef USE_SDL3
+	SDL_GetWindowSizeInPixels(window, width, height);
+#else
 	SDL_GL_GetDrawableSize(window, width, height);
+#endif
 }
 
 /*
@@ -382,10 +464,31 @@ void GL4_ShutdownContext()
 {
 	if (window)
 	{
-		if(context)
+		if (context)
 		{
+#ifdef USE_SDL3
+			SDL_GL_DestroyContext(context);
+#else
 			SDL_GL_DeleteContext(context);
+#endif
 			context = NULL;
 		}
 	}
+}
+
+/*
+ * Returns the SDL major version. Implemented
+ * here to not polute gl3_main.c with the SDL
+ * headers.
+ */
+int GL4_GetSDLVersion()
+{
+#ifdef USE_SDL3
+	int version = SDL_GetVersion();
+	return SDL_VERSIONNUM_MAJOR(version);
+#else
+	SDL_version ver;
+	SDL_VERSION(&ver);
+	return ver.major;
+#endif
 }

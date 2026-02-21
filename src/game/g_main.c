@@ -102,18 +102,23 @@ cvar_t *aimfix;
 cvar_t *g_machinegun_norecoil;
 cvar_t *g_quick_weap;
 cvar_t *g_swap_speed;
+cvar_t *g_itemsbobeffect;
+cvar_t *g_start_items;
+cvar_t *ai_model_scale;
+cvar_t *g_game;
 
-void G_RunFrame(void);
+static void G_RunFrame(void);
 
 /* =================================================================== */
 
-void
+static void
 ShutdownGame(void)
 {
 	gi.dprintf("==== ShutdownGame ====\n");
 
 	gi.FreeTags(TAG_LEVEL);
 	gi.FreeTags(TAG_GAME);
+	SpawnFree();
 }
 
 /*
@@ -187,7 +192,7 @@ Com_Printf(const char *msg, ...)
 
 /* ====================================================================== */
 
-void
+static void
 ClientEndServerFrames(void)
 {
 	int i;
@@ -211,7 +216,7 @@ ClientEndServerFrames(void)
 /*
  * Returns the created target changelevel
  */
-edict_t *
+static edict_t *
 CreateTargetChangeLevel(char *map)
 {
 	edict_t *ent;
@@ -317,7 +322,7 @@ EndDMLevel(void)
 	}
 }
 
-void
+static void
 CheckNeedPass(void)
 {
 	int need;
@@ -411,7 +416,7 @@ CheckDMRules(void)
 	}
 }
 
-void
+static void
 ExitLevel(void)
 {
 	int i;
@@ -425,6 +430,10 @@ ExitLevel(void)
 	{
 		return;
 	}
+
+	//JABot[start] (Disconnect all bots before changing map)
+	BOT_RemoveBot("all");
+	//[end]
 
 	Com_sprintf(command, sizeof(command), "gamemap \"%s\"\n", level.changemap);
 	gi.AddCommandString(command);
@@ -456,7 +465,7 @@ ExitLevel(void)
 /*
  * Advances the world by 0.1 seconds
  */
-void
+static void
 G_RunFrame(void)
 {
 	int i;
@@ -510,7 +519,10 @@ G_RunFrame(void)
 		if ((i > 0) && (i <= maxclients->value))
 		{
 			ClientBeginServerFrame(ent);
-			continue;
+			//JABot[start]
+			if (!ent->ai)
+			//[end]
+				continue;
 		}
 
 		G_RunEntity(ent);
@@ -524,4 +536,8 @@ G_RunFrame(void)
 
 	/* build the playerstate_t structures for all players */
 	ClientEndServerFrames();
+
+	//JABot[start]
+	AITools_Frame();	//give think time to AI debug tools
+	//[end]
 }

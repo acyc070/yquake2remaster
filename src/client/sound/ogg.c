@@ -64,7 +64,7 @@ enum GameType {
 	rogue
 };
 
-struct {
+static struct {
 	qboolean saved;
 	int curfile;
 	int numsamples;
@@ -88,15 +88,24 @@ OGG_TogglePlayback(void);
 static int getMappedGOGtrack(int track, enum GameType gameType)
 {
 	if(track <= 0)
+	{
 		return 0;
+	}
 
 	if(track == 1)
+	{
 		return 0; // 1 is illegal (=> data track on CD), 0 means "no track"
+	}
 
 	if(gameType == other)
+	{
 		return track;
+	}
+
 	if(gameType == rogue)
+	{
 		return track + 10;
+	}
 
 	// apparently it's xatrix => map the track to the corresponding TrackXX.ogg from GOG
 	switch(track)
@@ -164,7 +173,7 @@ OGG_InitTrackList(void)
 		gameType = rogue;
 	}
 
-	for (int potMusicDirIdx = 0; potMusicDirIdx < sizeof(potMusicDirs)/sizeof(potMusicDirs[0]); ++potMusicDirIdx)
+	for (int potMusicDirIdx = 0; potMusicDirIdx < ARRLEN(potMusicDirs); ++potMusicDirIdx)
 	{
 		const char* musicDir = potMusicDirs[potMusicDirIdx];
 
@@ -186,7 +195,7 @@ OGG_InitTrackList(void)
 			char testFileName[MAX_OSPATH];
 
 			/* the simple case (like before: $mod/music/02.ogg - 11.ogg or whatever) */
-			snprintf(testFileName, MAX_OSPATH, "%s02.ogg", fullMusicPath);
+			Com_sprintf(testFileName, MAX_OSPATH, "%s02.ogg", fullMusicPath);
 
 			if(Sys_IsFile(testFileName))
 			{
@@ -196,7 +205,8 @@ OGG_InitTrackList(void)
 
 				for(i = 3; i < MAX_NUM_OGGTRACKS; ++i)
 				{
-					snprintf(testFileName, MAX_OSPATH, "%s%02i.ogg", fullMusicPath, i);
+					Com_sprintf(testFileName, MAX_OSPATH, "%s%02i.ogg",
+						fullMusicPath, i);
 
 					if(Sys_IsFile(testFileName))
 					{
@@ -209,7 +219,7 @@ OGG_InitTrackList(void)
 			}
 
 			/* the GOG case: music/Track02.ogg to Track21.ogg */
-			snprintf(testFileName, MAX_OSPATH, "%sTrack%02i.ogg",
+			Com_sprintf(testFileName, MAX_OSPATH, "%sTrack%02i.ogg",
 				fullMusicPath, getMappedGOGtrack(8, gameType));
 
 			if(Sys_IsFile(testFileName))
@@ -220,7 +230,8 @@ OGG_InitTrackList(void)
 				{
 					int gogTrack = getMappedGOGtrack(i, gameType);
 
-					snprintf(testFileName, MAX_OSPATH, "%sTrack%02i.ogg", fullMusicPath, gogTrack);
+					Com_sprintf(testFileName, MAX_OSPATH, "%sTrack%02i.ogg",
+						fullMusicPath, gogTrack);
 
 					if(Sys_IsFile(testFileName))
 					{
@@ -233,7 +244,7 @@ OGG_InitTrackList(void)
 			}
 
 			/* the ReRelease case: music/track02.ogg to track79.ogg */
-			snprintf(testFileName, MAX_OSPATH, "%strack%02i.ogg",
+			Com_sprintf(testFileName, MAX_OSPATH, "%strack%02i.ogg",
 				fullMusicPath, getMappedGOGtrack(8, gameType));
 
 			if(Sys_IsFile(testFileName))
@@ -244,7 +255,8 @@ OGG_InitTrackList(void)
 				{
 					int gogTrack = getMappedGOGtrack(i, gameType);
 
-					snprintf(testFileName, MAX_OSPATH, "%strack%02i.ogg", fullMusicPath, gogTrack);
+					Com_sprintf(testFileName, MAX_OSPATH, "%strack%02i.ogg",
+						fullMusicPath, gogTrack);
 
 					if(Sys_IsFile(testFileName))
 					{
@@ -274,7 +286,7 @@ static OGG_Read(void)
 	float volume = (ogg_mutemusic == true) ? 0.0f : ogg_volume->value;
 
 	int read_samples = stb_vorbis_get_samples_short_interleaved(ogg_file, ogg_file->channels, samples,
-		sizeof(samples) / sizeof(short));
+		ARRLEN(samples));
 
 	if (read_samples > 0)
 	{
@@ -295,7 +307,7 @@ static OGG_Read(void)
 		ogg_numbufs = 0;
 		ogg_numsamples = 0;
 
-		OGG_PlayTrack(ogg_curfile, false, false);
+		OGG_PlayTrack(va("%d", ogg_curfile), false, false);
 	}
 }
 
@@ -385,7 +397,7 @@ OGG_Stream(void)
 
 		// Ogg playback has stopped and shuffle was modified, play the map cdtrack.
 		ogg_shuffle->modified = false;
-		OGG_PlayTrack(ogg_mapcdtrack, true, true);
+		OGG_PlayTrack(va("%d", ogg_mapcdtrack), true, true);
 	}
 }
 
@@ -395,8 +407,12 @@ OGG_Stream(void)
  * play the ogg file that corresponds to the CD track with the given number
  */
 void
-OGG_PlayTrack(int trackNo, qboolean cdtrack, qboolean immediate)
+OGG_PlayTrack(const char *track, qboolean cdtrack, qboolean immediate)
 {
+	const char *path = NULL;
+	char name[MAX_OSPATH];
+	int trackNo;
+
 	if (sound_started == SS_NOT)
 	{
 		return; // sound is not initialized
@@ -406,6 +422,53 @@ OGG_PlayTrack(int trackNo, qboolean cdtrack, qboolean immediate)
 	{
 		return;
 	}
+
+	while (1)
+	{
+		int res = 0;
+		FILE* f;
+
+		path = FS_NextPath(path);
+
+		if (!path)
+		{
+			break;
+		}
+
+		Com_sprintf(name, sizeof(name), "%s/music/%s", path, track);
+
+		/* Open ogg vorbis file. */
+		f = Q_fopen(name, "rb");
+		if (f == NULL)
+		{
+			continue;
+		}
+
+		/* Check running music. */
+		if (ogg_status == PLAY)
+		{
+			OGG_Stop();
+		}
+
+		// fclose is not required on error with close_on_free=true
+		ogg_file = stb_vorbis_open_file(f, true, &res, NULL);
+
+		if (res != 0)
+		{
+			Com_Printf("%s: '%s' is not a valid Ogg Vorbis file (error %i).\n",
+				__func__, name, res);
+			return;
+		}
+
+		/* Play file. */
+		ogg_curfile = 0;
+		ogg_numsamples = 0;
+		ogg_status = PLAY;
+
+		return;
+	}
+
+	trackNo = (int)strtol(track, (char **)NULL, 10);
 
 	// Track 0 means "stop music".
 	if (trackNo == 0)
@@ -471,6 +534,7 @@ OGG_PlayTrack(int trackNo, qboolean cdtrack, qboolean immediate)
 		newtrack = (curtrack + 1) % (ogg_maxfileindex + 1) != 0 ? (curtrack + 1) : 2;
 	} break;
 	case 3:			// random
+	case 4:			// random with true randomness
 	{
 		int retries = 100;
 		newtrack = 0;
@@ -479,9 +543,12 @@ OGG_PlayTrack(int trackNo, qboolean cdtrack, qboolean immediate)
 		{
 			newtrack = randk() % (ogg_maxfileindex + 1);
 
-			if (newtrack == curtrack)
+			if (playback == 3)
 			{
-				newtrack = 0;
+				if (newtrack == curtrack)
+				{
+					newtrack = 0;
+				}
 			}
 		}
 	} break;
@@ -502,7 +569,8 @@ OGG_PlayTrack(int trackNo, qboolean cdtrack, qboolean immediate)
 
 	if (ogg_tracks[trackNo] == NULL)
 	{
-		Com_Printf("%s: Don't have a .ogg file for track %d\n", __func__, trackNo);
+		Com_Printf("%s: Don't have a .ogg file for track %d\n",
+			__func__, trackNo);
 	}
 
 	/* Check running music. */
@@ -520,7 +588,8 @@ OGG_PlayTrack(int trackNo, qboolean cdtrack, qboolean immediate)
 
 	if (ogg_tracks[trackNo] == NULL)
 	{
-		Com_Printf("OGG_PlayTrack: I don't have a file for track %d!\n", trackNo);
+		Com_Printf("%s: I don't have a file for track %d!\n",
+			__func__, trackNo);
 
 		return;
 	}
@@ -530,7 +599,8 @@ OGG_PlayTrack(int trackNo, qboolean cdtrack, qboolean immediate)
 
 	if (f == NULL)
 	{
-		Com_Printf("%s: could not open file %s for track %d: %s.\n", __func__, ogg_tracks[trackNo], trackNo, strerror(errno));
+		Com_Printf("%s: could not open file %s for track %d: %s.\n",
+			__func__, ogg_tracks[trackNo], trackNo, strerror(errno));
 		ogg_tracks[trackNo] = NULL;
 
 		return;
@@ -543,7 +613,8 @@ OGG_PlayTrack(int trackNo, qboolean cdtrack, qboolean immediate)
 
 	if (res != 0)
 	{
-		Com_Printf("%s: '%s' is not a valid Ogg Vorbis file (error %i).\n", __func__, ogg_tracks[trackNo], res);
+		Com_Printf("%s: '%s' is not a valid Ogg Vorbis file (error %i).\n",
+			__func__, ogg_tracks[trackNo], res);
 
 		return;
 	}
@@ -690,17 +761,7 @@ OGG_Cmd(void)
 			return;
 		}
 
-		int track = (int)strtol(Cmd_Argv(2), NULL, 10);
-
-		if (track < 2 || track > ogg_maxfileindex)
-		{
-			Com_Printf("invalid track %s, must be an number between 2 and %d\n", Cmd_Argv(1), ogg_maxfileindex);
-			return;
-		}
-		else
-		{
-			OGG_PlayTrack(track, false, true);
-		}
+		OGG_PlayTrack(Cmd_Argv(2), false, true);
 	}
 	else if (Q_stricmp(Cmd_Argv(1), "stop") == 0)
 	{
@@ -726,10 +787,9 @@ OGG_Cmd(void)
 void
 OGG_SaveState(void)
 {
-	if (ogg_status != PLAY)
+	if (ogg_enabled->value != 1 || ogg_status != PLAY)
 	{
 		ogg_saved_state.saved = false;
-
 		return;
 	}
 
@@ -744,7 +804,7 @@ OGG_SaveState(void)
 void
 OGG_RecoverState(void)
 {
-	if (!ogg_saved_state.saved)
+	if (ogg_enabled->value != 1 || ogg_saved_state.saved != true)
 	{
 		return;
 	}
@@ -755,7 +815,7 @@ OGG_RecoverState(void)
 	int shuffle_state = ogg_shuffle->value;
 	Cvar_SetValue("ogg_shuffle", 0);
 
-	OGG_PlayTrack(ogg_saved_state.curfile, false, true);
+	OGG_PlayTrack(va("%d", ogg_saved_state.curfile), false, true);
 	stb_vorbis_seek_frame(ogg_file, ogg_saved_state.numsamples);
 	ogg_numsamples = ogg_saved_state.numsamples;
 
@@ -836,7 +896,7 @@ OGG_Shutdown(void)
 }
 
 void
-OGG_LoadAsWav(char *filename, wavinfo_t *info, void **buffer)
+OGG_LoadAsWav(const char *filename, wavinfo_t *info, void **buffer)
 {
 	void * temp_buffer = NULL;
 	int size = FS_LoadFile(filename, &temp_buffer);
