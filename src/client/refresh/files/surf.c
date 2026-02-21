@@ -26,8 +26,8 @@
 
 #include "../ref_shared.h"
 
-#define SUBDIVIDE_SIZE 64.0f
-#define MAX_SUBDIVIDE_VERTS 60
+#define SUBDIVIDE_SIZE 32.0f
+#define MAX_SUBDIVIDE_VERTS 90
 
 /*
 ===============
