@@ -56,6 +56,9 @@ static int	s_minindex, s_maxindex;
 static float	s_A, s_B, s_C;
 static float	t_A, t_B, t_C;
 
+// Texture dimensions (cachewidth is external, cacheheight added for PS1 style)
+static int	cacheheight;
+
 static void R_DrawPoly(int iswater, espan_t *spans);
 
 /*
