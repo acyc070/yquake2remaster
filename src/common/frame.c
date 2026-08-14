@@ -387,7 +387,7 @@ Qcommon_Init(int argc, char **argv)
 	cl_async = Cvar_Get("cl_async", "1", CVAR_ARCHIVE);
 	cl_timedemo = Cvar_Get("timedemo", "0", 0);
 	dedicated = Cvar_Get("dedicated", "0", CVAR_NOSET);
-	vid_maxfps = Cvar_Get("vid_maxfps", "300", CVAR_ARCHIVE);
+	vid_maxfps = Cvar_Get("vid_maxfps", "-1", CVAR_ARCHIVE);
 	host_speeds = Cvar_Get("host_speeds", "0", 0);
 	log_stats = Cvar_Get("log_stats", "0", 0);
 	showtrace = Cvar_Get("showtrace", "0", 0);
@@ -559,15 +559,15 @@ Qcommon_Frame(int usec)
 	   frametime of the client is 1 millisecond. And of course we
 	   need to render something, the framerate can never be less
 	   then 1. Cap vid_maxfps between 1 and 999. */
-	if (vid_maxfps->value > 999 || vid_maxfps->value < 1)
+	if (vid_maxfps->value > 10000 || vid_maxfps->value < 1)
 	{
-		Cvar_SetValue("vid_maxfps", 999);
+		Cvar_SetValue("vid_maxfps", 10000);
 	}
 
-	if (cl_maxfps->value > 250)
-	{
-		Cvar_SetValue("cl_maxfps", 250);
-	}
+	//if (cl_maxfps->value > 250)
+	//{
+	//	Cvar_SetValue("cl_maxfps", 250);
+	//}
 
 	// Calculate target and renderframerate.
 	if (R_IsVSyncActive())
@@ -592,7 +592,7 @@ Qcommon_Frame(int usec)
 			   2. vsync will throttle us to refreshrate anyway, so there is no harm
 			      in starting the frame *a bit* earlier, instead of risking starting
 			      it too late */
-			rfps = refreshrate * 1.2f;
+			rfps = refreshrate * 1f;
 			// we can't have more packet frames than render frames, so limit pfps to rfps
 			// but in this case use tolerance for comparison and assign rfps with tolerance
 			pfps = (cl_maxfps->value < refreshrate - 2) ? cl_maxfps->value : rfps;
