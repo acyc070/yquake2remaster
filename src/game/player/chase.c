@@ -129,7 +129,7 @@ ChasecamTrack(edict_t *ent)
 	vec3_t forward, right, up,angles;
 	int distance;
 
-	ent->nextthink = level.time + 0.100;
+	ent->nextthink = level.time + 0.0;
 
 	/* get the CLIENT's angle, and break it down into direction vectors,
 	 * of forward, right, and up. VERY useful */
@@ -210,7 +210,7 @@ ChasecamTrack(edict_t *ent)
 		/* calculate the percentages of the distances, and make sure we're
 		 * not going too far, or too short, in relation to our panning
 		 * speed of the chasecam entity */
-		tot = (distance * 0.400);
+		tot = (distance * 1);
 
 		/* if we're going too fast, make us top speed */
 		if (tot > 5.200)
@@ -221,8 +221,8 @@ ChasecamTrack(edict_t *ent)
 		}
 		else
 		{
-			/* if we're NOT going top speed, but we're going faster than
-			 * 1, relative to the total, make us as fast as we're going */
+			// if we're NOT going top speed, but we're going faster than
+			// 1, relative to the total, make us as fast as we're going //
 			if (tot > 1.000)
 			{
 				ent->velocity[0] = ((dir[0] * distance) * tot);
@@ -231,8 +231,8 @@ ChasecamTrack(edict_t *ent)
 			}
 			else
 			{
-				/* if we're not going faster than one, don't accelerate our
-				 * speed at all, make us go slow to our destination */
+				// if we're not going faster than one, don't accelerate our
+				 / speed at all, make us go slow to our destination //
 				ent->velocity[0] = (dir[0] * distance);
 				ent->velocity[1] = (dir[1] * distance);
 				ent->velocity[2] = (dir[2] * distance);
