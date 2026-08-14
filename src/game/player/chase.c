@@ -232,7 +232,7 @@ ChasecamTrack(edict_t *ent)
 			else
 			{
 				// if we're not going faster than one, don't accelerate our
-				 / speed at all, make us go slow to our destination //
+				 // speed at all, make us go slow to our destination //
 				ent->velocity[0] = (dir[0] * distance);
 				ent->velocity[1] = (dir[1] * distance);
 				ent->velocity[2] = (dir[2] * distance);
