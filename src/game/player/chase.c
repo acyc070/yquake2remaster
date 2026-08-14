@@ -134,9 +134,9 @@ ChasecamTrack(edict_t *ent)
 	/* get the CLIENT's angle, and break it down into direction vectors,
 	 * of forward, right, and up. VERY useful */
 	VectorCopy(ent->owner->client->v_angle, angles);
-	if (angles[PITCH] > 56)
+	if (angles[PITCH] > 90)
 	{
-		angles[PITCH] = 56;
+		angles[PITCH] = 90;
 	}
 	AngleVectors(angles, forward, right, up);
 	VectorNormalize(forward);
