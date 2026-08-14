@@ -295,7 +295,20 @@ ChasecamTrack(edict_t *ent)
 	/* Copy the position of the chasecam now, and stick it to the movedir
 	 * variable, for position checking when we rethink this function */
 	VectorCopy(ent->s.origin, ent->movedir);
-
+// --- Make player model face the camera when idle ---
+edict_t *player = ent->owner;
+if (player->groundentity && VectorLength(player->velocity) < 1.0f)
+{
+    vec3_t dir_to_cam;
+    VectorSubtract(ent->s.origin, player->s.origin, dir_to_cam);
+    dir_to_cam[2] = 0;                     // ignore vertical for yaw only
+    VectorNormalize(dir_to_cam);
+    float yaw = atan2(dir_to_cam[1], dir_to_cam[0]) * (180.0f / M_PI);
+    player->s.angles[YAW] = yaw;
+    player->s.angles[PITCH] = 0;           // keep model upright
+    player->s.angles[ROLL] = 0;
+}
+// --- end of addition ---
 	/* MUST LINK SINCE WE CHANGED THE ORIGIN! */
 	gi.linkentity(ent);
 }
