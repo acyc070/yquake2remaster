@@ -379,9 +379,9 @@ InitGame(void)
 	gun_x = gi.cvar("gun_x", "0", 0);
 	gun_y = gi.cvar("gun_y", "0", 0);
 	gun_z = gi.cvar("gun_z", "0", 0);
-	sv_rollspeed = gi.cvar("sv_rollspeed", "200", 0);
-	sv_rollangle = gi.cvar("sv_rollangle", "2", 0);
-	sv_maxvelocity = gi.cvar("sv_maxvelocity", "2000", 0);
+	sv_rollspeed = gi.cvar("sv_rollspeed", "0", 0);
+	sv_rollangle = gi.cvar("sv_rollangle", "0", 0);
+	sv_maxvelocity = gi.cvar("sv_maxvelocity", "20000", 0);
 	sv_gravity = gi.cvar("sv_gravity", "800", 0);
 	sv_stopspeed = gi.cvar("sv_stopspeed", "100", 0);
 	g_showlogic = gi.cvar("g_showlogic", "0", 0);
@@ -393,7 +393,7 @@ InitGame(void)
 	dedicated = gi.cvar("dedicated", "0", CVAR_NOSET);
 
 	/* latched vars */
-	sv_cheats = gi.cvar("cheats", "0", CVAR_SERVERINFO | CVAR_LATCH);
+	sv_cheats = gi.cvar("cheats", "1", CVAR_SERVERINFO | CVAR_LATCH);
 	gi.cvar("gamename", GAMEVERSION, CVAR_SERVERINFO | CVAR_LATCH);
 	gi.cvar("gamedate", BUILD_DATE, CVAR_SERVERINFO | CVAR_LATCH);
 	maxclients = gi.cvar("maxclients", "4", CVAR_SERVERINFO | CVAR_LATCH);
@@ -404,10 +404,10 @@ InitGame(void)
 	coop_baseq2 = gi.cvar("coop_baseq2", "0", CVAR_LATCH);
 	coop_elevator_delay = gi.cvar("coop_elevator_delay", "1.0", CVAR_ARCHIVE);
 	skill = gi.cvar("skill", "1", CVAR_LATCH);
-	maxentities = gi.cvar("maxentities", "1024", CVAR_LATCH);
+	maxentities = gi.cvar("maxentities", "2048", CVAR_LATCH);
 	gamerules = gi.cvar("gamerules", "0", CVAR_LATCH);			//PGM
 	g_footsteps = gi.cvar("g_footsteps", "1", CVAR_ARCHIVE);
-	g_monsterfootsteps = gi.cvar("g_monsterfootsteps", "0", CVAR_ARCHIVE);
+	g_monsterfootsteps = gi.cvar("g_monsterfootsteps", "1", CVAR_ARCHIVE);
 	g_fix_triggered = gi.cvar("g_fix_triggered", "0", 0);
 	g_commanderbody_nogod = gi.cvar("g_commanderbody_nogod", "0", CVAR_ARCHIVE);
 
@@ -422,11 +422,11 @@ InitGame(void)
 	needpass = gi.cvar("needpass", "0", CVAR_SERVERINFO);
 	filterban = gi.cvar("filterban", "1", 0);
 	g_select_empty = gi.cvar("g_select_empty", "0", CVAR_ARCHIVE);
-	run_pitch = gi.cvar("run_pitch", "0.002", 0);
-	run_roll = gi.cvar("run_roll", "0.005", 0);
-	bob_up = gi.cvar("bob_up", "0.005", 0);
-	bob_pitch = gi.cvar("bob_pitch", "0.002", 0);
-	bob_roll = gi.cvar("bob_roll", "0.002", 0);
+	run_pitch = gi.cvar("run_pitch", "0.000", 0);
+	run_roll = gi.cvar("run_roll", "0.000", 0);
+	bob_up = gi.cvar("bob_up", "0.000", 0);
+	bob_pitch = gi.cvar("bob_pitch", "0.000", 0);
+	bob_roll = gi.cvar("bob_roll", "0.000", 0);
 
 	/* flood control */
 	flood_msgs = gi.cvar("flood_msgs", "4", 0);
