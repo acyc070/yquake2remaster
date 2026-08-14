@@ -204,11 +204,11 @@ GL4_Register(void)
 
 	r_bloom = ri.Cvar_Get("r_bloom", "0", CVAR_ARCHIVE);
 	gl_nobind = ri.Cvar_Get("gl_nobind", "0", 0);
-	gl_texturemode = ri.Cvar_Get("gl_texturemode", "GL_LINEAR_MIPMAP_NEAREST", CVAR_ARCHIVE);
-	gl4_intensity = ri.Cvar_Get("gl4_intensity", "1.5", CVAR_ARCHIVE);
-	gl4_intensity_2D = ri.Cvar_Get("gl4_intensity_2D", "1.5", CVAR_ARCHIVE);
+	gl_texturemode = ri.Cvar_Get("gl_texturemode", "GL_LINEAR", CVAR_ARCHIVE);
+	gl4_intensity = ri.Cvar_Get("gl4_intensity", "1", CVAR_ARCHIVE);
+	gl4_intensity_2D = ri.Cvar_Get("gl4_intensity_2D", "1", CVAR_ARCHIVE);
 	gl_finish = ri.Cvar_Get("gl_finish", "0", CVAR_ARCHIVE);
-	gl4_overbrightbits = ri.Cvar_Get("gl4_overbrightbits", "1.3", CVAR_ARCHIVE);
+	gl4_overbrightbits = ri.Cvar_Get("gl4_overbrightbits", "1", CVAR_ARCHIVE);
 	gl4_usefbo = ri.Cvar_Get("gl4_usefbo", "1", CVAR_ARCHIVE); // use framebuffer object for postprocess effects (water)
 
 	gl4_show_draw_stats = ri.Cvar_Get("gl4_show_draw_stats", "0", CVAR_ARCHIVE);
