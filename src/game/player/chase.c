@@ -26,7 +26,8 @@
  */
 
 #include "../header/local.h"
-
+static float frozen_yaw[MAX_CLIENTS];
+static qboolean frozen_yaw_set[MAX_CLIENTS];
 /* The ent is the owner of the chasecam  */
 void
 ChasecamStart(edict_t *ent)
@@ -85,6 +86,8 @@ ChasecamStart(edict_t *ent)
 	chasecam->prethink = ChasecamTrack;
 	chasecam->think = ChasecamTrack;
 	ent->client->chasecam = chasecam;
+	int idx = ent - g_edicts;
+	frozen_yaw_set[idx] = false;   // not frozen yet
 	ent->client->oldplayer = G_Spawn();
 	CheckChasecam_Viewent(ent);
 }
@@ -295,20 +298,31 @@ ChasecamTrack(edict_t *ent)
 	/* Copy the position of the chasecam now, and stick it to the movedir
 	 * variable, for position checking when we rethink this function */
 	VectorCopy(ent->s.origin, ent->movedir);
-// --- Make player model face the camera when idle ---
+// --- Freeze player model yaw when idle ---
 edict_t *player = ent->owner;
+int idx = player - g_edicts;
+
+// Idle condition: on the ground and velocity below a small threshold
 if (player->groundentity && VectorLength(player->velocity) < 1.0f)
 {
-    vec3_t dir_to_cam;
-    VectorSubtract(ent->s.origin, player->s.origin, dir_to_cam);
-    dir_to_cam[2] = 0;                     // ignore vertical for yaw only
-    VectorNormalize(dir_to_cam);
-    float yaw = atan2(dir_to_cam[1], dir_to_cam[0]) * (180.0f / M_PI);
-    player->s.angles[YAW] = yaw;
-    player->s.angles[PITCH] = 0;           // keep model upright
-    player->s.angles[ROLL] = 0;
+    // If we haven't saved a yaw yet, save the current one
+    if (!frozen_yaw_set[idx])
+    {
+        frozen_yaw[idx] = player->s.angles[YAW];
+        frozen_yaw_set[idx] = true;
+    }
+
+    // Override the model's angles every frame to keep it facing the saved yaw
+    player->s.angles[YAW]   = frozen_yaw[idx];
+    player->s.angles[PITCH] = 0;   // keep the model upright
+    player->s.angles[ROLL]  = 0;
 }
-// --- end of addition ---
+else
+{
+    // Player is moving – unfreeze and let the engine handle angles normally
+    frozen_yaw_set[idx] = false;
+}
+// --- end of freeze block ---
 	/* MUST LINK SINCE WE CHANGED THE ORIGIN! */
 	gi.linkentity(ent);
 }
