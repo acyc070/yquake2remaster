@@ -92,7 +92,7 @@ WITH_SYSTEM_MINIZIP:=no
 
 # WITH_SYSTEMWIDE
 # Enable systemwide installation of game assets.
-WITH_SYSTEMWIDE:=no
+WITH_SYSTEMWIDE:=yes
 
 # WITH_SYSTEMDIR
 # This will set the default SYSTEMDIR, a non-empty string
