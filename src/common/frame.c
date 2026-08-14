@@ -592,7 +592,7 @@ Qcommon_Frame(int usec)
 			   2. vsync will throttle us to refreshrate anyway, so there is no harm
 			      in starting the frame *a bit* earlier, instead of risking starting
 			      it too late */
-			rfps = refreshrate * 1f;
+			rfps = refreshrate * 1.0f;
 			// we can't have more packet frames than render frames, so limit pfps to rfps
 			// but in this case use tolerance for comparison and assign rfps with tolerance
 			pfps = (cl_maxfps->value < refreshrate - 2) ? cl_maxfps->value : rfps;
