@@ -533,7 +533,7 @@ GL3_SelectTMU(GLenum tmu)
 
 extern void GL3_TextureMode(const char *string);
 extern void GL3_Scrap_Upload(void);
-extern void GL3_Bind(GLuint texnum);
+extern qboolean GL3_Bind(GLuint texnum);
 extern void GL3_BindLightmap(int lightmapnum);
 extern gl3image_t *GL3_LoadPic(const char *name, byte *pic, int width, int realwidth,
                                int height, int realheight, size_t data_size,
@@ -606,10 +606,6 @@ extern cvar_t *gl3_particle_fade_factor;
 extern cvar_t *gl3_particle_square;
 extern cvar_t *gl3_colorlight;
 extern cvar_t *gl_polyblend;
-
-#ifdef YQ2_GL3_GLES
-extern cvar_t *gl_discardfb;
-#endif
 
 extern cvar_t *gl3_debugcontext;
 extern cvar_t *gl3_show_draw_stats;
