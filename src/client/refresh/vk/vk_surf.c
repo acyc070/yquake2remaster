@@ -29,7 +29,6 @@
 
 #include "header/local.h"
 
-int c_visible_lightmaps;
 int c_visible_textures;
 static vec3_t modelorg; /* relative to viewpoint */
 msurface_t *r_alpha_surfaces;
@@ -89,6 +88,7 @@ R_DrawPoly(const msurface_t *fa, image_t *texture, const float *color)
 	vkCmdBindVertexBuffers(vk_activeCmdbuffer, 0, 1, &vbo, &vboOffset);
 	vkCmdBindIndexBuffer(vk_activeCmdbuffer, *buffer, dstOffset, VK_INDEX_TYPE_UINT16);
 	vkCmdDrawIndexed(vk_activeCmdbuffer, (p->numverts - 2) * 3, 1, 0, 0, 0);
+	vk_num3Ddraws++;
 }
 
 #define LINE_VTX_COUNT (256 * 6)
@@ -148,6 +148,7 @@ R_DrawTriangleOutlines(void)
 
 						vkCmdBindVertexBuffers(vk_activeCmdbuffer, 0, 1, &vbo, &vboOffset);
 						vkCmdDraw(vk_activeCmdbuffer, curr_vtx, 1, 0, 0);
+						vk_num3Ddraws++;
 						curr_vtx = 0;
 					}
 
@@ -180,6 +181,7 @@ R_DrawTriangleOutlines(void)
 
 		vkCmdBindVertexBuffers(vk_activeCmdbuffer, 0, 1, &vbo, &vboOffset);
 		vkCmdDraw(vk_activeCmdbuffer, curr_vtx, 1, 0, 0);
+		vk_num3Ddraws++;
 	}
 }
 
@@ -338,6 +340,7 @@ FlushLmChainBatch(int *pos_vect, int *index_pos)
 	vkCmdBindVertexBuffers(vk_activeCmdbuffer, 0, 1, &vbo, &vboOffset);
 	vkCmdBindIndexBuffer(vk_activeCmdbuffer, *buffer, dstOffset, VK_INDEX_TYPE_UINT16);
 	vkCmdDrawIndexed(vk_activeCmdbuffer, indexes, 1, 0, 0, 0);
+	vk_num3Ddraws++;
 
 	*pos_vect = 0;
 	*index_pos = 0;
@@ -700,6 +703,7 @@ Vk_RenderLightmappedPoly(msurface_t *surf, float alpha,
 	vkCmdBindVertexBuffers(vk_activeCmdbuffer, 0, 1, &vbo, &vboOffset);
 	vkCmdBindIndexBuffer(vk_activeCmdbuffer, *buffer, dstOffset, VK_INDEX_TYPE_UINT16);
 	vkCmdDrawIndexed(vk_activeCmdbuffer, index_pos, 1, 0, 0, 0);
+	vk_num3Ddraws++;
 	//PGM
 	//==========
 }
