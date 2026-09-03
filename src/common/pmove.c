@@ -57,7 +57,7 @@ static pml_t pml;
 
 /* movement parameters */
 static float pm_stopspeed = 100;
-static float pm_maxspeed = 300;
+static float pm_maxspeed = 3000;
 static float pm_duckspeed = 100;
 static float pm_accelerate = 10;
 float pm_airaccelerate = 0;
@@ -66,9 +66,9 @@ static float pm_friction = 6;
 static float pm_waterfriction = 1;
 static float pm_waterspeed = 400;
 
-#define STOP_EPSILON 0.1 /* Slide off of the impacting object returns the blocked flags (1 = floor, 2 = step / wall) */
+#define STOP_EPSILON 0.0 /* Slide off of the impacting object returns the blocked flags (1 = floor, 2 = step / wall) */
 #define MIN_STEP_NORMAL 0.7 /* can't step up onto very steep slopes */
-#define MAX_CLIP_PLANES 5
+#define MAX_CLIP_PLANES 6
 
 static void
 PM_ClipVelocity(vec3_t in, vec3_t normal, vec3_t out, float overbounce)
