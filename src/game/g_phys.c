@@ -27,8 +27,8 @@
 
 #include "header/local.h"
 
-#define STOP_EPSILON 0.1
-#define MAX_CLIP_PLANES 5
+#define STOP_EPSILON 0.0
+#define MAX_CLIP_PLANES 6
 #define FRICTION 6
 #define WATERFRICTION 1
 
