@@ -38,7 +38,7 @@
    because we don't want to free anything until we are
    sure we won't need it. */
 #define MAX_SFX (MAX_SOUNDS * 2)
-#define MAX_PLAYSOUNDS 128
+#define MAX_PLAYSOUNDS 256
 
 /* Maximum length (seconds) of audio data to test for silence. */
 #define S_MAX_LEN_TO_TEST_FOR_SILENCE_S (2)
@@ -1672,19 +1672,19 @@ S_Init(void)
 		return;
 	}
 
-	s_volume = Cvar_Get("s_volume", "0.7", CVAR_ARCHIVE);
-	s_khz = Cvar_Get("s_khz", "44", CVAR_ARCHIVE);
+	s_volume = Cvar_Get("s_volume", "1", CVAR_ARCHIVE);
+	s_khz = Cvar_Get("s_khz", "48", CVAR_ARCHIVE);
 	s_loadas8bit = Cvar_Get("s_loadas8bit", "0", CVAR_ARCHIVE);
-	s_mixahead = Cvar_Get("s_mixahead", "0.14", CVAR_ARCHIVE);
+	s_mixahead = Cvar_Get("s_mixahead", "0.1", CVAR_ARCHIVE);
 	s_show = Cvar_Get("s_show", "0", 0);
 	s_testsound = Cvar_Get("s_testsound", "0", 0);
 	s_ambient = Cvar_Get("s_ambient", "1", 0);
 	s_underwater = Cvar_Get("s_underwater", "1", CVAR_ARCHIVE);
 	s_underwater_gain_hf = Cvar_Get("s_underwater_gain_hf", "0.25", CVAR_ARCHIVE);
-	s_doppler = Cvar_Get("s_doppler", "0", CVAR_ARCHIVE);
+	s_doppler = Cvar_Get("s_doppler", "1", CVAR_ARCHIVE);
 	s_ps_sorting = Cvar_Get("s_ps_sorting", "1", CVAR_ARCHIVE);
 	/* Reverb and occlusion is fully disabled by default */
-	s_reverb_preset = Cvar_Get("s_reverb_preset", "-1", CVAR_ARCHIVE);
+	s_reverb_preset = Cvar_Get("s_reverb_preset", "-2", CVAR_ARCHIVE);
 	s_occlusion_strength = Cvar_Get("s_occlusion_strength", "0", CVAR_ARCHIVE);
 	/* Feedback kind: 0 - rumble, 1 - haptic */
 	s_feedback_kind = Cvar_Get("s_feedback_kind", "0", CVAR_ARCHIVE);
