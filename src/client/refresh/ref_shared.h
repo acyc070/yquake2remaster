@@ -86,7 +86,7 @@ typedef enum
 #define MAX_LBM_WIDTH 512
 #define DEFAULT_NOLERP_LIST "pics/conchars.* pics/ch1.* pics/ch2. pics/ch3.*"
 #define DEFAULT_LMSHIFT 4
-#define BACKFACE_EPSILON	0.01
+#define BACKFACE_EPSILON	0.0
 
 #define MAX_MOD_KNOWN (MAX_MODELS * 2)
 #define MAX_TEXTURES (MAX_IMAGES * 4)
