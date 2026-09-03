@@ -250,13 +250,13 @@ R_InitCvar(void)
 	r_drawentities = ri.Cvar_Get("r_drawentities", "1", 0);
 	r_drawworld = ri.Cvar_Get("r_drawworld", "1", 0);
 	r_novis = ri.Cvar_Get("r_novis", "0", 0);
-	r_cull = ri.Cvar_Get("r_cull", "1", 0);
+	r_cull = ri.Cvar_Get("r_cull", "0", 0);
 	r_lerpmodels = ri.Cvar_Get("r_lerpmodels", "1", 0);
 	r_speeds = ri.Cvar_Get("r_speeds", "0", 0);
 	r_lightlevel = ri.Cvar_Get("r_lightlevel", "0", 0);
 	r_mode = ri.Cvar_Get("r_mode", "11", CVAR_ARCHIVE);
 	r_vsync = ri.Cvar_Get("r_vsync", "0", CVAR_ARCHIVE);
-	r_gunfov = ri.Cvar_Get("r_gunfov", "80", CVAR_ARCHIVE);
+	r_gunfov = ri.Cvar_Get("r_gunfov", "90", CVAR_ARCHIVE);
 	r_farsee = ri.Cvar_Get("r_farsee", "0", CVAR_LATCH | CVAR_ARCHIVE);
 	r_customwidth = ri.Cvar_Get("r_customwidth", "1024", CVAR_ARCHIVE);
 	r_customheight = ri.Cvar_Get("r_customheight", "768", CVAR_ARCHIVE);
@@ -278,7 +278,7 @@ R_InitCvar(void)
 	r_skeletalanimation = ri.Cvar_Get("r_skeletalanimation", "1", CVAR_ARCHIVE);
 	r_anisotropic = ri.Cvar_Get("r_anisotropic", "0", CVAR_ARCHIVE);
 	/* don't bilerp characters and crosshairs */
-	r_nolerp_list = ri.Cvar_Get("r_nolerp_list", DEFAULT_NOLERP_LIST, CVAR_ARCHIVE);
+	r_nolerp_list = ri.Cvar_Get("r_nolerp_list", "", CVAR_ARCHIVE);
 	/* textures that should always be filtered, even if r_2D_unfiltered or an unfiltered gl mode is used */
 	r_lerp_list = ri.Cvar_Get("r_lerp_list", "", CVAR_ARCHIVE);
 	/* don't bilerp any 2D elements */
@@ -291,7 +291,7 @@ R_InitCvar(void)
 	vid_fullscreen = ri.Cvar_Get("vid_fullscreen", "0", CVAR_ARCHIVE);
 	vid_gamma = ri.Cvar_Get("vid_gamma", "1.0", CVAR_ARCHIVE);
 	viewsize = ri.Cvar_Get("viewsize", "100", CVAR_ARCHIVE);
-	r_znear = ri.Cvar_Get("r_znear", "4", CVAR_ARCHIVE);
+	r_znear = ri.Cvar_Get("r_znear", "1", CVAR_ARCHIVE);
 	r_zfix = ri.Cvar_Get("r_zfix", "0", 0);
 
 	/* clamp r_msaa_samples to accepted range so that video menu doesn't crash on us */
