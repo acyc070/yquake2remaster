@@ -989,6 +989,7 @@ void monster_fire_blueblaster(edict_t *self, const vec3_t start, const vec3_t ai
 		int speed, int flashtype, int effect);
 
 void M_droptofloor(edict_t *ent);
+void monster_dynamic_action(edict_t *self, const char *action, int select);
 void monster_dynamic_run(edict_t *self);
 void monster_dynamic_walk(edict_t *self);
 void monster_dynamic_idle(edict_t *self);
@@ -1073,7 +1074,7 @@ void ThrowDebris(edict_t *self, char *modelname, float speed, vec3_t origin);
 qboolean fire_hit(edict_t *self, vec3_t aim, int damage, int kick);
 void fire_bullet(edict_t *self, vec3_t start, vec3_t aimdir, int damage,
 		int kick, int hspread, int vspread, int mod);
-void fire_bball(edict_t *self, vec3_t start, vec3_t dir, int damage, int speed);
+void fire_pistol_bolt(edict_t *self, vec3_t start, vec3_t dir, int damage, int speed);
 void fire_shotgun(edict_t *self, vec3_t start, vec3_t aimdir, int damage,
 		int kick, int hspread, int vspread, int count, int mod);
 void fire_blaster(edict_t *self, const vec3_t start, const vec3_t aimdir, int damage,
