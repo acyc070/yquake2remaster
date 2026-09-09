@@ -14,8 +14,7 @@
 [![Build Status](https://github.com/yquake2/yquake2remaster/actions/workflows/linux_aarch64.yml/badge.svg)](https://github.com/yquake2/yquake2remaster/actions/workflows/linux_aarch64.yml)
 [![Build Status](https://github.com/yquake2/yquake2remaster/actions/workflows/linux_x86_64.yml/badge.svg)](https://github.com/yquake2/yquake2remaster/actions/workflows/linux_x86_64.yml)
 [![Build Status](https://github.com/yquake2/yquake2remaster/actions/workflows/macos.yml/badge.svg)](https://github.com/yquake2/yquake2remaster/actions/workflows/macos.yml)
-[![Build Status](https://github.com/yquake2/yquake2remaster/actions/workflows/win32.yml/badge.svg)](https://github.com/yquake2/yquake2remaster/actions/workflows/win32.yml)
-[![Build Status](https://github.com/yquake2/yquake2remaster/actions/workflows/win64.yml/badge.svg)](https://github.com/yquake2/yquake2remaster/actions/workflows/win64.yml)
+[![Build Status](https://github.com/yquake2/yquake2remaster/actions/workflows/win_mingw.yml/badge.svg)](https://github.com/yquake2/yquake2remaster/actions/workflows/win_mingw.yml)
 [![Build Status](https://github.com/yquake2/yquake2remaster/actions/workflows/win_msvc.yml/badge.svg)](https://github.com/yquake2/yquake2remaster/actions/workflows/win_msvc.yml)
 [![Build Status](https://github.com/yquake2/yquake2remaster/actions/workflows/codeql.yml/badge.svg)](https://github.com/yquake2/yquake2remaster/actions/workflows/codeql.yml)
 
@@ -375,11 +374,6 @@ Checked with:
 * [ ] Oblivion: Add support of `misc_camera`,
 * [ ] Oblivion: Add support of `misc_camera_target`,
 * [ ] Oblivion: Add support of `misc_screenfader`,
-* [ ] Oblivion: Add support of `monster_badass`,
-* [ ] Oblivion: Add support of `monster_cyborg`,
-* [ ] Oblivion: Add support of `monster_spider`,
-* [ ] Oblivion: Add support of `target_railgun`,
-* [ ] Oblivion: Add support of `target_rocket`,
 * [ ] Oblivion: Add support of `trigger_misc_camera`,
 * [ ] Oblivion: Add support of `weapon_rtdu`,
 * [ ] Dynamic count of entities on client,
@@ -387,6 +381,11 @@ Checked with:
 
 ### Fixed:
 
+* [x] Oblivion: Add support of `target_rocket`,
+* [x] Oblivion: Add support of `target_railgun`,
+* [x] Oblivion: Add support of `monster_spider`,
+* [x] Oblivion: Add support of `monster_badass`,
+* [x] Oblivion: Add support of `monster_cyborg`,
 * [x] Oblivion: Add support of `monster_kigrax`,
 * [x] Infinity: Add support of `ammo_goop`,
 * [x] Infinity: Add support of `ammo_energy`,

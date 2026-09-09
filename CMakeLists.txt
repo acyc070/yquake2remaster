@@ -401,6 +401,7 @@ set(Game-Source
 	${GAME_SRC_DIR}/monster/actor/actor.c
 	${GAME_SRC_DIR}/monster/arachnid/arachnid.c
 	${GAME_SRC_DIR}/monster/army/army.c
+	${GAME_SRC_DIR}/monster/badass/badass.c
 	${GAME_SRC_DIR}/monster/berserker/berserker.c
 	${GAME_SRC_DIR}/monster/boss2/boss2.c
 	${GAME_SRC_DIR}/monster/boss3/boss31.c
@@ -410,6 +411,7 @@ set(Game-Source
 	${GAME_SRC_DIR}/monster/brain/brain.c
 	${GAME_SRC_DIR}/monster/carrier/carrier.c
 	${GAME_SRC_DIR}/monster/chick/chick.c
+	${GAME_SRC_DIR}/monster/cyborg/cyborg.c
 	${GAME_SRC_DIR}/monster/demon/demon.c
 	${GAME_SRC_DIR}/monster/dog/dog.c
 	${GAME_SRC_DIR}/monster/enforcer/enforcer.c
@@ -438,6 +440,7 @@ set(Game-Source
 	${GAME_SRC_DIR}/monster/shambler/shambler.c
 	${GAME_SRC_DIR}/monster/soldier/soldier.c
 	${GAME_SRC_DIR}/monster/stalker/stalker.c
+	${GAME_SRC_DIR}/monster/spider/spider.c
 	${GAME_SRC_DIR}/monster/supertank/supertank.c
 	${GAME_SRC_DIR}/monster/tank/tank.c
 	${GAME_SRC_DIR}/monster/tarbaby/tarbaby.c
