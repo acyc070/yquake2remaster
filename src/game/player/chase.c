@@ -129,7 +129,7 @@ ChasecamTrack(edict_t *ent)
 	vec3_t forward, right, up,angles;
 	int distance;
 
-	ent->nextthink = level.time + 0.100;
+	ent->nextthink = level.time + 0.0;
 
 	/* get the CLIENT's angle, and break it down into direction vectors,
 	 * of forward, right, and up. VERY useful */
