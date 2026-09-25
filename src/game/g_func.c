@@ -4419,9 +4419,8 @@ RotateTrain_MoveFinal(edict_t *self)
 void
 RotateTrain_MoveBegin(edict_t *self)
 {
+	float frames, travel_time;
 	vec3_t delta;
-	float frames;
-	float travel_time;
 
 	if ((self->moveinfo.speed * FRAMETIME) >= self->moveinfo.remaining_distance)
 	{
@@ -4465,46 +4464,7 @@ RotateTrain_MoveBegin(edict_t *self)
 	self->nextthink = level.time + frames * FRAMETIME;
 }
 
-static void
-RotateTrain_MoveCalc(edict_t *self, vec3_t dest,
-				 void (*func)(edict_t *))
-{
-	VectorClear(self->velocity);
-	VectorSubtract(dest, self->s.origin, self->moveinfo.dir);
-	self->moveinfo.remaining_distance = VectorNormalize(self->moveinfo.dir);
-	self->moveinfo.endfunc = func;
-
-	if (self->duration > 0)
-	{
-		self->moveinfo.speed =
-			self->moveinfo.remaining_distance / self->duration;
-	}
-
-	if (!VectorCompare(self->rotate, vec3_origin))
-	{
-		VectorCopy(self->s.angles, self->moveinfo.start_angles);
-		VectorCopy(self->s.angles, self->moveinfo.end_angles);
-		VectorAdd(self->moveinfo.end_angles, self->rotate,
-			  self->moveinfo.end_angles);
-	}
-	else if (!VectorCompare(self->rotate_speed, vec3_origin))
-	{
-		VectorCopy(self->rotate_speed, self->avelocity);
-	}
-
-	if (level.current_entity ==
-	    ((self->flags & FL_TEAMSLAVE) ? self->teammaster : self))
-	{
-		RotateTrain_MoveBegin(self);
-	}
-	else
-	{
-		self->think = RotateTrain_MoveBegin;
-		self->nextthink = level.time + FRAMETIME;
-	}
-}
-
-static void
+void
 rotate_train_wait(edict_t *self)
 {
 	if (self->target_ent->pathtarget)
@@ -4552,6 +4512,44 @@ rotate_train_wait(edict_t *self)
 	else
 	{
 		rotate_train_next(self);
+	}
+}
+
+static void
+RotateTrain_MoveCalc(edict_t *self, vec3_t dest)
+{
+	VectorClear(self->velocity);
+	VectorSubtract(dest, self->s.origin, self->moveinfo.dir);
+	self->moveinfo.remaining_distance = VectorNormalize(self->moveinfo.dir);
+	self->moveinfo.endfunc = rotate_train_wait;
+
+	if (self->duration > 0)
+	{
+		self->moveinfo.speed =
+			self->moveinfo.remaining_distance / self->duration;
+	}
+
+	if (!VectorCompare(self->rotate, vec3_origin))
+	{
+		VectorCopy(self->s.angles, self->moveinfo.start_angles);
+		VectorCopy(self->s.angles, self->moveinfo.end_angles);
+		VectorAdd(self->moveinfo.end_angles, self->rotate,
+			  self->moveinfo.end_angles);
+	}
+	else if (!VectorCompare(self->speeds, vec3_origin))
+	{
+		VectorCopy(self->speeds, self->avelocity);
+	}
+
+	if (level.current_entity ==
+	    ((self->flags & FL_TEAMSLAVE) ? self->teammaster : self))
+	{
+		RotateTrain_MoveBegin(self);
+	}
+	else
+	{
+		self->think = RotateTrain_MoveBegin;
+		self->nextthink = level.time + FRAMETIME;
 	}
 }
 
@@ -4631,19 +4629,19 @@ again:
 		VectorClear(self->rotate);
 	}
 
-	if (!VectorCompare(ent->rotate_speed, vec3_origin))
+	if (!VectorCompare(ent->speeds, vec3_origin))
 	{
-		VectorCopy(ent->rotate_speed, self->rotate_speed);
+		VectorCopy(ent->speeds, self->speeds);
 	}
 	else
 	{
-		VectorClear(self->rotate_speed);
+		VectorClear(self->speeds);
 	}
 
 	VectorCopy(self->s.origin, self->moveinfo.start_origin);
 	VectorCopy(ent->s.origin, self->moveinfo.end_origin);
 
-	RotateTrain_MoveCalc(self, ent->s.origin, rotate_train_wait);
+	RotateTrain_MoveCalc(self, ent->s.origin);
 	self->spawnflags |= SPAWNFLAG_TRAIN_START_ON;
 }
 
@@ -4658,7 +4656,7 @@ rotate_train_resume(edict_t *self)
 	VectorCopy(self->s.origin, self->moveinfo.start_origin);
 	VectorCopy(self->target_ent->s.origin, self->moveinfo.end_origin);
 
-	RotateTrain_MoveCalc(self, self->target_ent->s.origin, rotate_train_wait);
+	RotateTrain_MoveCalc(self, self->target_ent->s.origin);
 	self->spawnflags |= SPAWNFLAG_TRAIN_START_ON;
 }
 
@@ -4700,13 +4698,13 @@ rotate_train_find(edict_t *self)
 		VectorClear(self->rotate);
 	}
 
-	if (!VectorCompare(ent->rotate_speed, vec3_origin))
+	if (!VectorCompare(ent->speeds, vec3_origin))
 	{
-		VectorCopy(ent->rotate_speed, self->rotate_speed);
+		VectorCopy(ent->speeds, self->speeds);
 	}
 	else
 	{
-		VectorClear(self->rotate_speed);
+		VectorClear(self->speeds);
 	}
 
 	self->moveinfo.speed = ent->speed;
