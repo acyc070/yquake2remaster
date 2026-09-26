@@ -32,9 +32,9 @@
 #include "header/local.h"
 
 #define NUMSTACKEDGES		2048
-#define NUMSTACKSURFACES	1024
+#define NUMSTACKSURFACES	2048
 #define MAXALIASVERTS		2048
-#define MAXLIGHTS		1024 // allow some very large lightmaps
+#define MAXLIGHTS		2048 // allow some very large lightmaps
 
 pixel_t		*vid_buffer = NULL;
 static pixel_t	*swap_buffers = NULL;
@@ -338,12 +338,12 @@ R_RegisterVariables(void)
 	R_InitCvar();
 
 	sw_aliasstats = ri.Cvar_Get("sw_polymodelstats", "0", 0);
-	sw_clearcolor = ri.Cvar_Get("sw_clearcolor", "2", 0);
+	sw_clearcolor = ri.Cvar_Get("sw_clearcolor", "0", 0);
 	sw_drawflat = ri.Cvar_Get("sw_drawflat", "0", 0);
 	sw_draworder = ri.Cvar_Get("sw_draworder", "0", 0);
 	sw_mipcap = ri.Cvar_Get("sw_mipcap", "0", 0);
 	sw_mipscale = ri.Cvar_Get("sw_mipscale", "1", 0);
-	sw_stipplealpha = ri.Cvar_Get("sw_stipplealpha", "0", CVAR_ARCHIVE );
+	sw_stipplealpha = ri.Cvar_Get("sw_stipplealpha", "1", CVAR_ARCHIVE );
 	sw_surfcacheoverride = ri.Cvar_Get("sw_surfcacheoverride", "0", 0);
 	sw_waterwarp = ri.Cvar_Get("sw_waterwarp", "1", 0);
 	sw_overbrightbits = ri.Cvar_Get("sw_overbrightbits", "1.0", CVAR_ARCHIVE);
@@ -355,12 +355,12 @@ R_RegisterVariables(void)
 	// screen to texture, other platforms save previous texture content and can be
 	// copied only changed parts
 #if defined(__APPLE__) || defined(USE_SDL3)
-	sw_partialrefresh = ri.Cvar_Get("sw_partialrefresh", "0", CVAR_ARCHIVE);
+	sw_partialrefresh = ri.Cvar_Get("sw_partialrefresh", "1", CVAR_ARCHIVE);
 #else
 	sw_partialrefresh = ri.Cvar_Get("sw_partialrefresh", "1", CVAR_ARCHIVE);
 #endif
 
-	sw_colorlight = ri.Cvar_Get("sw_colorlight", "0", CVAR_ARCHIVE);
+	sw_colorlight = ri.Cvar_Get("sw_colorlight", "1", CVAR_ARCHIVE);
 	sw_dspeeds = ri.Cvar_Get("sw_dspeeds", "0", 0);
 
 	ri.Cmd_AddCommand("modellist", Mod_Modellist_f);
