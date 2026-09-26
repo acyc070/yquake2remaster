@@ -133,7 +133,7 @@ extern oldrefdef_t	r_refdef;
 #define MAXWORKINGVERTS	(MAXVERTS+4)    // max points in an intermediate
 					//  polygon (while processing)
 
-#define PARTICLE_Z_CLIP 8.0
+#define PARTICLE_Z_CLIP 1.0
 
 #define TRANSPARENT_COLOR	0xFF
 
@@ -146,9 +146,9 @@ extern oldrefdef_t	r_refdef;
 #define ALIAS_BOTTOM_CLIP	0x0008
 #define ALIAS_Z_CLIP		0x0010
 
-#define NEAR_CLIP	0.01
+#define NEAR_CLIP	0.001
 
-#define ALIAS_Z_CLIP_PLANE	4
+#define ALIAS_Z_CLIP_PLANE	1
 
 // turbulence stuff
 #define AMP	8*0x10000
