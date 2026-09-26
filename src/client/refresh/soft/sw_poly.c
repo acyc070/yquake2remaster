@@ -594,182 +594,107 @@ R_ClipPolyFace(int nump, const clipplane_t *pclipplane)
 */
 // iswater was qboolean. changed to allow passing more flags
 static void
-R_PolygonDrawSpans(const espan_t *pspan, int iswater, float d_ziorigin, float d_zistepu, float d_zistepv)
+R_PolygonDrawSpans(const espan_t *pspan, int iswater,
+                   float d_ziorigin, float d_zistepu, float d_zistepv)
 {
-	int	snext, tnext;
-	float	sdivzspanletstepu, tdivzspanletstepu, zispanletstepu;
-	int	*r_turb_turb;
+    int *r_turb_turb;
 
-	s_spanletvars.pbase = cacheblock;
+    s_spanletvars.pbase = cacheblock;
 
-	if ( iswater & SURF_WARP)
-		r_turb_turb = sintable + ((int)(r_newrefdef.time*SPEED)&(CYCLE-1));
-	else
-		// iswater & SURF_FLOWING
-		r_turb_turb = blanktable;
+    if (iswater & SURF_WARP)
+        r_turb_turb = sintable + ((int)(r_newrefdef.time * SPEED) & (CYCLE-1));
+    else
+        r_turb_turb = blanktable;
 
-	sdivzspanletstepu = d_sdivzstepu * AFFINE_SPANLET_SIZE;
-	tdivzspanletstepu = d_tdivzstepu * AFFINE_SPANLET_SIZE;
-	zispanletstepu = d_zistepu * AFFINE_SPANLET_SIZE;
+    /* 1/z is linear in screen space, so this step is exact. */
+    s_spanletvars.izistep         = (int)(d_zistepu * 0x8000 * SHIFT16XYZ_MULT);
+    s_spanletvars.izistep_times_2 = s_spanletvars.izistep * 2;
 
-	// we count on FP exceptions being turned off to avoid range problems
-	s_spanletvars.izistep = (int)(d_zistepu * 0x8000 * SHIFT16XYZ_MULT);
-	s_spanletvars.izistep_times_2 = s_spanletvars.izistep * 2;
+    do
+    {
+        int count = pspan->count;
 
-	s_spanletvars.pz = 0;
+        s_spanletvars.pdest = d_viewbuffer + vid_buffer_width * pspan->v + pspan->u;
+        s_spanletvars.pz    = d_pzbuffer  + vid_buffer_width * pspan->v + pspan->u;
+        s_spanletvars.u     = pspan->u;
+        s_spanletvars.v     = pspan->v;
 
-	do
-	{
-		int	count;
+        if (count > 0)
+        {
+            float sdivz0, tdivz0, zi0, z0;
+            float sdivz1, tdivz1, zi1, z1;
+            float du, dv;
+            int   snext, tnext;
 
-		s_spanletvars.pdest   = d_viewbuffer + (vid_buffer_width * pspan->v) + pspan->u;
-		s_spanletvars.pz      = d_pzbuffer + (vid_buffer_width * pspan->v) + pspan->u;
-		s_spanletvars.u       = pspan->u;
-		s_spanletvars.v       = pspan->v;
-		count = pspan->count;
+            VID_DamageZBuffer(pspan->u, pspan->v);
+            VID_DamageZBuffer(pspan->u + count, pspan->v);
 
-		if (count > 0)
-		{
-			float sdivz, tdivz, zi, z, du, dv;
+            /* --- span start --- */
+            du = (float)pspan->u;
+            dv = (float)pspan->v;
 
-			// transparent spans damage z buffer
-			VID_DamageZBuffer(pspan->u, pspan->v);
-			VID_DamageZBuffer(pspan->u + count, pspan->v);
+            sdivz0 = d_sdivzorigin + dv*d_sdivzstepv + du*d_sdivzstepu;
+            tdivz0 = d_tdivzorigin + dv*d_tdivzstepv + du*d_tdivzstepu;
+            zi0    = d_ziorigin   + dv*d_zistepv   + du*d_zistepu;
+            z0     = (float)SHIFT16XYZ_MULT / zi0;
 
-			// calculate the initial s/z, t/z, 1/z, s, and t and clamp
-			du = (float)pspan->u;
-			dv = (float)pspan->v;
+            s_spanletvars.izi = (int)(zi0 * 0x8000 * SHIFT16XYZ_MULT);
+            s_spanletvars.s   = (int)(sdivz0 * z0) + sadjust;
+            s_spanletvars.t   = (int)(tdivz0 * z0) + tadjust;
 
-			sdivz = d_sdivzorigin + dv*d_sdivzstepv + du*d_sdivzstepu;
-			tdivz = d_tdivzorigin + dv*d_tdivzstepv + du*d_tdivzstepu;
+            if (!iswater)
+            {
+                if (s_spanletvars.s > bbextents) s_spanletvars.s = bbextents;
+                else if (s_spanletvars.s < 0)    s_spanletvars.s = 0;
+                if (s_spanletvars.t > bbextentt) s_spanletvars.t = bbextentt;
+                else if (s_spanletvars.t < 0)    s_spanletvars.t = 0;
+            }
 
-			zi = d_ziorigin + dv*d_zistepv + du*d_zistepu;
-			z = (float)SHIFT16XYZ_MULT / zi;	// prescale to 16.16 fixed-point
-			// we count on FP exceptions being turned off to avoid range problems
-			s_spanletvars.izi = (int)(zi * 0x8000 * SHIFT16XYZ_MULT);
+            /* --- span end (last pixel, index count-1) --- */
+            du = (float)(pspan->u + count - 1);
 
-			s_spanletvars.s = (int)(sdivz * z) + sadjust;
-			s_spanletvars.t = (int)(tdivz * z) + tadjust;
+            sdivz1 = d_sdivzorigin + dv*d_sdivzstepv + du*d_sdivzstepu;
+            tdivz1 = d_tdivzorigin + dv*d_tdivzstepv + du*d_tdivzstepu;
+            zi1    = d_ziorigin   + dv*d_zistepv   + du*d_zistepu;
+            z1     = (float)SHIFT16XYZ_MULT / zi1;
 
-			if ( !iswater )
-			{
-				if (s_spanletvars.s > bbextents)
-					s_spanletvars.s = bbextents;
-				else if (s_spanletvars.s < 0)
-					s_spanletvars.s = 0;
+            snext = (int)(sdivz1 * z1) + sadjust;
+            tnext = (int)(tdivz1 * z1) + tadjust;
 
-				if (s_spanletvars.t > bbextentt)
-					s_spanletvars.t = bbextentt;
-				else if (s_spanletvars.t < 0)
-					s_spanletvars.t = 0;
-			}
+            if (!iswater)
+            {
+                if (snext > bbextents) snext = bbextents;
+                else if (snext < 0)    snext = 0;
+                if (tnext > bbextentt) tnext = bbextentt;
+                else if (tnext < 0)    tnext = 0;
+            }
 
-			do
-			{
-				// calculate s and t at the far end of the span
-				if (count >= AFFINE_SPANLET_SIZE )
-					s_spanletvars.spancount = AFFINE_SPANLET_SIZE;
-				else
-					s_spanletvars.spancount = count;
+            /* --- affine steps over the whole span --- */
+            if (count > 1)
+            {
+                s_spanletvars.sstep = (snext - s_spanletvars.s) / (count - 1);
+                s_spanletvars.tstep = (tnext - s_spanletvars.t) / (count - 1);
+            }
+            else
+            {
+                s_spanletvars.sstep = 0;
+                s_spanletvars.tstep = 0;
+            }
 
-				count -= s_spanletvars.spancount;
+            s_spanletvars.spancount = count;
 
-				if (count)
-				{
-					// calculate s/z, t/z, zi->fixed s and t at far end of span,
-					// calculate s and t steps across span by shifting
-					sdivz += sdivzspanletstepu;
-					tdivz += tdivzspanletstepu;
-					zi += zispanletstepu;
-					z = (float)SHIFT16XYZ_MULT / zi;	// prescale to 16.16 fixed-point
+            if (iswater)
+            {
+                s_spanletvars.s &= (CYCLE << 16) - 1;
+                s_spanletvars.t &= (CYCLE << 16) - 1;
+            }
 
-					snext = (int)(sdivz * z) + sadjust;
-					tnext = (int)(tdivz * z) + tadjust;
+            r_polydesc.drawspanlet(r_turb_turb);
+        }
 
-					if ( !iswater )
-					{
-						if (snext > bbextents)
-							snext = bbextents;
-						else if (snext < AFFINE_SPANLET_SIZE)
-							snext = AFFINE_SPANLET_SIZE;	// prevent round-off error on <0 steps from
-											//  from causing overstepping & running off the
-											//  edge of the texture
-
-						if (tnext > bbextentt)
-							tnext = bbextentt;
-						else if (tnext < AFFINE_SPANLET_SIZE)
-							tnext = AFFINE_SPANLET_SIZE;	// guard against round-off error on <0 steps
-					}
-
-					s_spanletvars.sstep = (snext - s_spanletvars.s) >> AFFINE_SPANLET_SIZE_BITS;
-					s_spanletvars.tstep = (tnext - s_spanletvars.t) >> AFFINE_SPANLET_SIZE_BITS;
-				}
-				else
-				{
-					float spancountminus1;
-
-					// calculate s/z, t/z, zi->fixed s and t at last pixel in span (so
-					// can't step off polygon), clamp, calculate s and t steps across
-					// span by division, biasing steps low so we don't run off the
-					// texture
-					spancountminus1 = (float)(s_spanletvars.spancount - 1);
-					sdivz += d_sdivzstepu * spancountminus1;
-					tdivz += d_tdivzstepu * spancountminus1;
-					zi += d_zistepu * spancountminus1;
-					z = (float)SHIFT16XYZ_MULT / zi;	// prescale to 16.16 fixed-point
-					snext = (int)(sdivz * z) + sadjust;
-					tnext = (int)(tdivz * z) + tadjust;
-
-					if ( !iswater )
-					{
-						if (snext > bbextents)
-						{
-							snext = bbextents;
-						}
-						else if (snext < AFFINE_SPANLET_SIZE)
-						{
-							snext = AFFINE_SPANLET_SIZE;	// prevent round-off error on <0 steps from
-											//  from causing overstepping & running off the
-											//  edge of the texture
-						}
-
-						if (tnext > bbextentt)
-						{
-							tnext = bbextentt;
-						}
-						else if (tnext < AFFINE_SPANLET_SIZE)
-						{
-							/* guard against round-off error on <0 steps */
-							tnext = AFFINE_SPANLET_SIZE;
-						}
-					}
-
-					if (s_spanletvars.spancount > 1)
-					{
-						s_spanletvars.sstep = (snext - s_spanletvars.s) / (s_spanletvars.spancount - 1);
-						s_spanletvars.tstep = (tnext - s_spanletvars.t) / (s_spanletvars.spancount - 1);
-					}
-				}
-
-				if (iswater)
-				{
-					s_spanletvars.s = s_spanletvars.s & ((CYCLE<<16)-1);
-					s_spanletvars.t = s_spanletvars.t & ((CYCLE<<16)-1);
-				}
-
-				r_polydesc.drawspanlet(r_turb_turb);
-
-				s_spanletvars.s = snext;
-				s_spanletvars.t = tnext;
-
-			} while (count > 0);
-		}
-
-		pspan++;
-
-	} while (pspan->count != INT_MIN);
+        pspan++;
+    } while (pspan->count != INT_MIN);
 }
-
 /*
  *
  * R_PolygonScanLeftEdge
