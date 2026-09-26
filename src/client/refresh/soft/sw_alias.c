@@ -27,7 +27,7 @@
 #include <stdint.h>
 #include "header/local.h"
 
-#define LIGHT_MIN	5	// lowest light value we'll allow, to avoid the
+#define LIGHT_MIN	0	// lowest light value we'll allow, to avoid the
 				//  need for inner-loop light clamping
 
 int				r_amodels_drawn;
