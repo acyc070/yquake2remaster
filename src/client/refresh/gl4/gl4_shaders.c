@@ -22,6 +22,19 @@
  *
  * OpenGL4 refresher: Handling shaders
  *
+ *   *** Camera-relative integer vertex coordinates (RTE) ***
+ *
+ *  - 3D vertex shaders take an ivec3 'position' attribute.
+ *  - A new uniform ivec3 'uniCameraPos' is subtracted from that
+ *    integer position on the GPU, and only the (small) difference
+ *    is converted to float for the projection/model matrices.
+ *  - The CPU side must:
+ *      1) round world-space vertex positions to int before upload,
+ *      2) call GL4_SetCameraIntegerPosition() once per frame,
+ *      3) use glVertexAttribIPointer(... GL_INT ...) for the position
+ *         attribute in the VAO setup,
+ *      4) upload dynLights[i].lightOrigin already camera-relative.
+ *
  * =======================================================================
  */
 
@@ -157,6 +170,7 @@ CreateShaderProgram(int numShaders, const GLuint* shaders)
 #define MULTILINE_STRING(...) #__VA_ARGS__
 
 // ############## shaders for 2D rendering (HUD, menus, console, videos, ..) #####################
+// NOTE: 2D shaders work in screen space and do NOT use camera-relative integers.
 
 static const char* vertexSrc2D = MULTILINE_STRING(
 
@@ -343,10 +357,12 @@ static const char* fragmentSrc2Dcolor = MULTILINE_STRING(
 );
 
 // ############## shaders for 3D rendering #####################
+// NOTE: position is ivec3 (world-space integer coords).
+//       uniCameraPos is subtracted, result converted to float.
 
 static const char* vertexCommon3D = MULTILINE_STRING(
 
-		in vec3 position;   // GL4_ATTRIB_POSITION
+		in ivec3 position;  // GL4_ATTRIB_POSITION (integer world-space coords)
 		in vec2 texCoord;   // GL4_ATTRIB_TEXCOORD
 		in vec2 lmTexCoord; // GL4_ATTRIB_LMTEXCOORD
 		in vec4 vertColor;  // GL4_ATTRIB_COLOR
@@ -354,6 +370,10 @@ static const char* vertexCommon3D = MULTILINE_STRING(
 		in uint lightFlags; // GL4_ATTRIB_LIGHTFLAGS
 
 		noperspective out vec2 passTexCoord;
+
+		// Integer camera position (same space/scale as 'position').
+		// Subtracted from every vertex to keep floating-point values small.
+		uniform ivec3 uniCameraPos;
 
 		// for UBO shared between all 3D shaders
 		layout (std140) uniform uni3D
@@ -432,8 +452,12 @@ static const char* vertexSrc3D = MULTILINE_STRING(
 
 		void main()
 		{
+			// Integer -> float: subtract camera position first, keep the
+			// magnitude small, THEN convert to float.
+			vec3 relPos = vec3(position - uniCameraPos);
+
 			passTexCoord = texCoord;
-			gl_Position = transProjView * transModel * vec4(position, 1.0);
+			gl_Position = transProjView * transModel * vec4(relPos, 1.0);
 		}
 );
 
@@ -443,8 +467,10 @@ static const char* vertexSrc3Dflow = MULTILINE_STRING(
 
 		void main()
 		{
+			vec3 relPos = vec3(position - uniCameraPos);
+
 			passTexCoord = texCoord + vec2(sscroll, tscroll);
-			gl_Position = transProjView * transModel * vec4(position, 1.0);
+			gl_Position = transProjView * transModel * vec4(relPos, 1.0);
 		}
 );
 
@@ -459,9 +485,13 @@ static const char* vertexSrc3Dlm = MULTILINE_STRING(
 
 		void main()
 		{
+			vec3 relPos = vec3(position - uniCameraPos);
+
 			passTexCoord = texCoord;
 			passLMcoord = lmTexCoord;
-			vec4 worldCoord = transModel * vec4(position, 1.0);
+			vec4 worldCoord = transModel * vec4(relPos, 1.0);
+			// NOTE: this is camera-relative world coord. dynLights origins
+			// uploaded via uniLightsData must also be camera-relative!
 			passWorldCoord = worldCoord.xyz;
 			vec4 worldNormal = transModel * vec4(normal, 0.0f);
 			passNormal = normalize(worldNormal.xyz);
@@ -482,9 +512,11 @@ static const char* vertexSrc3DlmFlow = MULTILINE_STRING(
 
 		void main()
 		{
+			vec3 relPos = vec3(position - uniCameraPos);
+
 			passTexCoord = texCoord + vec2(sscroll, tscroll);
 			passLMcoord = lmTexCoord;
-			vec4 worldCoord = transModel * vec4(position, 1.0);
+			vec4 worldCoord = transModel * vec4(relPos, 1.0);
 			passWorldCoord = worldCoord.xyz;
 			vec4 worldNormal = transModel * vec4(normal, 0.0f);
 			passNormal = normalize(worldNormal.xyz);
@@ -558,7 +590,7 @@ static const char* fragmentSrc3Dlm = MULTILINE_STRING(
 		// it gets attributes and uniforms from fragmentCommon3D
 
 		struct DynLight { // gl4UniDynLight in C
-			vec3 lightOrigin;
+			vec3 lightOrigin; // NOTE: must be camera-relative on upload
 			float _pad;
 			//vec3 lightColor;
 			//float lightIntensity;
@@ -583,7 +615,7 @@ static const char* fragmentSrc3Dlm = MULTILINE_STRING(
 		uniform vec4 lmScales[4];
 
 		noperspective in vec2 passLMcoord;
-		noperspective in vec3 passWorldCoord;
+		noperspective in vec3 passWorldCoord; // camera-relative!
 		noperspective in vec3 passNormal;
 		flat in uint passLightFlags;
 
@@ -605,28 +637,19 @@ static const char* fragmentSrc3Dlm = MULTILINE_STRING(
 				// TODO: or is hardcoding 32 better?
 				for (uint i=0u; i<numDynLights; ++i)
 				{
-					// I made the following up, it's probably not too cool..
-					// it basically checks if the light is on the right side of the surface
-					// and, if it is, sets intensity according to distance between light and pixel on surface
-
 					// dyn light number i does not affect this plane, just skip it
 					if ((passLightFlags & (1u << i)) == 0u)  continue;
 
 					float intens = dynLights[i].lightColor.a;
 
+					// both light origin and passWorldCoord are camera-relative
 					vec3 lightToPos = dynLights[i].lightOrigin - passWorldCoord;
 					float distLightToPos = length(lightToPos);
 					float fact = max(0.0, intens - distLightToPos - 52.0);
 
-					// move the light source a bit further above the surface
-					// => helps if the lightsource is so close to the surface (e.g. grenades, rockets)
-					//    that the dot product below would return 0
-					// (light sources that are below the surface are filtered out by lightFlags)
 					lightToPos += passNormal*32.0;
 
-					// also factor in angle between light and point on surface
 					fact *= max(0.0, dot(passNormal, normalize(lightToPos)));
-
 
 					lmTex.rgb += dynLights[i].lightColor.rgb * fact * (1.0/256.0);
 				}
@@ -654,12 +677,9 @@ static const char* fragmentSrc3DlmNoColor = MULTILINE_STRING(
 		// it gets attributes and uniforms from fragmentCommon3D
 
 		struct DynLight { // gl4UniDynLight in C
-			vec3 lightOrigin;
+			vec3 lightOrigin; // NOTE: must be camera-relative on upload
 			float _pad;
-			//vec3 lightColor;
-			//float lightIntensity;
-			vec4 lightColor; // .a is intensity; this way it also works on OSX...
-			// (otherwise lightIntensity always contained 1 there)
+			vec4 lightColor; // .a is intensity
 		};
 
 		layout (std140) uniform uniLights
@@ -698,14 +718,8 @@ static const char* fragmentSrc3DlmNoColor = MULTILINE_STRING(
 
 			if (passLightFlags != 0u)
 			{
-				// TODO: or is hardcoding 32 better?
 				for (uint i=0u; i<numDynLights; ++i)
 				{
-					// I made the following up, it's probably not too cool..
-					// it basically checks if the light is on the right side of the surface
-					// and, if it is, sets intensity according to distance between light and pixel on surface
-
-					// dyn light number i does not affect this plane, just skip it
 					if ((passLightFlags & (1u << i)) == 0u)  continue;
 
 					float intens = dynLights[i].lightColor.a;
@@ -714,15 +728,9 @@ static const char* fragmentSrc3DlmNoColor = MULTILINE_STRING(
 					float distLightToPos = length(lightToPos);
 					float fact = max(0.0, intens - distLightToPos - 52.0);
 
-					// move the light source a bit further above the surface
-					// => helps if the lightsource is so close to the surface (e.g. grenades, rockets)
-					//    that the dot product below would return 0
-					// (light sources that are below the surface are filtered out by lightFlags)
 					lightToPos += passNormal*32.0;
 
-					// also factor in angle between light and point on surface
 					fact *= max(0.0, dot(passNormal, normalize(lightToPos)));
-
 
 					lmTex.rgb += dynLights[i].lightColor.rgb * fact * (1.0/256.0);
 				}
@@ -757,7 +765,6 @@ static const char* fragmentSrc3Dcolor = MULTILINE_STRING(
 			vec4 texel = color;
 
 			// apply gamma correction and intensity
-			// texel.rgb *= intensity; TODO: use intensity here? (this is used for beams)
 			outColor.rgb = pow(texel.rgb, vec3(gamma));
 
 			// Apply fog if enabled
@@ -783,10 +790,7 @@ static const char* fragmentSrc3Dsky = MULTILINE_STRING(
 		{
 			vec4 texel = texture(tex, passTexCoord);
 
-			// TODO: something about GL_BLEND vs GL_ALPHATEST etc
-
 			// apply gamma correction
-			// texel.rgb *= intensity; // TODO: really no intensity for sky?
 			outColor.rgb = pow(texel.rgb, vec3(gamma));
 
 			// Apply fog if enabled
@@ -855,8 +859,7 @@ static const char* fragmentSrc3DspriteAlpha = MULTILINE_STRING(
 				outColor.rgb = mix(outColor.rgb, fogColor.rgb, fogFactor);
 			}
 
-			//outColor.a = texel.a*alpha; // I think alpha shouldn't be modified by gamma and intensity
-			outColor.a = texel.a; // I think in this case alpha from uni3d shouldn't be used
+			outColor.a = texel.a; // in this case alpha from uni3d shouldn't be used
 		}
 );
 
@@ -865,9 +868,11 @@ static const char* vertexSrc3Dwater = MULTILINE_STRING(
 		// it gets attributes and uniforms from vertexCommon3D
 		void main()
 		{
+			vec3 relPos = vec3(position - uniCameraPos);
+
 			passTexCoord = texCoord;
 
-			gl_Position = transProjView * transModel * vec4(position, 1.0);
+			gl_Position = transProjView * transModel * vec4(relPos, 1.0);
 		}
 );
 
@@ -879,9 +884,11 @@ static const char* vertexSrcAlias = MULTILINE_STRING(
 
 		void main()
 		{
+			vec3 relPos = vec3(position - uniCameraPos);
+
 			passColor = vertColor*overbrightbits;
 			passTexCoord = texCoord;
-			gl_Position = transProjView* transModel * vec4(position, 1.0);
+			gl_Position = transProjView* transModel * vec4(relPos, 1.0);
 		}
 );
 
@@ -928,7 +935,6 @@ static const char* fragmentSrcAliasColor = MULTILINE_STRING(
 			vec4 texel = passColor;
 
 			// apply gamma correction and intensity
-			// texel.rgb *= intensity; // TODO: color-only rendering probably shouldn't use intensity?
 			texel.a *= alpha; // is alpha even used here?
 			outColor.rgb = pow(texel.rgb, vec3(gamma));
 
@@ -953,8 +959,10 @@ static const char* vertexSrcParticles = MULTILINE_STRING(
 
 		void main()
 		{
+			vec3 relPos = vec3(position - uniCameraPos);
+
 			passColor = vertColor;
-			gl_Position = transProjView * transModel * vec4(position, 1.0);
+			gl_Position = transProjView * transModel * vec4(relPos, 1.0);
 
 			// abusing texCoord for pointSize, pointDist for particles
 			float pointDist = texCoord.y*0.1; // with factor 0.1 it looks good.
@@ -971,7 +979,7 @@ static const char* fragmentSrcParticles = MULTILINE_STRING(
 
 		void main()
 		{
-			vec2 offsetFromCenter = 2.0*(gl_PointCoord - vec2(0.5, 0.5)); // normalize so offset is between 0 and 1 instead 0 and 0.5
+			vec2 offsetFromCenter = 2.0*(gl_PointCoord - vec2(0.5, 0.5));
 			float distSquared = dot(offsetFromCenter, offsetFromCenter);
 			if (distSquared > 1.0) // this makes sure the particle is round
 				discard;
@@ -979,7 +987,6 @@ static const char* fragmentSrcParticles = MULTILINE_STRING(
 			vec4 texel = passColor;
 
 			// apply gamma correction and intensity
-			//texel.rgb *= intensity; TODO: intensity? Probably not?
 			outColor.rgb = pow(texel.rgb, vec3(gamma));
 
 			// Apply fog if enabled
@@ -991,10 +998,10 @@ static const char* fragmentSrcParticles = MULTILINE_STRING(
 				outColor.rgb = mix(outColor.rgb, fogColor.rgb, fogFactor);
 			}
 
-			// I want the particles to fade out towards the edge, the following seems to look nice
+			// fade out towards the edge
 			texel.a *= min(1.0, particleFadeFactor*(1.0 - distSquared));
 
-			outColor.a = texel.a; // I think alpha shouldn't be modified by gamma and intensity
+			outColor.a = texel.a;
 		}
 );
 
@@ -1006,10 +1013,9 @@ static const char* fragmentSrcParticlesSquare = MULTILINE_STRING(
 
 		void main()
 		{
-			// outColor = passColor;
 			// so far we didn't use gamma correction for square particles, but this way
 			// uniCommon is referenced so hopefully Intels Ivy Bridge HD4000 GPU driver
-			// for Windows stops shitting itself (see https://github.com/yquake2/yquake2/issues/391)
+			// for Windows stops shitting itself
 			outColor.rgb = pow(passColor.rgb, vec3(gamma));
 
 			// Apply fog if enabled
@@ -1111,6 +1117,94 @@ enum {
 	GL4_BINDINGPOINT_UNILIGHTS
 };
 
+// ============================================================================
+// Camera-relative integer vertex position support (added)
+// ============================================================================
+
+#define GL4_MAX_CAMERA_POS_UNIFORMS 32
+
+typedef struct {
+	GLuint prog;
+	GLint  loc;
+} gl4CameraPosUniform_t;
+
+static gl4CameraPosUniform_t s_cameraPosUniforms[GL4_MAX_CAMERA_POS_UNIFORMS];
+static int s_numCameraPosUniforms = 0;
+static int s_cameraPos[3] = { 0, 0, 0 };
+
+// Called from initShader3D after a program is linked & bound.
+// Caches the uniform location and pushes the current value.
+static void
+registerCameraPosUniform(GLuint prog)
+{
+	GLint loc = glGetUniformLocation(prog, "uniCameraPos");
+	if (loc == -1)
+	{
+		return;
+	}
+	if (s_numCameraPosUniforms >= GL4_MAX_CAMERA_POS_UNIFORMS)
+	{
+		Com_Printf("WARNING: too many 3D shaders for camera-pos uniform cache!\n");
+		return;
+	}
+
+	s_cameraPosUniforms[s_numCameraPosUniforms].prog = prog;
+	s_cameraPosUniforms[s_numCameraPosUniforms].loc  = loc;
+	++s_numCameraPosUniforms;
+
+	glUniform3i(loc, s_cameraPos[0], s_cameraPos[1], s_cameraPos[2]);
+}
+
+// Public API: call once per frame, after you know the camera's
+// integer world position (same units/scale as uploaded vertex data).
+void
+GL4_SetCameraIntegerPosition(int x, int y, int z)
+{
+	if (s_cameraPos[0] == x && s_cameraPos[1] == y && s_cameraPos[2] == z)
+	{
+		return;
+	}
+
+	s_cameraPos[0] = x;
+	s_cameraPos[1] = y;
+	s_cameraPos[2] = z;
+
+	GLuint prevProg = gl4state.currentShaderProgram;
+
+	int i;
+	for (i = 0; i < s_numCameraPosUniforms; ++i)
+	{
+		glUseProgram(s_cameraPosUniforms[i].prog);
+		glUniform3i(s_cameraPosUniforms[i].loc, x, y, z);
+	}
+
+	if (prevProg != 0)
+	{
+		GL4_UseProgram(prevProg);
+	}
+}
+
+// Public API: call when preparing vertex data for upload.
+// Rounds each float world-space coordinate to the nearest integer
+// (half away from zero) so it can be uploaded as GL_INT to the
+// ivec3 'position' attribute.
+void
+GL4_RoundVerticesToInt(const float* in, int* out, int numVerts)
+{
+	int i;
+	for (i = 0; i < numVerts; ++i)
+	{
+		const float* src = in  + i * 3;
+		int*         dst = out + i * 3;
+
+		dst[0] = (int)floorf(src[0] + 0.5f);
+		dst[1] = (int)floorf(src[1] + 0.5f);
+		dst[2] = (int)floorf(src[2] + 0.5f);
+	}
+}
+
+// ============================================================================
+
 static qboolean
 initShader2D(gl4ShaderInfo_t* shaderInfo, const char* vertSrc, const char* fragSrc,
 	qboolean uniCommonRequired)
@@ -1144,7 +1238,6 @@ initShader2D(gl4ShaderInfo_t* shaderInfo, const char* vertSrc, const char* fragS
 
 	prog = CreateShaderProgram(2, shaders2D);
 
-	// I think the shaders aren't needed anymore once they're linked into the program
 	glDeleteShader(shaders2D[0]);
 	glDeleteShader(shaders2D[1]);
 
@@ -1156,7 +1249,6 @@ initShader2D(gl4ShaderInfo_t* shaderInfo, const char* vertSrc, const char* fragS
 	shaderInfo->shaderProgram = prog;
 	GL4_UseProgram(prog);
 
-	// Bind the buffer object to the uniform blocks
 	// Bind the buffer object to the uniform blocks
 	GLuint blockIndex = GL_INVALID_INDEX;
 	if (uniCommonRequired)
@@ -1181,7 +1273,6 @@ initShader2D(gl4ShaderInfo_t* shaderInfo, const char* vertSrc, const char* fragS
 	else if (uniCommonRequired)
 	{
 		Com_Printf("WARNING: Couldn't find uniform block index 'uniCommon'\n");
-		// TODO: clean up?
 		return false;
 	}
 
@@ -1260,6 +1351,9 @@ initShader3D(gl4ShaderInfo_t* shaderInfo, const char* vertSrc, const char* fragS
 	}
 
 	GL4_UseProgram(prog);
+
+	// Register the camera-position uniform for this program.
+	registerCameraPosUniform(prog);
 
 	// Bind the buffer object to the uniform blocks
 	GLuint blockIndex = glGetUniformBlockIndex(prog, "uniCommon");
@@ -1419,6 +1513,9 @@ static void initUBOs(void)
 static qboolean
 createShaders(void)
 {
+	// reset the camera-pos uniform cache before (re)creating programs
+	s_numCameraPosUniforms = 0;
+
 	if (!initShader2D(&gl4state.si2D, vertexSrc2D, fragmentSrc2D, true))
 	{
 		Com_Printf("WARNING: Failed to create shader program for textured 2D rendering!\n");
@@ -1569,6 +1666,9 @@ static void deleteShaders(void)
 
 		*si = siZero;
 	}
+
+	// Invalidate the camera-pos uniform cache; programs are gone.
+	s_numCameraPosUniforms = 0;
 }
 
 void
