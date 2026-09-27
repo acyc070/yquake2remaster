@@ -22,17 +22,6 @@
  *
  * OpenGL4 refresher: Handling shaders
  *
- *   *** PS1-style vertex rounding ***
- *
- *  - 3D vertex shaders snap their vertex positions to a low-resolution
- *    grid before the matrix multiplication, giving the classic
- *    "wobbly" PlayStation 1 look.
- *  - No integer attributes, no VAO changes, no glVertexAttribIPointer.
- *  - A float uniform 'cameraPos' can optionally be subtracted before
- *    rounding to keep precision on large maps.
- *  - The grid size is exposed as a float uniform 'ps1GridSize' so the
- *    engine can change it at runtime (smaller = chunkier).
- *
  * =======================================================================
  */
 
@@ -40,11 +29,6 @@
 
 // TODO: remove eprintf() usage
 #define eprintf(...)  R_Printf(PRINT_ALL, __VA_ARGS__)
-
-// Set to 1 to snap AFTER projection (screen space, most PS1-accurate).
-// Set to 0 to snap world-space vertex positions (usually looks better
-// in a modern engine and still gives the retro wobble).
-#define PS1_SCREEN_SPACE_SNAP 1
 
 
 static GLuint
@@ -173,7 +157,6 @@ CreateShaderProgram(int numShaders, const GLuint* shaders)
 #define MULTILINE_STRING(...) #__VA_ARGS__
 
 // ############## shaders for 2D rendering (HUD, menus, console, videos, ..) #####################
-// NOTE: 2D shaders work in screen space and are NOT affected by PS1 rounding.
 
 static const char* vertexSrc2D = MULTILINE_STRING(
 
@@ -360,12 +343,10 @@ static const char* fragmentSrc2Dcolor = MULTILINE_STRING(
 );
 
 // ############## shaders for 3D rendering #####################
-// NOTE: 'position' is a normal float vec3 (VAO unchanged).
-//       PS1 rounding is done inside each vertex shader's main().
 
 static const char* vertexCommon3D = MULTILINE_STRING(
 
-		in vec3 position;   // GL4_ATTRIB_POSITION (float, unchanged)
+		in vec3 position;   // GL4_ATTRIB_POSITION
 		in vec2 texCoord;   // GL4_ATTRIB_TEXCOORD
 		in vec2 lmTexCoord; // GL4_ATTRIB_LMTEXCOORD
 		in vec4 vertColor;  // GL4_ATTRIB_COLOR
@@ -373,28 +354,6 @@ static const char* vertexCommon3D = MULTILINE_STRING(
 		in uint lightFlags; // GL4_ATTRIB_LIGHTFLAGS
 
 		noperspective out vec2 passTexCoord;
-
-		// Camera position in world space, used only when
-		// subtracting to keep float precision on large maps.
-		// Set from CPU via GL4_SetCameraPosition(); harmless if left at 0.
-		uniform vec3 cameraPos;
-
-		// PS1 vertex grid size. Smaller = chunkier wobble.
-		// Default is set from CPU via GL4_SetPS1Grid().
-		uniform float ps1GridSize;
-
-#if PS1_SCREEN_SPACE_SNAP
-		// Screen resolution used for snapping in clip space.
-		// Adjust to your internal render resolution.
-		const vec2 ps1ScreenRes = vec2(320.0, 240.0);
-#endif
-
-		// Snap a world-space position to the PS1 grid.
-		vec3 ps1RoundWorld(vec3 p)
-		{
-			float g = max(ps1GridSize, 1e-6);
-			return floor(p / g + 0.5) * g;
-		}
 
 		// for UBO shared between all 3D shaders
 		layout (std140) uniform uni3D
@@ -473,16 +432,8 @@ static const char* vertexSrc3D = MULTILINE_STRING(
 
 		void main()
 		{
-			vec3 relPos = position - cameraPos;
-			vec3 roundedPos = ps1RoundWorld(relPos);
-
 			passTexCoord = texCoord;
-			gl_Position = transProjView * transModel * vec4(roundedPos, 1.0);
-
-#if PS1_SCREEN_SPACE_SNAP
-			gl_Position.xy = floor(gl_Position.xy * ps1ScreenRes * 0.5)
-			                 / (ps1ScreenRes * 0.5);
-#endif
+			gl_Position = transProjView * transModel * vec4(position, 1.0);
 		}
 );
 
@@ -492,16 +443,8 @@ static const char* vertexSrc3Dflow = MULTILINE_STRING(
 
 		void main()
 		{
-			vec3 relPos = position - cameraPos;
-			vec3 roundedPos = ps1RoundWorld(relPos);
-
 			passTexCoord = texCoord + vec2(sscroll, tscroll);
-			gl_Position = transProjView * transModel * vec4(roundedPos, 1.0);
-
-#if PS1_SCREEN_SPACE_SNAP
-			gl_Position.xy = floor(gl_Position.xy * ps1ScreenRes * 0.5)
-			                 / (ps1ScreenRes * 0.5);
-#endif
+			gl_Position = transProjView * transModel * vec4(position, 1.0);
 		}
 );
 
@@ -516,25 +459,15 @@ static const char* vertexSrc3Dlm = MULTILINE_STRING(
 
 		void main()
 		{
-			vec3 relPos = position - cameraPos;
-			vec3 roundedPos = ps1RoundWorld(relPos);
-
 			passTexCoord = texCoord;
 			passLMcoord = lmTexCoord;
-			vec4 worldCoord = transModel * vec4(roundedPos, 1.0);
-			// NOTE: camera-relative world coord. dynLights origins should
-			// be camera-relative too if you use GL4_SetCameraPosition().
+			vec4 worldCoord = transModel * vec4(position, 1.0);
 			passWorldCoord = worldCoord.xyz;
 			vec4 worldNormal = transModel * vec4(normal, 0.0f);
 			passNormal = normalize(worldNormal.xyz);
 			passLightFlags = lightFlags;
 
 			gl_Position = transProjView * worldCoord;
-
-#if PS1_SCREEN_SPACE_SNAP
-			gl_Position.xy = floor(gl_Position.xy * ps1ScreenRes * 0.5)
-			                 / (ps1ScreenRes * 0.5);
-#endif
 		}
 );
 
@@ -549,23 +482,15 @@ static const char* vertexSrc3DlmFlow = MULTILINE_STRING(
 
 		void main()
 		{
-			vec3 relPos = position - cameraPos;
-			vec3 roundedPos = ps1RoundWorld(relPos);
-
 			passTexCoord = texCoord + vec2(sscroll, tscroll);
 			passLMcoord = lmTexCoord;
-			vec4 worldCoord = transModel * vec4(roundedPos, 1.0);
+			vec4 worldCoord = transModel * vec4(position, 1.0);
 			passWorldCoord = worldCoord.xyz;
 			vec4 worldNormal = transModel * vec4(normal, 0.0f);
 			passNormal = normalize(worldNormal.xyz);
 			passLightFlags = lightFlags;
 
 			gl_Position = transProjView * worldCoord;
-
-#if PS1_SCREEN_SPACE_SNAP
-			gl_Position.xy = floor(gl_Position.xy * ps1ScreenRes * 0.5)
-			                 / (ps1ScreenRes * 0.5);
-#endif
 		}
 );
 
@@ -633,98 +558,12 @@ static const char* fragmentSrc3Dlm = MULTILINE_STRING(
 		// it gets attributes and uniforms from fragmentCommon3D
 
 		struct DynLight { // gl4UniDynLight in C
-			vec3 lightOrigin; // NOTE: if you use GL4_SetCameraPosition(),
-			                  // upload this already camera-relative.
+			vec3 lightOrigin;
 			float _pad;
 			//vec3 lightColor;
 			//float lightIntensity;
 			vec4 lightColor; // .a is intensity; this way it also works on OSX...
 			// (otherwise lightIntensity always contained 1 there)
-		};
-
-		layout (std140) uniform uniLights
-		{
-			DynLight dynLights[32];
-			uint numDynLights;
-			uint _pad1; uint _pad2; uint _pad3; // FFS, AMD!
-		};
-
-		uniform sampler2D tex;
-
-		uniform sampler2D lightmap0;
-		uniform sampler2D lightmap1;
-		uniform sampler2D lightmap2;
-		uniform sampler2D lightmap3;
-
-		uniform vec4 lmScales[4];
-
-		noperspective in vec2 passLMcoord;
-		noperspective in vec3 passWorldCoord; // camera-relative if cameraPos is set
-		noperspective in vec3 passNormal;
-		flat in uint passLightFlags;
-
-		void main()
-		{
-			vec4 texel = texture(tex, passTexCoord);
-
-			// apply intensity
-			texel.rgb *= intensity;
-
-			// apply lightmap
-			vec4 lmTex = texture(lightmap0, passLMcoord) * lmScales[0];
-			lmTex     += texture(lightmap1, passLMcoord) * lmScales[1];
-			lmTex     += texture(lightmap2, passLMcoord) * lmScales[2];
-			lmTex     += texture(lightmap3, passLMcoord) * lmScales[3];
-
-			if (passLightFlags != 0u)
-			{
-				// TODO: or is hardcoding 32 better?
-				for (uint i=0u; i<numDynLights; ++i)
-				{
-					// dyn light number i does not affect this plane, just skip it
-					if ((passLightFlags & (1u << i)) == 0u)  continue;
-
-					float intens = dynLights[i].lightColor.a;
-
-					vec3 lightToPos = dynLights[i].lightOrigin - passWorldCoord;
-					float distLightToPos = length(lightToPos);
-					float fact = max(0.0, intens - distLightToPos - 52.0);
-
-					// move the light source a bit further above the surface
-					lightToPos += passNormal*32.0;
-
-					// also factor in angle between light and point on surface
-					fact *= max(0.0, dot(passNormal, normalize(lightToPos)));
-
-					lmTex.rgb += dynLights[i].lightColor.rgb * fact * (1.0/256.0);
-				}
-			}
-
-			lmTex.rgb *= overbrightbits;
-			outColor = lmTex*texel;
-			outColor.rgb = pow(outColor.rgb, vec3(gamma)); // apply gamma correction to result
-
-			// Apply fog if enabled
-			if (fogColor.w > 0.0)
-			{
-				float depth = gl_FragCoord.z / gl_FragCoord.w;
-				float d = fogColor.w * depth;
-				float fogFactor = 1.0 - exp(-(d * d));
-				outColor.rgb = mix(outColor.rgb, fogColor.rgb, fogFactor);
-			}
-
-			outColor.a = 1.0; // lightmaps aren't used with translucent surfaces
-		}
-);
-
-static const char* fragmentSrc3DlmNoColor = MULTILINE_STRING(
-
-		// it gets attributes and uniforms from fragmentCommon3D
-
-		struct DynLight { // gl4UniDynLight in C
-			vec3 lightOrigin;
-			float _pad;
-			vec4 lightColor; // .a is intensity
 		};
 
 		layout (std140) uniform uniLights
@@ -763,8 +602,14 @@ static const char* fragmentSrc3DlmNoColor = MULTILINE_STRING(
 
 			if (passLightFlags != 0u)
 			{
+				// TODO: or is hardcoding 32 better?
 				for (uint i=0u; i<numDynLights; ++i)
 				{
+					// I made the following up, it's probably not too cool..
+					// it basically checks if the light is on the right side of the surface
+					// and, if it is, sets intensity according to distance between light and pixel on surface
+
+					// dyn light number i does not affect this plane, just skip it
 					if ((passLightFlags & (1u << i)) == 0u)  continue;
 
 					float intens = dynLights[i].lightColor.a;
@@ -773,9 +618,111 @@ static const char* fragmentSrc3DlmNoColor = MULTILINE_STRING(
 					float distLightToPos = length(lightToPos);
 					float fact = max(0.0, intens - distLightToPos - 52.0);
 
+					// move the light source a bit further above the surface
+					// => helps if the lightsource is so close to the surface (e.g. grenades, rockets)
+					//    that the dot product below would return 0
+					// (light sources that are below the surface are filtered out by lightFlags)
 					lightToPos += passNormal*32.0;
 
+					// also factor in angle between light and point on surface
 					fact *= max(0.0, dot(passNormal, normalize(lightToPos)));
+
+
+					lmTex.rgb += dynLights[i].lightColor.rgb * fact * (1.0/256.0);
+				}
+			}
+
+			lmTex.rgb *= overbrightbits;
+			outColor = lmTex*texel;
+			outColor.rgb = pow(outColor.rgb, vec3(gamma)); // apply gamma correction to result
+
+			// Apply fog if enabled
+			if (fogColor.w > 0.0)
+			{
+				float depth = gl_FragCoord.z / gl_FragCoord.w;
+				float d = fogColor.w * depth;
+				float fogFactor = 1.0 - exp(-(d * d));
+				outColor.rgb = mix(outColor.rgb, fogColor.rgb, fogFactor);
+			}
+
+			outColor.a = 1.0; // lightmaps aren't used with translucent surfaces
+		}
+);
+
+static const char* fragmentSrc3DlmNoColor = MULTILINE_STRING(
+
+		// it gets attributes and uniforms from fragmentCommon3D
+
+		struct DynLight { // gl4UniDynLight in C
+			vec3 lightOrigin;
+			float _pad;
+			//vec3 lightColor;
+			//float lightIntensity;
+			vec4 lightColor; // .a is intensity; this way it also works on OSX...
+			// (otherwise lightIntensity always contained 1 there)
+		};
+
+		layout (std140) uniform uniLights
+		{
+			DynLight dynLights[32];
+			uint numDynLights;
+			uint _pad1; uint _pad2; uint _pad3; // FFS, AMD!
+		};
+
+		uniform sampler2D tex;
+
+		uniform sampler2D lightmap0;
+		uniform sampler2D lightmap1;
+		uniform sampler2D lightmap2;
+		uniform sampler2D lightmap3;
+
+		uniform vec4 lmScales[4];
+
+		noperspective in vec2 passLMcoord;
+		noperspective in vec3 passWorldCoord;
+		noperspective in vec3 passNormal;
+		flat in uint passLightFlags;
+
+		void main()
+		{
+			vec4 texel = texture(tex, passTexCoord);
+
+			// apply intensity
+			texel.rgb *= intensity;
+
+			// apply lightmap
+			vec4 lmTex = texture(lightmap0, passLMcoord) * lmScales[0];
+			lmTex     += texture(lightmap1, passLMcoord) * lmScales[1];
+			lmTex     += texture(lightmap2, passLMcoord) * lmScales[2];
+			lmTex     += texture(lightmap3, passLMcoord) * lmScales[3];
+
+			if (passLightFlags != 0u)
+			{
+				// TODO: or is hardcoding 32 better?
+				for (uint i=0u; i<numDynLights; ++i)
+				{
+					// I made the following up, it's probably not too cool..
+					// it basically checks if the light is on the right side of the surface
+					// and, if it is, sets intensity according to distance between light and pixel on surface
+
+					// dyn light number i does not affect this plane, just skip it
+					if ((passLightFlags & (1u << i)) == 0u)  continue;
+
+					float intens = dynLights[i].lightColor.a;
+
+					vec3 lightToPos = dynLights[i].lightOrigin - passWorldCoord;
+					float distLightToPos = length(lightToPos);
+					float fact = max(0.0, intens - distLightToPos - 52.0);
+
+					// move the light source a bit further above the surface
+					// => helps if the lightsource is so close to the surface (e.g. grenades, rockets)
+					//    that the dot product below would return 0
+					// (light sources that are below the surface are filtered out by lightFlags)
+					lightToPos += passNormal*32.0;
+
+					// also factor in angle between light and point on surface
+					fact *= max(0.0, dot(passNormal, normalize(lightToPos)));
+
 
 					lmTex.rgb += dynLights[i].lightColor.rgb * fact * (1.0/256.0);
 				}
@@ -810,6 +757,7 @@ static const char* fragmentSrc3Dcolor = MULTILINE_STRING(
 			vec4 texel = color;
 
 			// apply gamma correction and intensity
+			// texel.rgb *= intensity; TODO: use intensity here? (this is used for beams)
 			outColor.rgb = pow(texel.rgb, vec3(gamma));
 
 			// Apply fog if enabled
@@ -835,7 +783,10 @@ static const char* fragmentSrc3Dsky = MULTILINE_STRING(
 		{
 			vec4 texel = texture(tex, passTexCoord);
 
+			// TODO: something about GL_BLEND vs GL_ALPHATEST etc
+
 			// apply gamma correction
+			// texel.rgb *= intensity; // TODO: really no intensity for sky?
 			outColor.rgb = pow(texel.rgb, vec3(gamma));
 
 			// Apply fog if enabled
@@ -904,7 +855,8 @@ static const char* fragmentSrc3DspriteAlpha = MULTILINE_STRING(
 				outColor.rgb = mix(outColor.rgb, fogColor.rgb, fogFactor);
 			}
 
-			outColor.a = texel.a; // in this case alpha from uni3d shouldn't be used
+			//outColor.a = texel.a*alpha; // I think alpha shouldn't be modified by gamma and intensity
+			outColor.a = texel.a; // I think in this case alpha from uni3d shouldn't be used
 		}
 );
 
@@ -913,16 +865,9 @@ static const char* vertexSrc3Dwater = MULTILINE_STRING(
 		// it gets attributes and uniforms from vertexCommon3D
 		void main()
 		{
-			vec3 relPos = position - cameraPos;
-			vec3 roundedPos = ps1RoundWorld(relPos);
-
 			passTexCoord = texCoord;
-			gl_Position = transProjView * transModel * vec4(roundedPos, 1.0);
 
-#if PS1_SCREEN_SPACE_SNAP
-			gl_Position.xy = floor(gl_Position.xy * ps1ScreenRes * 0.5)
-			                 / (ps1ScreenRes * 0.5);
-#endif
+			gl_Position = transProjView * transModel * vec4(position, 1.0);
 		}
 );
 
@@ -934,17 +879,9 @@ static const char* vertexSrcAlias = MULTILINE_STRING(
 
 		void main()
 		{
-			vec3 relPos = position - cameraPos;
-			vec3 roundedPos = ps1RoundWorld(relPos);
-
 			passColor = vertColor*overbrightbits;
 			passTexCoord = texCoord;
-			gl_Position = transProjView* transModel * vec4(roundedPos, 1.0);
-
-#if PS1_SCREEN_SPACE_SNAP
-			gl_Position.xy = floor(gl_Position.xy * ps1ScreenRes * 0.5)
-			                 / (ps1ScreenRes * 0.5);
-#endif
+			gl_Position = transProjView* transModel * vec4(position, 1.0);
 		}
 );
 
@@ -991,6 +928,7 @@ static const char* fragmentSrcAliasColor = MULTILINE_STRING(
 			vec4 texel = passColor;
 
 			// apply gamma correction and intensity
+			// texel.rgb *= intensity; // TODO: color-only rendering probably shouldn't use intensity?
 			texel.a *= alpha; // is alpha even used here?
 			outColor.rgb = pow(texel.rgb, vec3(gamma));
 
@@ -1015,14 +953,8 @@ static const char* vertexSrcParticles = MULTILINE_STRING(
 
 		void main()
 		{
-			// NOTE: particles are NOT snapped here so they still look smooth;
-			// if you want them to wobble too, uncomment the next two lines.
-			// vec3 relPos = ps1RoundWorld(position - cameraPos);
-			// vec3 relPos = position - cameraPos;
-			vec3 relPos = position - cameraPos;
-
 			passColor = vertColor;
-			gl_Position = transProjView * transModel * vec4(relPos, 1.0);
+			gl_Position = transProjView * transModel * vec4(position, 1.0);
 
 			// abusing texCoord for pointSize, pointDist for particles
 			float pointDist = texCoord.y*0.1; // with factor 0.1 it looks good.
@@ -1039,7 +971,7 @@ static const char* fragmentSrcParticles = MULTILINE_STRING(
 
 		void main()
 		{
-			vec2 offsetFromCenter = 2.0*(gl_PointCoord - vec2(0.5, 0.5));
+			vec2 offsetFromCenter = 2.0*(gl_PointCoord - vec2(0.5, 0.5)); // normalize so offset is between 0 and 1 instead 0 and 0.5
 			float distSquared = dot(offsetFromCenter, offsetFromCenter);
 			if (distSquared > 1.0) // this makes sure the particle is round
 				discard;
@@ -1047,6 +979,7 @@ static const char* fragmentSrcParticles = MULTILINE_STRING(
 			vec4 texel = passColor;
 
 			// apply gamma correction and intensity
+			//texel.rgb *= intensity; TODO: intensity? Probably not?
 			outColor.rgb = pow(texel.rgb, vec3(gamma));
 
 			// Apply fog if enabled
@@ -1058,10 +991,10 @@ static const char* fragmentSrcParticles = MULTILINE_STRING(
 				outColor.rgb = mix(outColor.rgb, fogColor.rgb, fogFactor);
 			}
 
-			// fade out towards the edge
+			// I want the particles to fade out towards the edge, the following seems to look nice
 			texel.a *= min(1.0, particleFadeFactor*(1.0 - distSquared));
 
-			outColor.a = texel.a;
+			outColor.a = texel.a; // I think alpha shouldn't be modified by gamma and intensity
 		}
 );
 
@@ -1073,9 +1006,10 @@ static const char* fragmentSrcParticlesSquare = MULTILINE_STRING(
 
 		void main()
 		{
+			// outColor = passColor;
 			// so far we didn't use gamma correction for square particles, but this way
 			// uniCommon is referenced so hopefully Intels Ivy Bridge HD4000 GPU driver
-			// for Windows stops shitting itself
+			// for Windows stops shitting itself (see https://github.com/yquake2/yquake2/issues/391)
 			outColor.rgb = pow(passColor.rgb, vec3(gamma));
 
 			// Apply fog if enabled
@@ -1177,121 +1111,6 @@ enum {
 	GL4_BINDINGPOINT_UNILIGHTS
 };
 
-// ============================================================================
-// PS1 rounding helpers (CPU side)
-// ============================================================================
-
-#define GL4_MAX_PS1_UNIFORMS 32
-
-typedef struct {
-	GLuint prog;
-	GLint  gridLoc;
-	GLint  camLoc;
-} gl4PS1Uniforms_t;
-
-static gl4PS1Uniforms_t s_ps1Uniforms[GL4_MAX_PS1_UNIFORMS];
-static int   s_numPS1Uniforms = 0;
-static float s_ps1GridSize = 1.0f / 1.0f; // default chunkiness
-static float s_cameraPos[3] = { 0.0f, 0.0f, 0.0f };
-
-// Called from initShader3D after a program is linked & bound.
-static void
-registerPS1Uniforms(GLuint prog)
-{
-	if (s_numPS1Uniforms >= GL4_MAX_PS1_UNIFORMS)
-	{
-		Com_Printf("WARNING: too many 3D shaders for PS1 uniform cache!\n");
-		return;
-	}
-
-	GLint gridLoc = glGetUniformLocation(prog, "ps1GridSize");
-	GLint camLoc  = glGetUniformLocation(prog, "cameraPos");
-
-	// If neither exists (e.g. fragment-only or special program) just skip.
-	if (gridLoc == -1 && camLoc == -1)
-	{
-		return;
-	}
-
-	s_ps1Uniforms[s_numPS1Uniforms].prog    = prog;
-	s_ps1Uniforms[s_numPS1Uniforms].gridLoc = gridLoc;
-	s_ps1Uniforms[s_numPS1Uniforms].camLoc  = camLoc;
-	++s_numPS1Uniforms;
-
-	if (gridLoc != -1)
-	{
-		glUniform1f(gridLoc, s_ps1GridSize);
-	}
-	if (camLoc != -1)
-	{
-		glUniform3f(camLoc, s_cameraPos[0], s_cameraPos[1], s_cameraPos[2]);
-	}
-}
-
-// Public API: change the PS1 vertex grid size at runtime.
-// Smaller values (e.g. 1/64) = chunkier. Larger (e.g. 1/4) = smoother.
-void
-GL4_SetPS1Grid(float gridSize)
-{
-	if (gridSize <= 0.0f)
-	{
-		gridSize = 1.0f / 16.0f;
-	}
-	s_ps1GridSize = gridSize;
-
-	GLuint prevProg = gl4state.currentShaderProgram;
-
-	int i;
-	for (i = 0; i < s_numPS1Uniforms; ++i)
-	{
-		if (s_ps1Uniforms[i].gridLoc != -1)
-		{
-			glUseProgram(s_ps1Uniforms[i].prog);
-			glUniform1f(s_ps1Uniforms[i].gridLoc, gridSize);
-		}
-	}
-
-	if (prevProg != 0)
-	{
-		GL4_UseProgram(prevProg);
-	}
-}
-
-// Public API: update camera position for precision on large maps.
-// Purely optional -- if you never call this, vertices are rounded in
-// world space, which is the classic PS1 look anyway.
-void
-GL4_SetCameraPosition(float x, float y, float z)
-{
-	if (s_cameraPos[0] == x && s_cameraPos[1] == y && s_cameraPos[2] == z)
-	{
-		return;
-	}
-
-	s_cameraPos[0] = x;
-	s_cameraPos[1] = y;
-	s_cameraPos[2] = z;
-
-	GLuint prevProg = gl4state.currentShaderProgram;
-
-	int i;
-	for (i = 0; i < s_numPS1Uniforms; ++i)
-	{
-		if (s_ps1Uniforms[i].camLoc != -1)
-		{
-			glUseProgram(s_ps1Uniforms[i].prog);
-			glUniform3f(s_ps1Uniforms[i].camLoc, x, y, z);
-		}
-	}
-
-	if (prevProg != 0)
-	{
-		GL4_UseProgram(prevProg);
-	}
-}
-
-// ============================================================================
-
 static qboolean
 initShader2D(gl4ShaderInfo_t* shaderInfo, const char* vertSrc, const char* fragSrc,
 	qboolean uniCommonRequired)
@@ -1325,6 +1144,7 @@ initShader2D(gl4ShaderInfo_t* shaderInfo, const char* vertSrc, const char* fragS
 
 	prog = CreateShaderProgram(2, shaders2D);
 
+	// I think the shaders aren't needed anymore once they're linked into the program
 	glDeleteShader(shaders2D[0]);
 	glDeleteShader(shaders2D[1]);
 
@@ -1336,6 +1156,7 @@ initShader2D(gl4ShaderInfo_t* shaderInfo, const char* vertSrc, const char* fragS
 	shaderInfo->shaderProgram = prog;
 	GL4_UseProgram(prog);
 
+	// Bind the buffer object to the uniform blocks
 	// Bind the buffer object to the uniform blocks
 	GLuint blockIndex = GL_INVALID_INDEX;
 	if (uniCommonRequired)
@@ -1360,6 +1181,7 @@ initShader2D(gl4ShaderInfo_t* shaderInfo, const char* vertSrc, const char* fragS
 	else if (uniCommonRequired)
 	{
 		Com_Printf("WARNING: Couldn't find uniform block index 'uniCommon'\n");
+		// TODO: clean up?
 		return false;
 	}
 
@@ -1438,9 +1260,6 @@ initShader3D(gl4ShaderInfo_t* shaderInfo, const char* vertSrc, const char* fragS
 	}
 
 	GL4_UseProgram(prog);
-
-	// Register the PS1/camera uniforms for this program.
-	registerPS1Uniforms(prog);
 
 	// Bind the buffer object to the uniform blocks
 	GLuint blockIndex = glGetUniformBlockIndex(prog, "uniCommon");
@@ -1600,9 +1419,6 @@ static void initUBOs(void)
 static qboolean
 createShaders(void)
 {
-	// reset the PS1 uniform cache before (re)creating programs
-	s_numPS1Uniforms = 0;
-
 	if (!initShader2D(&gl4state.si2D, vertexSrc2D, fragmentSrc2D, true))
 	{
 		Com_Printf("WARNING: Failed to create shader program for textured 2D rendering!\n");
@@ -1753,9 +1569,6 @@ static void deleteShaders(void)
 
 		*si = siZero;
 	}
-
-	// Invalidate the PS1 uniform cache; programs are gone.
-	s_numPS1Uniforms = 0;
 }
 
 void
