@@ -89,7 +89,7 @@ client_static_t cls;
 client_state_t cl;
 
 /* initialize the entities array to at least this many entities */
-#define ALLOC_ENTITIES_MIN 32
+#define ALLOC_ENTITIES_MIN 16
 
 centity_t *cl_entities;
 int cl_numentities;
@@ -517,7 +517,7 @@ CL_FixUpGender(void)
 		}
 		else
 		{
-			Cvar_Set("gender", "none");
+			Cvar_Set("gender", "male");
 		}
 
 		gender->modified = false;
@@ -625,7 +625,7 @@ CL_InitLocal(void)
 	cl_sidespeed = Cvar_Get("cl_sidespeed", "200", 0);
 	cl_yawspeed = Cvar_Get("cl_yawspeed", "140", 0);
 	cl_pitchspeed = Cvar_Get("cl_pitchspeed", "150", 0);
-	cl_anglespeedkey = Cvar_Get("cl_anglespeedkey", "1.5", 0);
+	cl_anglespeedkey = Cvar_Get("cl_anglespeedkey", "1.0", 0);
 
 	cl_run = Cvar_Get("cl_run", "0", CVAR_ARCHIVE);
 
@@ -652,10 +652,10 @@ CL_InitLocal(void)
 	/* userinfo */
 	name = Cvar_Get("name", "unnamed", CVAR_USERINFO | CVAR_ARCHIVE);
 	skin = Cvar_Get("skin", "male/grunt", CVAR_USERINFO | CVAR_ARCHIVE);
-	rate = Cvar_Get("rate", "8000", CVAR_USERINFO | CVAR_ARCHIVE);
+	rate = Cvar_Get("rate", "10000", CVAR_USERINFO | CVAR_ARCHIVE);
 	hand = Cvar_Get("hand", "0", CVAR_USERINFO | CVAR_ARCHIVE);
 	fov = Cvar_Get("fov", "90", CVAR_USERINFO | CVAR_ARCHIVE);
-	horplus = Cvar_Get("horplus", "1", CVAR_ARCHIVE);
+	horplus = Cvar_Get("horplus", "0", CVAR_ARCHIVE);
 	windowed_mouse = Cvar_Get("windowed_mouse", "1", CVAR_USERINFO | CVAR_ARCHIVE);
 	gender = Cvar_Get("gender", "male", CVAR_USERINFO | CVAR_ARCHIVE);
 	gender_auto = Cvar_Get("gender_auto", "1", CVAR_ARCHIVE);
