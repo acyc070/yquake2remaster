@@ -1820,12 +1820,10 @@ createShaders(void)
 qboolean
 GL4_InitShaders(void)
 {
-	// PS1 vertex snap controls. Cvar_Get returns the existing cvar if
-	// already registered, so this is safe across vid_restart.
-	gl4_ps1_vertex_snap = Cvar_Get("gl4_ps1_vertex_snap", "1",   CVAR_ARCHIVE);
-	gl4_ps1_vertex_size = Cvar_Get("gl4_ps1_vertex_size", "1.0", CVAR_ARCHIVE);
-	Cvar_SetDescription(gl4_ps1_vertex_snap, "PS1-style vertex snapping: 0 = off, 1 = on.");
-	Cvar_SetDescription(gl4_ps1_vertex_size, "PS1 vertex snap grid size in pixels: 1 = real pixels, 2 = 2x2 blocks, etc.");
+	// PS1 vertex snap controls. In a refresh DLL we must use ri.Cvar_Get,
+	// not the bare Cvar_Get symbol (which lives in the client exe).
+	gl4_ps1_vertex_snap = ri.Cvar_Get("gl4_ps1_vertex_snap", "1",   CVAR_ARCHIVE);
+	gl4_ps1_vertex_size = ri.Cvar_Get("gl4_ps1_vertex_size", "1.0", CVAR_ARCHIVE);
 
 	initUBOs();
 
