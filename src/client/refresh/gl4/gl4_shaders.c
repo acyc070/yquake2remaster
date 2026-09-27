@@ -22,6 +22,11 @@
  *
  * OpenGL4 refresher: Handling shaders
  *
+ *   PS1-style vertex snapping based on the real framebuffer/viewport
+ *   resolution.  Snap happens after projection, so 1.0 pixel size means
+ *   "1 real pixel" at whatever resolution the viewport currently is.
+ *   Grid size is queried from GL_VIEWPORT once per frame (cached).
+ *
  * =======================================================================
  */
 
@@ -343,6 +348,9 @@ static const char* fragmentSrc2Dcolor = MULTILINE_STRING(
 );
 
 // ############## shaders for 3D rendering #####################
+// NOTE: position stays a float vec3, VAO stays unchanged.
+//       Pixel snapping is done AFTER projection using
+//       ps1ScreenRes (current viewport size) and ps1PixelSize.
 
 static const char* vertexCommon3D = MULTILINE_STRING(
 
@@ -354,6 +362,16 @@ static const char* vertexCommon3D = MULTILINE_STRING(
 		in uint lightFlags; // GL4_ATTRIB_LIGHTFLAGS
 
 		noperspective out vec2 passTexCoord;
+
+		// Current framebuffer / viewport size in real pixels.
+		// Set from C every frame via glGetIntegerv(GL_VIEWPORT).
+		uniform vec2 ps1ScreenRes;
+
+		// Snap scale in pixels:
+		//   1.0 = snap to real pixels
+		//   2.0 = snap to 2x2 pixel blocks (chunkier)
+		//   0.5 = half-pixel (smoother)
+		uniform float ps1PixelSize;
 
 		// for UBO shared between all 3D shaders
 		layout (std140) uniform uni3D
@@ -433,7 +451,11 @@ static const char* vertexSrc3D = MULTILINE_STRING(
 		void main()
 		{
 			passTexCoord = texCoord;
-			gl_Position = transProjView * transModel * vec4(position, 1.0);
+
+			vec4 ps1_pos = transProjView * transModel * vec4(position, 1.0);
+			vec2 ps1_halfRes = ps1ScreenRes * 0.5 / max(ps1PixelSize, 0.0001);
+			ps1_pos.xy = floor(ps1_pos.xy * ps1_halfRes + 0.5) / ps1_halfRes;
+			gl_Position = ps1_pos;
 		}
 );
 
@@ -444,7 +466,11 @@ static const char* vertexSrc3Dflow = MULTILINE_STRING(
 		void main()
 		{
 			passTexCoord = texCoord + vec2(sscroll, tscroll);
-			gl_Position = transProjView * transModel * vec4(position, 1.0);
+
+			vec4 ps1_pos = transProjView * transModel * vec4(position, 1.0);
+			vec2 ps1_halfRes = ps1ScreenRes * 0.5 / max(ps1PixelSize, 0.0001);
+			ps1_pos.xy = floor(ps1_pos.xy * ps1_halfRes + 0.5) / ps1_halfRes;
+			gl_Position = ps1_pos;
 		}
 );
 
@@ -467,7 +493,10 @@ static const char* vertexSrc3Dlm = MULTILINE_STRING(
 			passNormal = normalize(worldNormal.xyz);
 			passLightFlags = lightFlags;
 
-			gl_Position = transProjView * worldCoord;
+			vec4 ps1_pos = transProjView * worldCoord;
+			vec2 ps1_halfRes = ps1ScreenRes * 0.5 / max(ps1PixelSize, 0.0001);
+			ps1_pos.xy = floor(ps1_pos.xy * ps1_halfRes + 0.5) / ps1_halfRes;
+			gl_Position = ps1_pos;
 		}
 );
 
@@ -490,7 +519,10 @@ static const char* vertexSrc3DlmFlow = MULTILINE_STRING(
 			passNormal = normalize(worldNormal.xyz);
 			passLightFlags = lightFlags;
 
-			gl_Position = transProjView * worldCoord;
+			vec4 ps1_pos = transProjView * worldCoord;
+			vec2 ps1_halfRes = ps1ScreenRes * 0.5 / max(ps1PixelSize, 0.0001);
+			ps1_pos.xy = floor(ps1_pos.xy * ps1_halfRes + 0.5) / ps1_halfRes;
+			gl_Position = ps1_pos;
 		}
 );
 
@@ -867,7 +899,10 @@ static const char* vertexSrc3Dwater = MULTILINE_STRING(
 		{
 			passTexCoord = texCoord;
 
-			gl_Position = transProjView * transModel * vec4(position, 1.0);
+			vec4 ps1_pos = transProjView * transModel * vec4(position, 1.0);
+			vec2 ps1_halfRes = ps1ScreenRes * 0.5 / max(ps1PixelSize, 0.0001);
+			ps1_pos.xy = floor(ps1_pos.xy * ps1_halfRes + 0.5) / ps1_halfRes;
+			gl_Position = ps1_pos;
 		}
 );
 
@@ -881,7 +916,11 @@ static const char* vertexSrcAlias = MULTILINE_STRING(
 		{
 			passColor = vertColor*overbrightbits;
 			passTexCoord = texCoord;
-			gl_Position = transProjView* transModel * vec4(position, 1.0);
+
+			vec4 ps1_pos = transProjView* transModel * vec4(position, 1.0);
+			vec2 ps1_halfRes = ps1ScreenRes * 0.5 / max(ps1PixelSize, 0.0001);
+			ps1_pos.xy = floor(ps1_pos.xy * ps1_halfRes + 0.5) / ps1_halfRes;
+			gl_Position = ps1_pos;
 		}
 );
 
@@ -954,6 +993,8 @@ static const char* vertexSrcParticles = MULTILINE_STRING(
 		void main()
 		{
 			passColor = vertColor;
+
+			// NOTE: particles are intentionally NOT snapped, they stay smooth.
 			gl_Position = transProjView * transModel * vec4(position, 1.0);
 
 			// abusing texCoord for pointSize, pointDist for particles
@@ -1111,6 +1152,179 @@ enum {
 	GL4_BINDINGPOINT_UNILIGHTS
 };
 
+// ============================================================================
+// PS1 pixel snapping -- CPU side
+//
+// 3D vertex shaders snap gl_Position.xy to the current viewport grid.
+// The viewport size is fetched from GL_VIEWPORT once per frame and pushed
+// to every registered 3D program when it changes.
+//
+// "ps1PixelSize" scales the effect:
+//   1.0 = snap to real pixels
+//   2.0 = snap to 2x2 pixel blocks (chunkier)
+//   0.5 = half-pixel (smoother)
+// ============================================================================
+
+#define GL4_PS1_MAX_PROGRAMS 32
+
+typedef struct {
+	GLuint prog;
+	GLint  resLoc;
+	GLint  pixLoc;
+} gl4PS1Program_t;
+
+static gl4PS1Program_t s_ps1Programs[GL4_PS1_MAX_PROGRAMS];
+static int             s_ps1NumPrograms = 0;
+
+static int   s_ps1ScreenW  = 640;
+static int   s_ps1ScreenH  = 480;
+static float s_ps1PixelSize = 1.0f;
+
+// Push the cached values to a single registered program.
+// Assumes the program is already bound via glUseProgram().
+static void
+GL4_PS1PushToBoundProgram(GLint resLoc, GLint pixLoc)
+{
+	if (resLoc != -1)
+	{
+		glUniform2f(resLoc, (float)s_ps1ScreenW, (float)s_ps1ScreenH);
+	}
+	if (pixLoc != -1)
+	{
+		glUniform1f(pixLoc, s_ps1PixelSize);
+	}
+}
+
+// Called from initShader3D() right after GL4_UseProgram(prog).
+// Caches the uniform locations and pushes the current values.
+static void
+GL4_PS1RegisterProgram(GLuint prog)
+{
+	if (s_ps1NumPrograms >= GL4_PS1_MAX_PROGRAMS)
+	{
+		Com_Printf("WARNING: too many 3D programs for PS1 uniform cache!\n");
+		return;
+	}
+
+	GLint resLoc = glGetUniformLocation(prog, "ps1ScreenRes");
+	GLint pixLoc = glGetUniformLocation(prog, "ps1PixelSize");
+
+	// Nothing to do if this program doesn't use the PS1 uniforms.
+	if (resLoc == -1 && pixLoc == -1)
+	{
+		return;
+	}
+
+	s_ps1Programs[s_ps1NumPrograms].prog   = prog;
+	s_ps1Programs[s_ps1NumPrograms].resLoc = resLoc;
+	s_ps1Programs[s_ps1NumPrograms].pixLoc = pixLoc;
+	++s_ps1NumPrograms;
+
+	GL4_PS1PushToBoundProgram(resLoc, pixLoc);
+}
+
+// Called once per frame (from GL4_UpdateUBO3D). Queries GL_VIEWPORT and,
+// if the size has changed, updates every registered program.
+static void
+GL4_PS1SyncFromViewport(void)
+{
+	GLint vp[4] = { 0, 0, 640, 480 };
+	glGetIntegerv(GL_VIEWPORT, vp);
+
+	int w = vp[2];
+	int h = vp[3];
+	if (w < 1) w = 1;
+	if (h < 1) h = 1;
+
+	if (w == s_ps1ScreenW && h == s_ps1ScreenH)
+	{
+		return;
+	}
+
+	s_ps1ScreenW = w;
+	s_ps1ScreenH = h;
+
+	GLuint prevProg = gl4state.currentShaderProgram;
+
+	int i;
+	for (i = 0; i < s_ps1NumPrograms; ++i)
+	{
+		glUseProgram(s_ps1Programs[i].prog);
+		GL4_PS1PushToBoundProgram(s_ps1Programs[i].resLoc,
+		                          s_ps1Programs[i].pixLoc);
+	}
+
+	if (prevProg != 0)
+	{
+		GL4_UseProgram(prevProg);
+	}
+}
+
+// Public API: change the pixel-block size.
+//   1.0 = real pixels, 2.0 = 2x2 blocks, 0.5 = half-pixel.
+void
+GL4_SetPS1PixelSize(float pixelSize)
+{
+	if (pixelSize <= 0.0f)
+	{
+		pixelSize = 1.0f;
+	}
+	s_ps1PixelSize = pixelSize;
+
+	GLuint prevProg = gl4state.currentShaderProgram;
+
+	int i;
+	for (i = 0; i < s_ps1NumPrograms; ++i)
+	{
+		if (s_ps1Programs[i].pixLoc != -1)
+		{
+			glUseProgram(s_ps1Programs[i].prog);
+			glUniform1f(s_ps1Programs[i].pixLoc, pixelSize);
+		}
+	}
+
+	if (prevProg != 0)
+	{
+		GL4_UseProgram(prevProg);
+	}
+}
+
+// Public API: force a specific viewport size. Normally you don't need this;
+// GL4_PS1SyncFromViewport() picks it up automatically from GL_VIEWPORT.
+void
+GL4_SetPS1ScreenRes(int width, int height)
+{
+	if (width  < 1) width  = 1;
+	if (height < 1) height = 1;
+
+	if (width == s_ps1ScreenW && height == s_ps1ScreenH)
+	{
+		return;
+	}
+
+	s_ps1ScreenW = width;
+	s_ps1ScreenH = height;
+
+	GLuint prevProg = gl4state.currentShaderProgram;
+
+	int i;
+	for (i = 0; i < s_ps1NumPrograms; ++i)
+	{
+		if (s_ps1Programs[i].resLoc != -1)
+		{
+			glUseProgram(s_ps1Programs[i].prog);
+			glUniform2f(s_ps1Programs[i].resLoc, (float)width, (float)height);
+		}
+	}
+
+	if (prevProg != 0)
+	{
+		GL4_UseProgram(prevProg);
+	}
+}
+
+// ============================================================================
+
 static qboolean
 initShader2D(gl4ShaderInfo_t* shaderInfo, const char* vertSrc, const char* fragSrc,
 	qboolean uniCommonRequired)
@@ -1260,6 +1474,10 @@ initShader3D(gl4ShaderInfo_t* shaderInfo, const char* vertSrc, const char* fragS
 	}
 
 	GL4_UseProgram(prog);
+
+	// Register this program with the PS1 pixel-snapping system.
+	// Must be after GL4_UseProgram, because we push initial uniform values.
+	GL4_PS1RegisterProgram(prog);
 
 	// Bind the buffer object to the uniform blocks
 	GLuint blockIndex = glGetUniformBlockIndex(prog, "uniCommon");
@@ -1419,6 +1637,9 @@ static void initUBOs(void)
 static qboolean
 createShaders(void)
 {
+	// Reset the PS1 program cache before (re)creating programs.
+	s_ps1NumPrograms = 0;
+
 	if (!initShader2D(&gl4state.si2D, vertexSrc2D, fragmentSrc2D, true))
 	{
 		Com_Printf("WARNING: Failed to create shader program for textured 2D rendering!\n");
@@ -1569,6 +1790,9 @@ static void deleteShaders(void)
 
 		*si = siZero;
 	}
+
+	// All registered PS1 programs are now gone.
+	s_ps1NumPrograms = 0;
 }
 
 void
@@ -1634,6 +1858,9 @@ GL4_UpdateUBO2D(void)
 void
 GL4_UpdateUBO3D(void)
 {
+	// Keep the PS1 snap grid in sync with the current viewport size.
+	GL4_PS1SyncFromViewport();
+
 	updateUBO(gl4state.uni3DUBO, sizeof(gl4state.uni3DData), &gl4state.uni3DData);
 }
 
