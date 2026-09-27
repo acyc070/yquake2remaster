@@ -22,18 +22,16 @@
  *
  * OpenGL4 refresher: Handling shaders
  *
- *   *** Camera-relative integer vertex coordinates (RTE) ***
+ *   *** PS1-style vertex rounding ***
  *
- *  - 3D vertex shaders take an ivec3 'position' attribute.
- *  - A new uniform ivec3 'uniCameraPos' is subtracted from that
- *    integer position on the GPU, and only the (small) difference
- *    is converted to float for the projection/model matrices.
- *  - The CPU side must:
- *      1) round world-space vertex positions to int before upload,
- *      2) call GL4_SetCameraIntegerPosition() once per frame,
- *      3) use glVertexAttribIPointer(... GL_INT ...) for the position
- *         attribute in the VAO setup,
- *      4) upload dynLights[i].lightOrigin already camera-relative.
+ *  - 3D vertex shaders snap their vertex positions to a low-resolution
+ *    grid before the matrix multiplication, giving the classic
+ *    "wobbly" PlayStation 1 look.
+ *  - No integer attributes, no VAO changes, no glVertexAttribIPointer.
+ *  - A float uniform 'cameraPos' can optionally be subtracted before
+ *    rounding to keep precision on large maps.
+ *  - The grid size is exposed as a float uniform 'ps1GridSize' so the
+ *    engine can change it at runtime (smaller = chunkier).
  *
  * =======================================================================
  */
@@ -42,6 +40,11 @@
 
 // TODO: remove eprintf() usage
 #define eprintf(...)  R_Printf(PRINT_ALL, __VA_ARGS__)
+
+// Set to 1 to snap AFTER projection (screen space, most PS1-accurate).
+// Set to 0 to snap world-space vertex positions (usually looks better
+// in a modern engine and still gives the retro wobble).
+#define PS1_SCREEN_SPACE_SNAP 1
 
 
 static GLuint
@@ -170,7 +173,7 @@ CreateShaderProgram(int numShaders, const GLuint* shaders)
 #define MULTILINE_STRING(...) #__VA_ARGS__
 
 // ############## shaders for 2D rendering (HUD, menus, console, videos, ..) #####################
-// NOTE: 2D shaders work in screen space and do NOT use camera-relative integers.
+// NOTE: 2D shaders work in screen space and are NOT affected by PS1 rounding.
 
 static const char* vertexSrc2D = MULTILINE_STRING(
 
@@ -357,12 +360,12 @@ static const char* fragmentSrc2Dcolor = MULTILINE_STRING(
 );
 
 // ############## shaders for 3D rendering #####################
-// NOTE: position is ivec3 (world-space integer coords).
-//       uniCameraPos is subtracted, result converted to float.
+// NOTE: 'position' is a normal float vec3 (VAO unchanged).
+//       PS1 rounding is done inside each vertex shader's main().
 
 static const char* vertexCommon3D = MULTILINE_STRING(
 
-		in ivec3 position;  // GL4_ATTRIB_POSITION (integer world-space coords)
+		in vec3 position;   // GL4_ATTRIB_POSITION (float, unchanged)
 		in vec2 texCoord;   // GL4_ATTRIB_TEXCOORD
 		in vec2 lmTexCoord; // GL4_ATTRIB_LMTEXCOORD
 		in vec4 vertColor;  // GL4_ATTRIB_COLOR
@@ -371,9 +374,27 @@ static const char* vertexCommon3D = MULTILINE_STRING(
 
 		noperspective out vec2 passTexCoord;
 
-		// Integer camera position (same space/scale as 'position').
-		// Subtracted from every vertex to keep floating-point values small.
-		uniform ivec3 uniCameraPos;
+		// Camera position in world space, used only when
+		// subtracting to keep float precision on large maps.
+		// Set from CPU via GL4_SetCameraPosition(); harmless if left at 0.
+		uniform vec3 cameraPos;
+
+		// PS1 vertex grid size. Smaller = chunkier wobble.
+		// Default is set from CPU via GL4_SetPS1Grid().
+		uniform float ps1GridSize;
+
+#if PS1_SCREEN_SPACE_SNAP
+		// Screen resolution used for snapping in clip space.
+		// Adjust to your internal render resolution.
+		const vec2 ps1ScreenRes = vec2(320.0, 240.0);
+#endif
+
+		// Snap a world-space position to the PS1 grid.
+		vec3 ps1RoundWorld(vec3 p)
+		{
+			float g = max(ps1GridSize, 1e-6);
+			return floor(p / g + 0.5) * g;
+		}
 
 		// for UBO shared between all 3D shaders
 		layout (std140) uniform uni3D
@@ -452,12 +473,16 @@ static const char* vertexSrc3D = MULTILINE_STRING(
 
 		void main()
 		{
-			// Integer -> float: subtract camera position first, keep the
-			// magnitude small, THEN convert to float.
-			vec3 relPos = vec3(position - uniCameraPos);
+			vec3 relPos = position - cameraPos;
+			vec3 roundedPos = ps1RoundWorld(relPos);
 
 			passTexCoord = texCoord;
-			gl_Position = transProjView * transModel * vec4(relPos, 1.0);
+			gl_Position = transProjView * transModel * vec4(roundedPos, 1.0);
+
+#if PS1_SCREEN_SPACE_SNAP
+			gl_Position.xy = floor(gl_Position.xy * ps1ScreenRes * 0.5)
+			                 / (ps1ScreenRes * 0.5);
+#endif
 		}
 );
 
@@ -467,10 +492,16 @@ static const char* vertexSrc3Dflow = MULTILINE_STRING(
 
 		void main()
 		{
-			vec3 relPos = vec3(position - uniCameraPos);
+			vec3 relPos = position - cameraPos;
+			vec3 roundedPos = ps1RoundWorld(relPos);
 
 			passTexCoord = texCoord + vec2(sscroll, tscroll);
-			gl_Position = transProjView * transModel * vec4(relPos, 1.0);
+			gl_Position = transProjView * transModel * vec4(roundedPos, 1.0);
+
+#if PS1_SCREEN_SPACE_SNAP
+			gl_Position.xy = floor(gl_Position.xy * ps1ScreenRes * 0.5)
+			                 / (ps1ScreenRes * 0.5);
+#endif
 		}
 );
 
@@ -485,19 +516,25 @@ static const char* vertexSrc3Dlm = MULTILINE_STRING(
 
 		void main()
 		{
-			vec3 relPos = vec3(position - uniCameraPos);
+			vec3 relPos = position - cameraPos;
+			vec3 roundedPos = ps1RoundWorld(relPos);
 
 			passTexCoord = texCoord;
 			passLMcoord = lmTexCoord;
-			vec4 worldCoord = transModel * vec4(relPos, 1.0);
-			// NOTE: this is camera-relative world coord. dynLights origins
-			// uploaded via uniLightsData must also be camera-relative!
+			vec4 worldCoord = transModel * vec4(roundedPos, 1.0);
+			// NOTE: camera-relative world coord. dynLights origins should
+			// be camera-relative too if you use GL4_SetCameraPosition().
 			passWorldCoord = worldCoord.xyz;
 			vec4 worldNormal = transModel * vec4(normal, 0.0f);
 			passNormal = normalize(worldNormal.xyz);
 			passLightFlags = lightFlags;
 
 			gl_Position = transProjView * worldCoord;
+
+#if PS1_SCREEN_SPACE_SNAP
+			gl_Position.xy = floor(gl_Position.xy * ps1ScreenRes * 0.5)
+			                 / (ps1ScreenRes * 0.5);
+#endif
 		}
 );
 
@@ -512,17 +549,23 @@ static const char* vertexSrc3DlmFlow = MULTILINE_STRING(
 
 		void main()
 		{
-			vec3 relPos = vec3(position - uniCameraPos);
+			vec3 relPos = position - cameraPos;
+			vec3 roundedPos = ps1RoundWorld(relPos);
 
 			passTexCoord = texCoord + vec2(sscroll, tscroll);
 			passLMcoord = lmTexCoord;
-			vec4 worldCoord = transModel * vec4(relPos, 1.0);
+			vec4 worldCoord = transModel * vec4(roundedPos, 1.0);
 			passWorldCoord = worldCoord.xyz;
 			vec4 worldNormal = transModel * vec4(normal, 0.0f);
 			passNormal = normalize(worldNormal.xyz);
 			passLightFlags = lightFlags;
 
 			gl_Position = transProjView * worldCoord;
+
+#if PS1_SCREEN_SPACE_SNAP
+			gl_Position.xy = floor(gl_Position.xy * ps1ScreenRes * 0.5)
+			                 / (ps1ScreenRes * 0.5);
+#endif
 		}
 );
 
@@ -590,7 +633,8 @@ static const char* fragmentSrc3Dlm = MULTILINE_STRING(
 		// it gets attributes and uniforms from fragmentCommon3D
 
 		struct DynLight { // gl4UniDynLight in C
-			vec3 lightOrigin; // NOTE: must be camera-relative on upload
+			vec3 lightOrigin; // NOTE: if you use GL4_SetCameraPosition(),
+			                  // upload this already camera-relative.
 			float _pad;
 			//vec3 lightColor;
 			//float lightIntensity;
@@ -615,7 +659,7 @@ static const char* fragmentSrc3Dlm = MULTILINE_STRING(
 		uniform vec4 lmScales[4];
 
 		noperspective in vec2 passLMcoord;
-		noperspective in vec3 passWorldCoord; // camera-relative!
+		noperspective in vec3 passWorldCoord; // camera-relative if cameraPos is set
 		noperspective in vec3 passNormal;
 		flat in uint passLightFlags;
 
@@ -642,13 +686,14 @@ static const char* fragmentSrc3Dlm = MULTILINE_STRING(
 
 					float intens = dynLights[i].lightColor.a;
 
-					// both light origin and passWorldCoord are camera-relative
 					vec3 lightToPos = dynLights[i].lightOrigin - passWorldCoord;
 					float distLightToPos = length(lightToPos);
 					float fact = max(0.0, intens - distLightToPos - 52.0);
 
+					// move the light source a bit further above the surface
 					lightToPos += passNormal*32.0;
 
+					// also factor in angle between light and point on surface
 					fact *= max(0.0, dot(passNormal, normalize(lightToPos)));
 
 					lmTex.rgb += dynLights[i].lightColor.rgb * fact * (1.0/256.0);
@@ -677,7 +722,7 @@ static const char* fragmentSrc3DlmNoColor = MULTILINE_STRING(
 		// it gets attributes and uniforms from fragmentCommon3D
 
 		struct DynLight { // gl4UniDynLight in C
-			vec3 lightOrigin; // NOTE: must be camera-relative on upload
+			vec3 lightOrigin;
 			float _pad;
 			vec4 lightColor; // .a is intensity
 		};
@@ -868,11 +913,16 @@ static const char* vertexSrc3Dwater = MULTILINE_STRING(
 		// it gets attributes and uniforms from vertexCommon3D
 		void main()
 		{
-			vec3 relPos = vec3(position - uniCameraPos);
+			vec3 relPos = position - cameraPos;
+			vec3 roundedPos = ps1RoundWorld(relPos);
 
 			passTexCoord = texCoord;
+			gl_Position = transProjView * transModel * vec4(roundedPos, 1.0);
 
-			gl_Position = transProjView * transModel * vec4(relPos, 1.0);
+#if PS1_SCREEN_SPACE_SNAP
+			gl_Position.xy = floor(gl_Position.xy * ps1ScreenRes * 0.5)
+			                 / (ps1ScreenRes * 0.5);
+#endif
 		}
 );
 
@@ -884,11 +934,17 @@ static const char* vertexSrcAlias = MULTILINE_STRING(
 
 		void main()
 		{
-			vec3 relPos = vec3(position - uniCameraPos);
+			vec3 relPos = position - cameraPos;
+			vec3 roundedPos = ps1RoundWorld(relPos);
 
 			passColor = vertColor*overbrightbits;
 			passTexCoord = texCoord;
-			gl_Position = transProjView* transModel * vec4(relPos, 1.0);
+			gl_Position = transProjView* transModel * vec4(roundedPos, 1.0);
+
+#if PS1_SCREEN_SPACE_SNAP
+			gl_Position.xy = floor(gl_Position.xy * ps1ScreenRes * 0.5)
+			                 / (ps1ScreenRes * 0.5);
+#endif
 		}
 );
 
@@ -959,7 +1015,11 @@ static const char* vertexSrcParticles = MULTILINE_STRING(
 
 		void main()
 		{
-			vec3 relPos = vec3(position - uniCameraPos);
+			// NOTE: particles are NOT snapped here so they still look smooth;
+			// if you want them to wobble too, uncomment the next two lines.
+			// vec3 relPos = ps1RoundWorld(position - cameraPos);
+			// vec3 relPos = position - cameraPos;
+			vec3 relPos = position - cameraPos;
 
 			passColor = vertColor;
 			gl_Position = transProjView * transModel * vec4(relPos, 1.0);
@@ -1118,47 +1178,90 @@ enum {
 };
 
 // ============================================================================
-// Camera-relative integer vertex position support (added)
+// PS1 rounding helpers (CPU side)
 // ============================================================================
 
-#define GL4_MAX_CAMERA_POS_UNIFORMS 32
+#define GL4_MAX_PS1_UNIFORMS 32
 
 typedef struct {
 	GLuint prog;
-	GLint  loc;
-} gl4CameraPosUniform_t;
+	GLint  gridLoc;
+	GLint  camLoc;
+} gl4PS1Uniforms_t;
 
-static gl4CameraPosUniform_t s_cameraPosUniforms[GL4_MAX_CAMERA_POS_UNIFORMS];
-static int s_numCameraPosUniforms = 0;
-static int s_cameraPos[3] = { 0, 0, 0 };
+static gl4PS1Uniforms_t s_ps1Uniforms[GL4_MAX_PS1_UNIFORMS];
+static int   s_numPS1Uniforms = 0;
+static float s_ps1GridSize = 1.0f / 1.0f; // default chunkiness
+static float s_cameraPos[3] = { 0.0f, 0.0f, 0.0f };
 
 // Called from initShader3D after a program is linked & bound.
-// Caches the uniform location and pushes the current value.
 static void
-registerCameraPosUniform(GLuint prog)
+registerPS1Uniforms(GLuint prog)
 {
-	GLint loc = glGetUniformLocation(prog, "uniCameraPos");
-	if (loc == -1)
+	if (s_numPS1Uniforms >= GL4_MAX_PS1_UNIFORMS)
 	{
-		return;
-	}
-	if (s_numCameraPosUniforms >= GL4_MAX_CAMERA_POS_UNIFORMS)
-	{
-		Com_Printf("WARNING: too many 3D shaders for camera-pos uniform cache!\n");
+		Com_Printf("WARNING: too many 3D shaders for PS1 uniform cache!\n");
 		return;
 	}
 
-	s_cameraPosUniforms[s_numCameraPosUniforms].prog = prog;
-	s_cameraPosUniforms[s_numCameraPosUniforms].loc  = loc;
-	++s_numCameraPosUniforms;
+	GLint gridLoc = glGetUniformLocation(prog, "ps1GridSize");
+	GLint camLoc  = glGetUniformLocation(prog, "cameraPos");
 
-	glUniform3i(loc, s_cameraPos[0], s_cameraPos[1], s_cameraPos[2]);
+	// If neither exists (e.g. fragment-only or special program) just skip.
+	if (gridLoc == -1 && camLoc == -1)
+	{
+		return;
+	}
+
+	s_ps1Uniforms[s_numPS1Uniforms].prog    = prog;
+	s_ps1Uniforms[s_numPS1Uniforms].gridLoc = gridLoc;
+	s_ps1Uniforms[s_numPS1Uniforms].camLoc  = camLoc;
+	++s_numPS1Uniforms;
+
+	if (gridLoc != -1)
+	{
+		glUniform1f(gridLoc, s_ps1GridSize);
+	}
+	if (camLoc != -1)
+	{
+		glUniform3f(camLoc, s_cameraPos[0], s_cameraPos[1], s_cameraPos[2]);
+	}
 }
 
-// Public API: call once per frame, after you know the camera's
-// integer world position (same units/scale as uploaded vertex data).
+// Public API: change the PS1 vertex grid size at runtime.
+// Smaller values (e.g. 1/64) = chunkier. Larger (e.g. 1/4) = smoother.
 void
-GL4_SetCameraIntegerPosition(int x, int y, int z)
+GL4_SetPS1Grid(float gridSize)
+{
+	if (gridSize <= 0.0f)
+	{
+		gridSize = 1.0f / 16.0f;
+	}
+	s_ps1GridSize = gridSize;
+
+	GLuint prevProg = gl4state.currentShaderProgram;
+
+	int i;
+	for (i = 0; i < s_numPS1Uniforms; ++i)
+	{
+		if (s_ps1Uniforms[i].gridLoc != -1)
+		{
+			glUseProgram(s_ps1Uniforms[i].prog);
+			glUniform1f(s_ps1Uniforms[i].gridLoc, gridSize);
+		}
+	}
+
+	if (prevProg != 0)
+	{
+		GL4_UseProgram(prevProg);
+	}
+}
+
+// Public API: update camera position for precision on large maps.
+// Purely optional -- if you never call this, vertices are rounded in
+// world space, which is the classic PS1 look anyway.
+void
+GL4_SetCameraPosition(float x, float y, float z)
 {
 	if (s_cameraPos[0] == x && s_cameraPos[1] == y && s_cameraPos[2] == z)
 	{
@@ -1172,34 +1275,18 @@ GL4_SetCameraIntegerPosition(int x, int y, int z)
 	GLuint prevProg = gl4state.currentShaderProgram;
 
 	int i;
-	for (i = 0; i < s_numCameraPosUniforms; ++i)
+	for (i = 0; i < s_numPS1Uniforms; ++i)
 	{
-		glUseProgram(s_cameraPosUniforms[i].prog);
-		glUniform3i(s_cameraPosUniforms[i].loc, x, y, z);
+		if (s_ps1Uniforms[i].camLoc != -1)
+		{
+			glUseProgram(s_ps1Uniforms[i].prog);
+			glUniform3f(s_ps1Uniforms[i].camLoc, x, y, z);
+		}
 	}
 
 	if (prevProg != 0)
 	{
 		GL4_UseProgram(prevProg);
-	}
-}
-
-// Public API: call when preparing vertex data for upload.
-// Rounds each float world-space coordinate to the nearest integer
-// (half away from zero) so it can be uploaded as GL_INT to the
-// ivec3 'position' attribute.
-void
-GL4_RoundVerticesToInt(const float* in, int* out, int numVerts)
-{
-	int i;
-	for (i = 0; i < numVerts; ++i)
-	{
-		const float* src = in  + i * 3;
-		int*         dst = out + i * 3;
-
-		dst[0] = (int)floorf(src[0] + 0.5f);
-		dst[1] = (int)floorf(src[1] + 0.5f);
-		dst[2] = (int)floorf(src[2] + 0.5f);
 	}
 }
 
@@ -1352,8 +1439,8 @@ initShader3D(gl4ShaderInfo_t* shaderInfo, const char* vertSrc, const char* fragS
 
 	GL4_UseProgram(prog);
 
-	// Register the camera-position uniform for this program.
-	registerCameraPosUniform(prog);
+	// Register the PS1/camera uniforms for this program.
+	registerPS1Uniforms(prog);
 
 	// Bind the buffer object to the uniform blocks
 	GLuint blockIndex = glGetUniformBlockIndex(prog, "uniCommon");
@@ -1513,8 +1600,8 @@ static void initUBOs(void)
 static qboolean
 createShaders(void)
 {
-	// reset the camera-pos uniform cache before (re)creating programs
-	s_numCameraPosUniforms = 0;
+	// reset the PS1 uniform cache before (re)creating programs
+	s_numPS1Uniforms = 0;
 
 	if (!initShader2D(&gl4state.si2D, vertexSrc2D, fragmentSrc2D, true))
 	{
@@ -1667,8 +1754,8 @@ static void deleteShaders(void)
 		*si = siZero;
 	}
 
-	// Invalidate the camera-pos uniform cache; programs are gone.
-	s_numCameraPosUniforms = 0;
+	// Invalidate the PS1 uniform cache; programs are gone.
+	s_numPS1Uniforms = 0;
 }
 
 void
