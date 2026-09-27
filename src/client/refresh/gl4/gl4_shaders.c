@@ -27,6 +27,10 @@
  *   "1 real pixel" at whatever resolution the viewport currently is.
  *   Grid size is queried from GL_VIEWPORT once per frame (cached).
  *
+ *   Runtime control via cvars:
+ *     gl4_ps1_vertex_snap  0/1   (default 1)
+ *     gl4_ps1_vertex_size  float (default 1.0)
+ *
  * =======================================================================
  */
 
@@ -34,6 +38,10 @@
 
 // TODO: remove eprintf() usage
 #define eprintf(...)  R_Printf(PRINT_ALL, __VA_ARGS__)
+
+// PS1 vertex snap cvars (registered in GL4_InitShaders)
+static cvar_t *gl4_ps1_vertex_snap = NULL;  // 0 = off, 1 = on
+static cvar_t *gl4_ps1_vertex_size = NULL;  // pixel block size (1.0 = 1 real pixel)
 
 
 static GLuint
@@ -1163,6 +1171,10 @@ enum {
 //   1.0 = snap to real pixels
 //   2.0 = snap to 2x2 pixel blocks (chunkier)
 //   0.5 = half-pixel (smoother)
+//
+// Runtime control:
+//   gl4_ps1_vertex_snap  0/1    enable/disable
+//   gl4_ps1_vertex_size  float  pixel block size
 // ============================================================================
 
 #define GL4_PS1_MAX_PROGRAMS 32
@@ -1179,6 +1191,11 @@ static int             s_ps1NumPrograms = 0;
 static int   s_ps1ScreenW  = 640;
 static int   s_ps1ScreenH  = 480;
 static float s_ps1PixelSize = 1.0f;
+
+// Cached values from the previous cvar-apply pass, so we only push
+// uniforms when something actually changed.
+static int   s_ps1LastEnabled = -1;
+static float s_ps1LastSize    = -1.0f;
 
 // Push the cached values to a single registered program.
 // Assumes the program is already bound via glUseProgram().
@@ -1323,6 +1340,37 @@ GL4_SetPS1ScreenRes(int width, int height)
 	}
 }
 
+// Called once per frame from GL4_UpdateUBO3D. Reads the cvars and pushes
+// any changes to all registered 3D programs. Cheap: two compares in the
+// common case where nothing has changed.
+static void
+GL4_PS1ApplyCvars(void)
+{
+	if (gl4_ps1_vertex_snap == NULL || gl4_ps1_vertex_size == NULL)
+	{
+		return;
+	}
+
+	int   enabled = (gl4_ps1_vertex_snap->value != 0.0f) ? 1 : 0;
+	float size    = gl4_ps1_vertex_size->value;
+
+	// Clamp size to something sensible.
+	// 0.001 = essentially no snap, 64 = absurdly chunky.
+	if (size < 0.001f) size = 0.001f;
+	if (size > 64.0f)  size = 64.0f;
+
+	if (enabled == s_ps1LastEnabled && size == s_ps1LastSize)
+	{
+		return;
+	}
+
+	s_ps1LastEnabled = enabled;
+	s_ps1LastSize    = size;
+
+	// When disabled, push a tiny "grid" so effectively nothing snaps.
+	GL4_SetPS1PixelSize(enabled ? size : 0.0001f);
+}
+
 // ============================================================================
 
 static qboolean
@@ -1370,7 +1418,6 @@ initShader2D(gl4ShaderInfo_t* shaderInfo, const char* vertSrc, const char* fragS
 	shaderInfo->shaderProgram = prog;
 	GL4_UseProgram(prog);
 
-	// Bind the buffer object to the uniform blocks
 	// Bind the buffer object to the uniform blocks
 	GLuint blockIndex = GL_INVALID_INDEX;
 	if (uniCommonRequired)
@@ -1773,6 +1820,13 @@ createShaders(void)
 qboolean
 GL4_InitShaders(void)
 {
+	// PS1 vertex snap controls. Cvar_Get returns the existing cvar if
+	// already registered, so this is safe across vid_restart.
+	gl4_ps1_vertex_snap = Cvar_Get("gl4_ps1_vertex_snap", "1",   CVAR_ARCHIVE);
+	gl4_ps1_vertex_size = Cvar_Get("gl4_ps1_vertex_size", "1.0", CVAR_ARCHIVE);
+	Cvar_SetDescription(gl4_ps1_vertex_snap, "PS1-style vertex snapping: 0 = off, 1 = on.");
+	Cvar_SetDescription(gl4_ps1_vertex_size, "PS1 vertex snap grid size in pixels: 1 = real pixels, 2 = 2x2 blocks, etc.");
+
 	initUBOs();
 
 	return createShaders();
@@ -1793,6 +1847,11 @@ static void deleteShaders(void)
 
 	// All registered PS1 programs are now gone.
 	s_ps1NumPrograms = 0;
+
+	// Force GL4_PS1ApplyCvars to re-push on the next frame, because
+	// the newly created programs haven't received the uniforms yet.
+	s_ps1LastEnabled = -1;
+	s_ps1LastSize    = -1.0f;
 }
 
 void
@@ -1858,6 +1917,10 @@ GL4_UpdateUBO2D(void)
 void
 GL4_UpdateUBO3D(void)
 {
+	// Apply any cvar changes before we sync the viewport, so a resize
+	// and a cvar change in the same frame both take effect cleanly.
+	GL4_PS1ApplyCvars();
+
 	// Keep the PS1 snap grid in sync with the current viewport size.
 	GL4_PS1SyncFromViewport();
 
