@@ -169,7 +169,7 @@ static const char* vertexSrc2D = MULTILINE_STRING(
 			mat4 trans;
 		};
 
-		out vec2 passTexCoord;
+		noperspective out vec2 passTexCoord;
 
 		void main()
 		{
@@ -180,7 +180,7 @@ static const char* vertexSrc2D = MULTILINE_STRING(
 
 static const char* fragmentSrc2D = MULTILINE_STRING(
 
-		in vec2 passTexCoord;
+		noperspective in vec2 passTexCoord;
 
 		// for UBO shared between all shaders (incl. 2D)
 		layout (std140) uniform uniCommon
@@ -215,7 +215,7 @@ static const char* fragmentSrc2D = MULTILINE_STRING(
 // like fragmentSrc2D, but also multiplies by color uniform for tinting (e.g. crosshair color)
 static const char* fragmentSrc2Dtinted = MULTILINE_STRING(
 
-		in vec2 passTexCoord;
+		noperspective in vec2 passTexCoord;
 
 		// for UBO shared between all shaders (incl. 2D)
 		layout (std140) uniform uniCommon
@@ -249,7 +249,7 @@ static const char* fragmentSrc2Dtinted = MULTILINE_STRING(
 );
 
 static const char* fragmentSrc2Dpostprocess = MULTILINE_STRING(
-		in vec2 passTexCoord;
+		noperspective in vec2 passTexCoord;
 
 		uniform sampler2D tex;
 		uniform vec4 v_blend;
@@ -268,7 +268,7 @@ static const char* fragmentSrc2Dpostprocess = MULTILINE_STRING(
 );
 
 static const char* fragmentSrc2DpostprocessWater = MULTILINE_STRING(
-		in vec2 passTexCoord;
+		noperspective in vec2 passTexCoord;
 
 		const float PI = 3.14159265358979323846;
 
@@ -353,7 +353,7 @@ static const char* vertexCommon3D = MULTILINE_STRING(
 		in vec3 normal;     // GL4_ATTRIB_NORMAL
 		in uint lightFlags; // GL4_ATTRIB_LIGHTFLAGS
 
-		out vec2 passTexCoord;
+		noperspective out vec2 passTexCoord;
 
 		// for UBO shared between all 3D shaders
 		layout (std140) uniform uni3D
@@ -385,7 +385,7 @@ static const char* vertexCommon3D = MULTILINE_STRING(
 
 static const char* fragmentCommon3D = MULTILINE_STRING(
 
-		in vec2 passTexCoord;
+		noperspective in vec2 passTexCoord;
 
 		out vec4 outColor;
 
@@ -452,9 +452,9 @@ static const char* vertexSrc3Dlm = MULTILINE_STRING(
 
 		// it gets attributes and uniforms from vertexCommon3D
 
-		out vec2 passLMcoord;
-		out vec3 passWorldCoord;
-		out vec3 passNormal;
+		noperspective out vec2 passLMcoord;
+		noperspective out vec3 passWorldCoord;
+		noperspective out vec3 passNormal;
 		flat out uint passLightFlags;
 
 		void main()
@@ -475,9 +475,9 @@ static const char* vertexSrc3DlmFlow = MULTILINE_STRING(
 
 		// it gets attributes and uniforms from vertexCommon3D
 
-		out vec2 passLMcoord;
-		out vec3 passWorldCoord;
-		out vec3 passNormal;
+		noperspective out vec2 passLMcoord;
+		noperspective out vec3 passWorldCoord;
+		noperspective out vec3 passNormal;
 		flat out uint passLightFlags;
 
 		void main()
@@ -582,9 +582,9 @@ static const char* fragmentSrc3Dlm = MULTILINE_STRING(
 
 		uniform vec4 lmScales[4];
 
-		in vec2 passLMcoord;
-		in vec3 passWorldCoord;
-		in vec3 passNormal;
+		noperspective in vec2 passLMcoord;
+		noperspective in vec3 passWorldCoord;
+		noperspective in vec3 passNormal;
 		flat in uint passLightFlags;
 
 		void main()
@@ -678,9 +678,9 @@ static const char* fragmentSrc3DlmNoColor = MULTILINE_STRING(
 
 		uniform vec4 lmScales[4];
 
-		in vec2 passLMcoord;
-		in vec3 passWorldCoord;
-		in vec3 passNormal;
+		noperspective in vec2 passLMcoord;
+		noperspective in vec3 passWorldCoord;
+		noperspective in vec3 passNormal;
 		flat in uint passLightFlags;
 
 		void main()
@@ -875,7 +875,7 @@ static const char* vertexSrcAlias = MULTILINE_STRING(
 
 		// it gets attributes and uniforms from vertexCommon3D
 
-		out vec4 passColor;
+		noperspective out vec4 passColor;
 
 		void main()
 		{
@@ -891,7 +891,7 @@ static const char* fragmentSrcAlias = MULTILINE_STRING(
 
 		uniform sampler2D tex;
 
-		in vec4 passColor;
+		noperspective in vec4 passColor;
 
 		void main()
 		{
@@ -921,7 +921,7 @@ static const char* fragmentSrcAliasColor = MULTILINE_STRING(
 
 		// it gets attributes and uniforms from fragmentCommon3D
 
-		in vec4 passColor;
+		noperspective in vec4 passColor;
 
 		void main()
 		{
@@ -949,7 +949,7 @@ static const char* vertexSrcParticles = MULTILINE_STRING(
 
 		// it gets attributes and uniforms from vertexCommon3D
 
-		out vec4 passColor;
+		noperspective out vec4 passColor;
 
 		void main()
 		{
@@ -967,7 +967,7 @@ static const char* fragmentSrcParticles = MULTILINE_STRING(
 
 		// it gets attributes and uniforms from fragmentCommon3D
 
-		in vec4 passColor;
+		noperspective in vec4 passColor;
 
 		void main()
 		{
@@ -1002,7 +1002,7 @@ static const char* fragmentSrcParticlesSquare = MULTILINE_STRING(
 
 		// it gets attributes and uniforms from fragmentCommon3D
 
-		in vec4 passColor;
+		noperspective in vec4 passColor;
 
 		void main()
 		{
@@ -1035,7 +1035,7 @@ static const char* vertexBloomSrcFullScreen = MULTILINE_STRING(
 			mat4 trans;
 		};
 
-		out vec2 passTexCoord;
+		noperspective out vec2 passTexCoord;
 
 		void main()
 		{
@@ -1046,7 +1046,7 @@ static const char* vertexBloomSrcFullScreen = MULTILINE_STRING(
 
 static const char* fragmentBloomBright = MULTILINE_STRING(
 
-		in vec2 passTexCoord;
+		noperspective in vec2 passTexCoord;
 
 		uniform sampler2D tex;
 		uniform float threshold;
@@ -1071,7 +1071,7 @@ static const char* fragmentBloomBright = MULTILINE_STRING(
 
 static const char* fragmentBloomBlur = MULTILINE_STRING(
 
-		in vec2 passTexCoord;
+		noperspective in vec2 passTexCoord;
 
 		uniform sampler2D tex;
 		uniform vec2 dir;
