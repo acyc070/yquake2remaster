@@ -461,8 +461,10 @@ static const char* vertexSrc3D = MULTILINE_STRING(
 			passTexCoord = texCoord;
 
 			vec4 ps1_pos = transProjView * transModel * vec4(position, 1.0);
+			vec2 ndc = ps1_pos.xy / ps1_pos.w;
 			vec2 ps1_halfRes = ps1ScreenRes * 0.5 / max(ps1PixelSize, 0.0001);
-			ps1_pos.xy = floor(ps1_pos.xy * ps1_halfRes + 0.5) / ps1_halfRes;
+			vec2 snappedNdc = floor(ndc * ps1_halfRes + 0.5) / ps1_halfRes;
+			ps1_pos.xy = snappedNdc * ps1_pos.w;
 			gl_Position = ps1_pos;
 		}
 );
@@ -476,8 +478,10 @@ static const char* vertexSrc3Dflow = MULTILINE_STRING(
 			passTexCoord = texCoord + vec2(sscroll, tscroll);
 
 			vec4 ps1_pos = transProjView * transModel * vec4(position, 1.0);
+			vec2 ndc = ps1_pos.xy / ps1_pos.w;
 			vec2 ps1_halfRes = ps1ScreenRes * 0.5 / max(ps1PixelSize, 0.0001);
-			ps1_pos.xy = floor(ps1_pos.xy * ps1_halfRes + 0.5) / ps1_halfRes;
+			vec2 snappedNdc = floor(ndc * ps1_halfRes + 0.5) / ps1_halfRes;
+			ps1_pos.xy = snappedNdc * ps1_pos.w;
 			gl_Position = ps1_pos;
 		}
 );
@@ -502,8 +506,10 @@ static const char* vertexSrc3Dlm = MULTILINE_STRING(
 			passLightFlags = lightFlags;
 
 			vec4 ps1_pos = transProjView * worldCoord;
+			vec2 ndc = ps1_pos.xy / ps1_pos.w;
 			vec2 ps1_halfRes = ps1ScreenRes * 0.5 / max(ps1PixelSize, 0.0001);
-			ps1_pos.xy = floor(ps1_pos.xy * ps1_halfRes + 0.5) / ps1_halfRes;
+			vec2 snappedNdc = floor(ndc * ps1_halfRes + 0.5) / ps1_halfRes;
+			ps1_pos.xy = snappedNdc * ps1_pos.w;
 			gl_Position = ps1_pos;
 		}
 );
@@ -528,8 +534,10 @@ static const char* vertexSrc3DlmFlow = MULTILINE_STRING(
 			passLightFlags = lightFlags;
 
 			vec4 ps1_pos = transProjView * worldCoord;
+			vec2 ndc = ps1_pos.xy / ps1_pos.w;
 			vec2 ps1_halfRes = ps1ScreenRes * 0.5 / max(ps1PixelSize, 0.0001);
-			ps1_pos.xy = floor(ps1_pos.xy * ps1_halfRes + 0.5) / ps1_halfRes;
+			vec2 snappedNdc = floor(ndc * ps1_halfRes + 0.5) / ps1_halfRes;
+			ps1_pos.xy = snappedNdc * ps1_pos.w;
 			gl_Position = ps1_pos;
 		}
 );
@@ -908,8 +916,10 @@ static const char* vertexSrc3Dwater = MULTILINE_STRING(
 			passTexCoord = texCoord;
 
 			vec4 ps1_pos = transProjView * transModel * vec4(position, 1.0);
+			vec2 ndc = ps1_pos.xy / ps1_pos.w;
 			vec2 ps1_halfRes = ps1ScreenRes * 0.5 / max(ps1PixelSize, 0.0001);
-			ps1_pos.xy = floor(ps1_pos.xy * ps1_halfRes + 0.5) / ps1_halfRes;
+			vec2 snappedNdc = floor(ndc * ps1_halfRes + 0.5) / ps1_halfRes;
+			ps1_pos.xy = snappedNdc * ps1_pos.w;
 			gl_Position = ps1_pos;
 		}
 );
@@ -926,8 +936,10 @@ static const char* vertexSrcAlias = MULTILINE_STRING(
 			passTexCoord = texCoord;
 
 			vec4 ps1_pos = transProjView* transModel * vec4(position, 1.0);
+			vec2 ndc = ps1_pos.xy / ps1_pos.w;
 			vec2 ps1_halfRes = ps1ScreenRes * 0.5 / max(ps1PixelSize, 0.0001);
-			ps1_pos.xy = floor(ps1_pos.xy * ps1_halfRes + 0.5) / ps1_halfRes;
+			vec2 snappedNdc = floor(ndc * ps1_halfRes + 0.5) / ps1_halfRes;
+			ps1_pos.xy = snappedNdc * ps1_pos.w;
 			gl_Position = ps1_pos;
 		}
 );
