@@ -313,9 +313,7 @@ SV_WritePlayerstateToClient(client_frame_t *from, client_frame_t *to,
 
 	if (pflags & PS_M_VELOCITY)
 	{
-		MSG_WriteShort(msg, ps->pmove.velocity[0]);
-		MSG_WriteShort(msg, ps->pmove.velocity[1]);
-		MSG_WriteShort(msg, ps->pmove.velocity[2]);
+		MSG_WriteVel(msg, ps->pmove.velocity, protocol);
 	}
 
 	if (pflags & PS_M_TIME)
@@ -357,9 +355,7 @@ SV_WritePlayerstateToClient(client_frame_t *from, client_frame_t *to,
 
 	if (pflags & PS_KICKANGLES)
 	{
-		MSG_WriteChar(msg, ps->kick_angles[0] * 4);
-		MSG_WriteChar(msg, ps->kick_angles[1] * 4);
-		MSG_WriteChar(msg, ps->kick_angles[2] * 4);
+		MSG_WriteKickAngles(msg, ps->kick_angles, protocol);
 	}
 
 	if (pflags & PS_WEAPONINDEX)
