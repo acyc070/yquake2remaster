@@ -50,15 +50,15 @@ jobs:
           export PKG_CONFIG_PATH="${GITHUB_WORKSPACE}/buildenv/dep/SDL3/${{matrix.family}}-w64-mingw32/lib/pkgconfig"
           # Public runners come with 4 CPUs.
           sed -i 's|WITH_AVCODEC:=yes|WITH_AVCODEC:=no|g' Makefile
-          make -j4
-          make -j4 ref_gles1
+          make DEBUG=1 -j4
+          make DEBUG=1 -j4 ref_gles1
       - name: Create testbuild package
         shell: bash
         run: |
           # Create release directory tree
           mkdir -p publish/quake2-${{matrix.winapi}}-${{github.sha}}/misc/docs
           # Copy release assets
-          cp -r release/* publish/quake2-${{matrix.winapi}}-${{github.sha}}/
+          cp -r debug/* publish/quake2-${{matrix.winapi}}-${{github.sha}}/
           # Copy misc assets
           cp -r stuff/yq2.cfg publish/quake2-${{matrix.winapi}}-${{github.sha}}/misc/yq2.cfg
           cp -r stuff/models publish/quake2-${{matrix.winapi}}-${{github.sha}}/misc
