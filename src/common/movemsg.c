@@ -596,7 +596,18 @@ MSG_DeltaEntity_Size(const entity_xstate_t *from, const entity_xstate_t *to,
 
 	if (bits & U_SOUND)
 	{
-		sz++;
+		if (protocol == PROTOCOL_RR22_VERSION)
+		{
+			sz += 4;
+		}
+		else if (protocol == PROTOCOL_VERSION)
+		{
+			sz += 2;
+		}
+		else
+		{
+			sz++;
+		}
 	}
 
 	if (bits & U_EVENT)
@@ -627,6 +638,21 @@ MSG_DeltaEntity_Size(const entity_xstate_t *from, const entity_xstate_t *to,
 		{
 			sz += 1;
 		}
+	}
+
+	if (bits & U_INSTANCE)
+	{
+		sz += 1;
+	}
+
+	if (bits & U_OWNER)
+	{
+		sz += 2;
+	}
+
+	if (bits & U_OLDFRAME)
+	{
+		sz += 2;
 	}
 
 	if (bits & U_SOLID)
@@ -822,6 +848,31 @@ MSG_WriteViewAngles(sizebuf_t *sb, const vec3_t viewangles, int protocol)
 		MSG_WriteAngle16(sb, viewangles[0]);
 		MSG_WriteAngle16(sb, viewangles[1]);
 		MSG_WriteAngle16(sb, viewangles[2]);
+	}
+}
+
+void
+MSG_WriteViewOffset(sizebuf_t *sb, const vec3_t viewoffset, int protocol)
+{
+	if (protocol == PROTOCOL_RR22_VERSION)
+	{
+		MSG_WriteShort(sb, viewoffset[0] * 16);
+		MSG_WriteShort(sb, viewoffset[1] * 16);
+		MSG_WriteShort(sb, viewoffset[2] * 16);
+		/* viewheight */
+		MSG_WriteChar(sb, 0);
+	}
+	else if (IS_QII97_PROTOCOL(protocol))
+	{
+		MSG_WriteChar(sb, viewoffset[0] * 4);
+		MSG_WriteChar(sb, viewoffset[1] * 4);
+		MSG_WriteChar(sb, viewoffset[2] * 4);
+	}
+	else
+	{
+		MSG_WriteShort(sb, viewoffset[0] * 16);
+		MSG_WriteShort(sb, viewoffset[1] * 16);
+		MSG_WriteShort(sb, viewoffset[2] * 16);
 	}
 }
 
@@ -1332,7 +1383,14 @@ MSG_WriteDeltaEntity(const entity_xstate_t *from,
 
 	if (bits & U_SOUND)
 	{
-		MSG_WriteByte(msg, to->sound);
+		if (protocol == PROTOCOL_VERSION || protocol == PROTOCOL_RR22_VERSION)
+		{
+			MSG_WriteShort(msg, to->sound);
+		}
+		else
+		{
+			MSG_WriteByte(msg, to->sound);
+		}
 	}
 
 	if (bits & U_EVENT)
@@ -1677,6 +1735,31 @@ MSG_ReadViewAngles(sizebuf_t *msg_read, vec3_t viewangles, int protocol)
 		viewangles[0] = MSG_ReadAngle16(msg_read);
 		viewangles[1] = MSG_ReadAngle16(msg_read);
 		viewangles[2] = MSG_ReadAngle16(msg_read);
+	}
+}
+
+void
+MSG_ReadViewOffset(sizebuf_t *msg_read, vec3_t viewoffset, int protocol)
+{
+	if (protocol == PROTOCOL_RR22_VERSION)
+	{
+		viewoffset[0] = MSG_ReadShort(msg_read) / 16.0f;
+		viewoffset[1] = MSG_ReadShort(msg_read) / 16.0f;
+		viewoffset[2] = MSG_ReadShort(msg_read) / 16.0f;
+		/* viewheight */
+		viewoffset[2] += MSG_ReadChar(msg_read);
+	}
+	else if (IS_QII97_PROTOCOL(protocol))
+	{
+		viewoffset[0] = MSG_ReadChar(msg_read) * 0.25f;
+		viewoffset[1] = MSG_ReadChar(msg_read) * 0.25f;
+		viewoffset[2] = MSG_ReadChar(msg_read) * 0.25f;
+	}
+	else
+	{
+		viewoffset[0] = MSG_ReadShort(msg_read) / 16.0f;
+		viewoffset[1] = MSG_ReadShort(msg_read) / 16.0f;
+		viewoffset[2] = MSG_ReadShort(msg_read) / 16.0f;
 	}
 }
 
