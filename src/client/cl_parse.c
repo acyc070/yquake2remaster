@@ -213,7 +213,7 @@ CL_ParseDelta(const entity_xstate_t *from, entity_xstate_t *to, int number, uint
 	to->number = number;
 
 	if (cls.serverProtocol != PROTOCOL_VERSION &&
-		cls.serverProtocol != PROTOCOL_RR22_VERSION)
+		!IS_QIIRR_PROTOCOL(cls.serverProtocol))
 	{
 		int i;
 
@@ -225,7 +225,7 @@ CL_ParseDelta(const entity_xstate_t *from, entity_xstate_t *to, int number, uint
 	}
 
 	if (IS_QII97_PROTOCOL(cls.serverProtocol) ||
-		(cls.serverProtocol == PROTOCOL_RR22_VERSION && !(bits & U_MODEL16)))
+		(IS_QIIRR_PROTOCOL(cls.serverProtocol) && !(bits & U_MODEL16)))
 	{
 		if (bits & U_MODEL)
 		{
@@ -411,14 +411,14 @@ CL_ParseDelta(const entity_xstate_t *from, entity_xstate_t *to, int number, uint
 		to->renderfx = MSG_ReadShort(&net_message);
 	}
 
-	if (cls.serverProtocol == PROTOCOL_RR22_VERSION && (bits & U_SOLID))
+	if (IS_QIIRR_PROTOCOL(cls.serverProtocol) && (bits & U_SOLID))
 	{
 		to->solid = MSG_ReadLong(&net_message);
 	}
 
 	if (bits & U_ORIGIN1)
 	{
-		if (cls.serverProtocol == PROTOCOL_RR22_VERSION && to->solid)
+		if (IS_QIIRR_PROTOCOL(cls.serverProtocol) && to->solid)
 		{
 			/* Read to float hack */
 			to->origin[0] = MSG_ReadCoord(&net_message, PROTOCOL_VERSION);
@@ -431,7 +431,7 @@ CL_ParseDelta(const entity_xstate_t *from, entity_xstate_t *to, int number, uint
 
 	if (bits & U_ORIGIN2)
 	{
-		if (cls.serverProtocol == PROTOCOL_RR22_VERSION && to->solid)
+		if (IS_QIIRR_PROTOCOL(cls.serverProtocol) && to->solid)
 		{
 			/* Read to float hack */
 			to->origin[1] = MSG_ReadCoord(&net_message, PROTOCOL_VERSION);
@@ -444,7 +444,7 @@ CL_ParseDelta(const entity_xstate_t *from, entity_xstate_t *to, int number, uint
 
 	if (bits & U_ORIGIN3)
 	{
-		if (cls.serverProtocol == PROTOCOL_RR22_VERSION && to->solid)
+		if (IS_QIIRR_PROTOCOL(cls.serverProtocol) && to->solid)
 		{
 			/* Read to float hack */
 			to->origin[2] = MSG_ReadCoord(&net_message, PROTOCOL_VERSION);
@@ -485,7 +485,7 @@ CL_ParseDelta(const entity_xstate_t *from, entity_xstate_t *to, int number, uint
 
 	if (bits & U_SOUND)
 	{
-		if (cls.serverProtocol == PROTOCOL_RR22_VERSION)
+		if (IS_QIIRR_PROTOCOL(cls.serverProtocol))
 		{
 			int sound_word = MSG_ReadShort(&net_message);
 
@@ -513,9 +513,14 @@ CL_ParseDelta(const entity_xstate_t *from, entity_xstate_t *to, int number, uint
 		{
 			to->sound = MSG_ReadByte(&net_message);
 		}
-		else
+		else if (cls.serverProtocol == PROTOCOL_VERSION)
 		{
 			to->sound = MSG_ReadShort(&net_message);
+		}
+		else
+		{
+			Com_Error(ERR_DROP, "%s: unexpected protocol %d",
+				__func__, cls.serverProtocol);
 		}
 	}
 
@@ -584,7 +589,7 @@ CL_ParseDelta(const entity_xstate_t *from, entity_xstate_t *to, int number, uint
 		Com_DPrintf("%s: ReRelease oldframe %d", __func__, oldframe);
 	}
 
-	if ((bits & U_SOLID) && (cls.serverProtocol != PROTOCOL_RR22_VERSION))
+	if ((bits & U_SOLID) && (!IS_QIIRR_PROTOCOL(cls.serverProtocol)))
 	{
 		to->solid = MSG_ReadShort(&net_message);
 	}
@@ -1389,8 +1394,7 @@ CL_ParseServerData(void)
 	/* another demo hack */
 	if (Com_ServerState() && (
 		IS_QII97_PROTOCOL(i) ||
-		(i == PROTOCOL_RR22_VERSION) ||
-		(i == PROTOCOL_RR23_VERSION) ||
+		IS_QIIRR_PROTOCOL(i) ||
 		(i == PROTOCOL_Q2TEST_VERSION) ||
 		(i == PROTOCOL_H2DEMO_VERSION) ||
 		(i == PROTOCOL_VERSION)))
@@ -1408,7 +1412,7 @@ CL_ParseServerData(void)
 	cl.attractloop = MSG_ReadByte(&net_message);
 	cl.frame_msec = 100;
 
-	if (cls.serverProtocol == PROTOCOL_RR22_VERSION)
+	if (IS_QIIRR_PROTOCOL(cls.serverProtocol))
 	{
 		int fps;
 
@@ -1424,6 +1428,7 @@ CL_ParseServerData(void)
 
 	if ((cl_shownet->value == 0) &&
 		((i == PROTOCOL_H2DEMO_VERSION) ||
+		 (i == PROTOCOL_RR23_VERSION) ||
 		 (i == PROTOCOL_Q2TEST_VERSION)))
 	{
 		Com_Error(ERR_DROP, "Network protocol '%s' is currently unsupported\n",
