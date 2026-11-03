@@ -401,6 +401,7 @@ set(Game-Source
 	${GAME_SRC_DIR}/g_weapon.c
 	${GAME_SRC_DIR}/menu/menu.c
 	${GAME_SRC_DIR}/monster/actor/actor.c
+	${GAME_SRC_DIR}/monster/alienship/alienship.c
 	${GAME_SRC_DIR}/monster/arachnid/arachnid.c
 	${GAME_SRC_DIR}/monster/army/army.c
 	${GAME_SRC_DIR}/monster/badass/badass.c
@@ -426,6 +427,8 @@ set(Game-Source
 	${GAME_SRC_DIR}/monster/gladiator/gladiator.c
 	${GAME_SRC_DIR}/monster/guardian/guardian.c
 	${GAME_SRC_DIR}/monster/gunner/gunner.c
+	${GAME_SRC_DIR}/monster/grunt/grunt1.c
+	${GAME_SRC_DIR}/monster/grunt/grunt2.c
 	${GAME_SRC_DIR}/monster/hknight/hknight.c
 	${GAME_SRC_DIR}/monster/hover/hover.c
 	${GAME_SRC_DIR}/monster/infantry/infantry.c
@@ -438,6 +441,7 @@ set(Game-Source
 	${GAME_SRC_DIR}/monster/ogre/ogre.c
 	${GAME_SRC_DIR}/monster/parasite/parasite.c
 	${GAME_SRC_DIR}/monster/rotfish/rotfish.c
+	${GAME_SRC_DIR}/monster/screamer/screamer.c
 	${GAME_SRC_DIR}/monster/shalrath/shalrath.c
 	${GAME_SRC_DIR}/monster/shambler/shambler.c
 	${GAME_SRC_DIR}/monster/soldier/soldier.c

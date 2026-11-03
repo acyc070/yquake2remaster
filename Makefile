@@ -1204,6 +1204,7 @@ GAME_OBJS_ = \
 	src/game/dm/tag.o \
 	src/game/menu/menu.o \
 	src/game/monster/actor/actor.o \
+	src/game/monster/alienship/alienship.o \
 	src/game/monster/arachnid/arachnid.o \
 	src/game/monster/army/army.o \
 	src/game/monster/badass/badass.o \
@@ -1228,6 +1229,8 @@ GAME_OBJS_ = \
 	src/game/monster/gladiator/gladb.o \
 	src/game/monster/gladiator/gladiator.o \
 	src/game/monster/guardian/guardian.o \
+	src/game/monster/grunt/grunt1.o \
+	src/game/monster/grunt/grunt2.o \
 	src/game/monster/gunner/gunner.o \
 	src/game/monster/hknight/hknight.o \
 	src/game/monster/hover/hover.o \
@@ -1241,6 +1244,7 @@ GAME_OBJS_ = \
 	src/game/monster/ogre/ogre.o \
 	src/game/monster/parasite/parasite.o \
 	src/game/monster/rotfish/rotfish.o \
+	src/game/monster/screamer/screamer.o \
 	src/game/monster/shalrath/shalrath.o \
 	src/game/monster/shambler/shambler.o \
 	src/game/monster/soldier/soldier.o \
