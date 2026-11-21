@@ -1,7 +1,5 @@
 #include "rendergl.h"
 
-cvar_t *r_skeletalanimation;
-
 static GLuint skins[16];
 GLuint ftex;
 
@@ -334,76 +332,6 @@ void
 cleanup(void)
 {
 	FreeModel(mem_mod);
-}
-
-void
-keyboard(unsigned char key, int x, int y)
-{
-	iskin += skin_count;
-	xrotate += 360;
-	yrotate += 360;
-	zrotate += 360;
-
-	switch (key)
-	{
-		case '0':
-			imesh++;
-			break;
-
-		case '=':
-			iskin++;
-			break;
-
-		case '-':
-			iskin--;
-			break;
-
-		case 'w':
-			xrotate += 5;
-			break;
-
-		case 's':
-			xrotate -= 5;
-			break;
-
-		case 'd':
-			yrotate += 5;
-			break;
-
-		case 'a':
-			yrotate -= 5;
-			break;
-
-		case 'z':
-			zrotate += 5;
-			break;
-
-		case 'c':
-			zrotate -= 5;
-			break;
-
-		case 'x':
-			irender++;
-			break;
-
-		case 'v':
-			zdist -= 5;
-			break;
-
-		case 'b':
-			zdist += 5;
-			break;
-
-
-		case 'q':
-			exit (0);
-			break;
-	}
-
-	iskin %= skin_count;
-	xrotate %= 360;
-	yrotate %= 360;
-	zrotate %= 360;
 }
 
 /*
