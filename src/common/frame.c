@@ -194,9 +194,9 @@ Qcommon_Mainloop(void)
 					   enough to reduce power consumption and head
 					   dispersion a lot, it's 95°C against 67°C on
 					   a Kaby Lake laptop. */
-					Sys_CpuPause();
+					//Sys_CpuPause();
 
-					if (Sys_Microseconds() - spintime >= 5)
+					if (Sys_Microseconds() - spintime >= 0)
 					{
 						break;
 					}
@@ -204,11 +204,11 @@ Qcommon_Mainloop(void)
 			}
 			else
 			{
-				Sys_Nanosleep(5000);
+				//Sys_Nanosleep(0);
 			}
 		}
 #else
-		Sys_Nanosleep(850000);
+		//Sys_Nanosleep(0);
 #endif
 
 		newtime = Sys_Microseconds();
