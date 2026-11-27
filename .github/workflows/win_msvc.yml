@@ -3,7 +3,7 @@ run-name: testbuild_windows
 on:
   push:
     branches:
-      - 'master'
+      - '1000fpsplus'
   pull_request:
     types:
       - edited
