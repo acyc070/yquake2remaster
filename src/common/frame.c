@@ -383,7 +383,7 @@ Qcommon_Init(int argc, char **argv)
 	Cvar_Get("version", s, CVAR_SERVERINFO | CVAR_NOSET);
 
 #ifndef DEDICATED_ONLY
-	busywait = Cvar_Get("busywait", "1", CVAR_ARCHIVE);
+	busywait = Cvar_Get("busywait", "0", CVAR_ARCHIVE);
 	cl_async = Cvar_Get("cl_async", "1", CVAR_ARCHIVE);
 	cl_timedemo = Cvar_Get("timedemo", "0", 0);
 	dedicated = Cvar_Get("dedicated", "0", CVAR_NOSET);
