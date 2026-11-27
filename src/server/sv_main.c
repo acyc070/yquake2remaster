@@ -32,6 +32,15 @@ netadr_t master_adr[MAX_MASTERS]; /* address of group servers */
 
 client_t *sv_client; /* current client */
 
+/*
+ * Sub-millisecond remainder of the accumulated frame time. SV_Frame() is
+ * given microsecond deltas, but the engine's internal clock (svs.realtime)
+ * only has 1 ms resolution. Keep the leftover here so that a stream of
+ * sub-millisecond deltas still advances the clock accurately instead of
+ * being truncated away every frame.
+ */
+static int sv_realtime_usec_frac;
+
 static cvar_t *sv_optimize_sp_loadtime;
 static cvar_t *sv_optimize_mp_loadtime;
 
@@ -359,6 +368,7 @@ SV_RunGameFrame(void)
 			}
 
 			svs.realtime = sv.time;
+			sv_realtime_usec_frac = 0;
 		}
 	}
 
@@ -401,7 +411,12 @@ SV_Frame(int usec)
 		return;
 	}
 
-	svs.realtime += usec / 1000;
+	/* Preserve sub-millisecond precision: accumulate the usec delta and
+	 * only roll whole milliseconds into svs.realtime, keeping the
+	 * remainder for the next frame. */
+	sv_realtime_usec_frac += usec;
+	svs.realtime += sv_realtime_usec_frac / 1000;
+	sv_realtime_usec_frac %= 1000;
 
 	/* keep the random time dependent */
 	randk();
@@ -434,9 +449,22 @@ SV_Frame(int usec)
 			}
 
 			svs.realtime = sv.time - 100;
+			sv_realtime_usec_frac = 0;
 		}
 
-		NET_Sleep(sv.time - svs.realtime);
+		/* Sleep only the whole-millisecond portion of the time remaining;
+		 * the sub-millisecond remainder stays accumulated so that it is
+		 * not lost across the sleep. */
+		{
+			int sleep_ms = (int)(((sv.time - svs.realtime) * 1000 -
+					sv_realtime_usec_frac) / 1000);
+
+			if (sleep_ms > 0)
+			{
+				NET_Sleep(sleep_ms);
+			}
+		}
+
 		return;
 	}
 
